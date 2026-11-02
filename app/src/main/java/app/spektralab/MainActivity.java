@@ -186,6 +186,8 @@ public class MainActivity extends Activity {
     private Square overscanMark, dateMark;
     /** The date back's own line: the text shown while the imprint is on. */
     private TextView dateDetail;
+    /** The Edge toggles, kept so a Look restore can resync their checked state. */
+    private View overscanToggleRow, dateToggleRow;
 
     /** 片边: the Gates this Frame's shape can actually carry, in catalogue order. */
     private final List<String> edgeLabels = new ArrayList<>(), edgeIds = new ArrayList<>();
@@ -218,7 +220,11 @@ public class MainActivity extends Activity {
         }
         rebuildFormatCards();
     }
-    private LinearLayout controls, panelHolder, formatCardStrip;
+    /** The shell: `body` stacks or splits into `mainCol` and `controls`. */
+    private LinearLayout body, mainCol, controls, panelHolder, formatCardStrip;
+    private View stageView;
+    /** True while the window is at the two-column Console width. */
+    private boolean wideLayout = false;
     private HorizontalScrollView formatScroll;
 
     /** The Gate the Scale/Edge readout is showing, or the honest empty state. */
@@ -337,9 +343,15 @@ public class MainActivity extends Activity {
     private static final int READOUT_HEIGHT_DP = 52;
     private static final int SOURCE_HEIGHT_DP = 54;
     private static final int TABS_HEIGHT_DP = 49;
-    private static final int PANEL_HEIGHT_DP = 232;
+    /** 48 dp sliders plus their labels need more than the old 232 dp panel. */
+    private static final int PANEL_HEIGHT_DP = 288;
+    /** Breathing room above the gesture bar; the root also carries the inset. */
+    private static final int PANEL_BOTTOM_DP = 8;
     private static final int CONTROLS_OPEN_DP = PANEL_HEIGHT_DP + TABS_HEIGHT_DP;
     private static final int CONTROLS_CLOSED_DP = TABS_HEIGHT_DP;
+    /** Android's minimum touch target for a primary control. */
+    private static final int MIN_TOUCH_DP = 48;
+    private static final int SLIDER_HEIGHT_DP = 48;
     /** 反馈群：the one place a user can reach a human. Shown once per build. */
     private static final String QQ_GROUP = "1134320449";
     private static final String PROMO_PREFS = "promo";
@@ -359,7 +371,7 @@ public class MainActivity extends Activity {
         if (inAppToast == null) return;
         inAppToast.animate().cancel();
         inAppToast.animate().alpha(0f).translationY(dp(6))
-                .setDuration(reducedMotion() ? 0 : 160)
+                .setDuration(motionDuration(160))
                 .withEndAction(() -> { if (inAppToast != null) inAppToast.setVisibility(View.GONE); }).start();
     };
     private final View[] panels = new View[4];
@@ -546,8 +558,72 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Zero when the system asks for reduced motion; the final state still
+     *  appears at once. Theme rebuilds, tab switches, and panel collapse are
+     *  already immediate; the toast is the only transition left to gate. */
+    private int motionDuration(int millis) {
+        return reducedMotion() ? 0 : millis;
+    }
+
     private int dp(float v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    private int currentWidthDp() {
+        return getResources().getConfiguration().screenWidthDp;
+    }
+
+    /**
+     * Reflow the existing view tree between the phone column and the
+     * two-column Console. The stage, panels, and their state are kept: only
+     * the body's orientation and the two columns' size rules change, so a
+     * foldable resize or a rotation does not rebuild the Frame or its Look.
+     */
+    private void applyResponsiveLayout(boolean wide, int widthDp) {
+        if (body == null || mainCol == null || controls == null || panelHolder == null) return;
+        wideLayout = wide;
+        body.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+
+        LinearLayout.LayoutParams mainLp = (LinearLayout.LayoutParams) mainCol.getLayoutParams();
+        mainLp.width = wide ? 0 : -1;
+        mainLp.height = wide ? -1 : 0;
+        mainLp.weight = 1f;
+        mainCol.setLayoutParams(mainLp);
+
+        LinearLayout.LayoutParams controlLp =
+                (LinearLayout.LayoutParams) controls.getLayoutParams();
+        controlLp.width = wide ? dp(ConsoleLayout.controlColumnWidthDp(widthDp)) : -1;
+        controlLp.height = wide
+                ? -1 : dp(panelCollapsed ? CONTROLS_CLOSED_DP : CONTROLS_OPEN_DP);
+        controlLp.weight = 0f;
+        controls.setLayoutParams(controlLp);
+
+        LinearLayout.LayoutParams panelLp =
+                (LinearLayout.LayoutParams) panelHolder.getLayoutParams();
+        panelLp.height = wide ? 0 : dp(PANEL_HEIGHT_DP);
+        panelLp.weight = wide ? 1f : 0f;
+        panelHolder.setLayoutParams(panelLp);
+        updateStageReadoutWidths();
+    }
+
+    /** Keep the status line inside the stage when the stage is not full width. */
+    private void updateStageReadoutWidths() {
+        if (statusText == null || stageView == null) return;
+        final int stageWidth = stageView.getWidth();
+        if (stageWidth <= 0) return;
+        final int byScreen = Math.round(currentWidthDp() * 0.60f
+                * getResources().getDisplayMetrics().density);
+        final int wanted = Math.max(dp(120), Math.min(byScreen, stageWidth - dp(48)));
+        if (statusText.getMaxWidth() != wanted) statusText.setMaxWidth(wanted);
+    }
+
+    /** Rotations and foldable resizes arrive here because the manifest keeps
+     *  the Activity alive; no Frame, Look, or render is touched. */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyResponsiveLayout(ConsoleLayout.isWide(newConfig.screenWidthDp),
+                newConfig.screenWidthDp);
     }
 
     private TextView label(String s, float sp, int color, Typeface tf) {
@@ -901,12 +977,26 @@ public class MainActivity extends Activity {
 
         // The Console shell: a header on the page, then the photograph as a
         // full-bleed stage, its instrument readout strip, the source strip,
-        // and the four tabs that own the panel below them.
+        // and the four tabs that own the panel. Below the tablet breakpoint
+        // those two groups stack; at or above it they become two columns.
         app.addView(buildHeader(), new LinearLayout.LayoutParams(-1, dp(HEADER_HEIGHT_DP)));
 
+        body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
+        app.addView(body, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        mainCol = new LinearLayout(this);
+        mainCol.setOrientation(LinearLayout.VERTICAL);
+        mainCol.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
+        body.addView(mainCol, new LinearLayout.LayoutParams(-1, 0, 1f));
+
         android.widget.FrameLayout stage = new android.widget.FrameLayout(this);
+        stageView = stage;
         stage.setBackgroundColor(palette.color(Palette.Role.STAGE));
         stage.setClipChildren(false);
+        stage.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
+                updateStageReadoutWidths());
 
         compare = new CompareView(this, palette);
         compare.setVisibility(View.GONE);
@@ -969,6 +1059,13 @@ public class MainActivity extends Activity {
 
         addStageReadouts(stage);
         addScanControls(stage);
+        // TalkBack reaches the scan line after the chip that turns it on,
+        // even though the overlay was added before the corner controls.
+        if (scanToggleTouch != null) {
+            scanToggleTouch.setId(View.generateViewId());
+            scanOverlay.setId(View.generateViewId());
+            scanOverlay.setAccessibilityTraversalAfter(scanToggleTouch.getId());
+        }
 
         shelfHandle = buildShelfHandle();
         android.widget.FrameLayout.LayoutParams handleLp = new android.widget.FrameLayout.LayoutParams(
@@ -992,9 +1089,11 @@ public class MainActivity extends Activity {
         jobs.addView(exportProgressBar, new android.widget.FrameLayout.LayoutParams(-1, -1));
         stage.addView(jobs, new android.widget.FrameLayout.LayoutParams(-1, dp(2), android.view.Gravity.BOTTOM));
 
-        app.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
-        app.addView(buildReadoutStrip(), new LinearLayout.LayoutParams(-1, dp(READOUT_HEIGHT_DP)));
-        app.addView(buildSourceBar(), new LinearLayout.LayoutParams(-1, dp(SOURCE_HEIGHT_DP)));
+        mainCol.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
+        mainCol.addView(buildReadoutStrip(),
+                new LinearLayout.LayoutParams(-1, dp(READOUT_HEIGHT_DP)));
+        mainCol.addView(buildSourceBar(),
+                new LinearLayout.LayoutParams(-1, dp(SOURCE_HEIGHT_DP)));
 
         controls = new LinearLayout(this);
         controls.setOrientation(LinearLayout.VERTICAL);
@@ -1002,7 +1101,7 @@ public class MainActivity extends Activity {
 
         panelHolder = new LinearLayout(this);
         panelHolder.setOrientation(LinearLayout.VERTICAL);
-        panelHolder.setPadding(dp(16), 0, dp(16), 0);
+        panelHolder.setPadding(dp(16), 0, dp(16), dp(PANEL_BOTTOM_DP));
         panelHolder.addView(buildFilmPanel(), new LinearLayout.LayoutParams(-1, -1));
         panelHolder.addView(buildOpticsPanel(), new LinearLayout.LayoutParams(-1, -1));
         panelHolder.addView(buildFormatPanel(), new LinearLayout.LayoutParams(-1, -1));
@@ -1011,7 +1110,8 @@ public class MainActivity extends Activity {
 
         controls.addView(buildTabs(), new LinearLayout.LayoutParams(-1, dp(TABS_HEIGHT_DP)));
         controls.addView(panelHolder, new LinearLayout.LayoutParams(-1, dp(PANEL_HEIGHT_DP)));
-        app.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
+        body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
+        applyResponsiveLayout(ConsoleLayout.isWide(currentWidthDp()), currentWidthDp());
 
         // A theme rebuild must not re-read the catalogue while a render may be
         // running. Only the first build loads it; later builds restyle the
@@ -1074,7 +1174,7 @@ public class MainActivity extends Activity {
         inAppToast.setAlpha(0f);
         inAppToast.setTranslationY(dp(8));
         inAppToast.animate().alpha(1f).translationY(0f)
-                .setDuration(reducedMotion() ? 0 : 150).start();
+                .setDuration(motionDuration(150)).start();
         inAppToast.removeCallbacks(hideUiToast);
         inAppToast.postDelayed(hideUiToast, 2200);
     }
@@ -1130,6 +1230,15 @@ public class MainActivity extends Activity {
         themeTouch.setContentDescription(dark
                 ? "当前深色主题，点击切换到浅色"
                 : "当前浅色主题，点击切换到深色");
+        themeTouch.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(
+                    View host, android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName(android.widget.Switch.class.getName());
+                info.setCheckable(true);
+                info.setChecked(dark);
+            }
+        });
         themeTouch.setOnClickListener(v -> toggleTheme());
         header.addView(themeTouch, new LinearLayout.LayoutParams(-2, dp(48)));
 
@@ -1159,7 +1268,10 @@ public class MainActivity extends Activity {
         exportCol.addView(exportText);
         View exportRule = new View(this);
         exportRule.setBackgroundColor(palette.color(Palette.Role.ACCENT));
-        LinearLayout.LayoutParams ruleLp = new LinearLayout.LayoutParams(-1, dp(1));
+        // A deliberate rule width keeps this WRAP_CONTENT column from
+        // measuring to the header's whole remaining width through a
+        // MATCH_PARENT child, which used to starve the weighted brand.
+        LinearLayout.LayoutParams ruleLp = new LinearLayout.LayoutParams(dp(56), dp(1));
         ruleLp.topMargin = dp(3);
         exportCol.addView(exportRule, ruleLp);
         final android.widget.FrameLayout exportTouch = touchTarget(exportCol, 66);
@@ -1293,18 +1405,28 @@ public class MainActivity extends Activity {
         if (id == null || id.isEmpty()) return "\u2014";
         final int i = ids.indexOf(id);
         if (i < 0 || i >= labels.size()) return id;
-        final String name = shortStockName(labels.get(i));
-        // The Readout strip is a glance, not the film shelf: drop a leading
-        // maker so "Kodak Portra Endura" reads as "Portra Endura" at cell
-        // width. The full name stays in the panel and its picker.
+        return shortReadoutName(labels.get(i));
+    }
+
+    /**
+     * The Readout strip is a glance, not the shelf: drop a leading maker and
+     * the "Professional" tier so "Kodak Professional Portra Endura" reads as
+     * "Portra Endura" at cell width. The full name stays in the pickers.
+     */
+    private String shortReadoutName(String label) {
+        String name = shortStockName(label);
         final int space = name.indexOf(' ');
         if (space > 0) {
             final String maker = name.substring(0, space).toLowerCase(java.util.Locale.US);
             if (maker.equals("kodak") || maker.equals("fujifilm") || maker.equals("ilford")
                     || maker.equals("cinestill") || maker.equals("foma")
                     || maker.equals("fomapan") || maker.equals("agfa")) {
-                return name.substring(space + 1);
+                name = name.substring(space + 1);
             }
+        }
+        final String professional = "Professional ";
+        if (name.startsWith(professional)) {
+            name = name.substring(professional.length());
         }
         return name;
     }
@@ -1627,8 +1749,11 @@ public class MainActivity extends Activity {
 
         TextView add = label("\uff0b", 17, palette.color(Palette.Role.ACCENT), tfDisplay);
         add.setGravity(android.view.Gravity.CENTER);
+        add.setFocusable(true);
+        add.setContentDescription("导入照片");
         add.setOnClickListener(v -> showImportMenu());
-        row.addView(add, new LinearLayout.LayoutParams(dp(40), dp(48)));
+        row.addView(add, new LinearLayout.LayoutParams(
+                dp(MIN_TOUCH_DP), dp(MIN_TOUCH_DP)));
 
         // The strip. Empty until a photograph is opened: no placeholder tile,
         // because an empty shelf is not a missing control.
@@ -1643,8 +1768,11 @@ public class MainActivity extends Activity {
 
         TextView fold = label("\u2039", 15, palette.color(Palette.Role.MUTED_INK), tfHan);
         fold.setGravity(android.view.Gravity.CENTER);
+        fold.setFocusable(true);
+        fold.setContentDescription("收起胶片条");
         fold.setOnClickListener(v -> setShelfCollapsed(true));
-        row.addView(fold, new LinearLayout.LayoutParams(dp(28), dp(48)));
+        row.addView(fold, new LinearLayout.LayoutParams(
+                dp(MIN_TOUCH_DP), dp(MIN_TOUCH_DP)));
 
         bar.addView(row, new LinearLayout.LayoutParams(-1, 0, 1f));
         return bar;
@@ -1689,6 +1817,8 @@ public class MainActivity extends Activity {
         chevron.setShadowLayer(dp(2), 0, 0, palette.color(Palette.Role.STAGE_SHADOW));
         handle.addView(chevron, new android.widget.FrameLayout.LayoutParams(card, card));
 
+        handle.setFocusable(true);
+        handle.setContentDescription("展开胶片条");
         handle.setOnClickListener(v -> setShelfCollapsed(false));
         return handle;
     }
@@ -1735,6 +1865,7 @@ public class MainActivity extends Activity {
         if (glareRow != null) glareRow.setValue(glareAmount);
         if (overscanMark != null) overscanMark.setLit(overscanOn);
         if (dateMark != null) dateMark.setLit(dateOn);
+        syncToggleRows();
         if (edgeValue != null) edgeValue.setText(gate.label);
         if (dateDetail != null) {
             dateDetail.setText(dateOn
@@ -1860,7 +1991,7 @@ public class MainActivity extends Activity {
             bg.setStroke(dp(active ? 2 : 1),
                     palette.color(active ? Palette.Role.ACCENT : Palette.Role.LINE));
             box.setBackground(bg);
-            box.setPadding(dp(2), dp(2), dp(2), dp(2));
+            box.setPadding(dp(3), dp(3), dp(3), dp(3));
             ImageView img = new ImageView(this);
             img.setScaleType(ImageView.ScaleType.CENTER_CROP);
             if (frame.thumb != null) img.setImageBitmap(frame.thumb);
@@ -1874,8 +2005,21 @@ public class MainActivity extends Activity {
                         });
                 return true;
             });
-            box.setContentDescription(frame.name == null ? "照片" : frame.name);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(42), dp(42));
+            box.setFocusable(true);
+            box.setSelected(active);
+            box.setContentDescription((active ? "当前照片，" : "")
+                    + (frame.name == null ? "照片" : frame.name));
+            box.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+                @Override public void onInitializeAccessibilityNodeInfo(
+                        View host, android.view.accessibility.AccessibilityNodeInfo info) {
+                    super.onInitializeAccessibilityNodeInfo(host, info);
+                    info.setClassName(android.widget.RadioButton.class.getName());
+                    info.setCheckable(true);
+                    info.setChecked(active);
+                }
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    dp(MIN_TOUCH_DP), dp(MIN_TOUCH_DP));
             lp.rightMargin = dp(6);
             thumbStrip.addView(box, lp);
         }
@@ -1954,6 +2098,7 @@ public class MainActivity extends Activity {
         TextView resetView = label("重置当前页", 8.5f, palette.color(Palette.Role.MUTED_INK), tfHan);
         resetView.setPaintFlags(resetView.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         resetView.setPadding(dp(8), dp(10), 0, dp(10));
+        resetView.setFocusable(true);
         resetView.setOnClickListener(v -> reset.run());
         head.addView(resetView);
         return head;
@@ -1997,6 +2142,8 @@ public class MainActivity extends Activity {
         LinearLayout paperChoice = new LinearLayout(this);
         paperChoice.setOrientation(LinearLayout.HORIZONTAL);
         paperChoice.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
+        paperChoice.setFocusable(true);
+        paperChoice.setContentDescription("选择相纸 / 拷贝片");
         paperChoice.setOnClickListener(v -> showPaperPicker());
         paperValue = label("Kodak Portra Endura", 9.5f, palette.color(Palette.Role.INK), tfHan);
         paperValue.setSingleLine(true);
@@ -2106,12 +2253,22 @@ public class MainActivity extends Activity {
         chip.setFocusable(true);
         chip.setSelected(active);
         chip.setContentDescription(title + (subtitle.isEmpty() ? "" : "，" + subtitle)
-                + (active ? "，已选中，双击切换" : ""));
+                + (active ? "，已选中，双击切换" : "，未选中，双击选择"));
+        chip.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(
+                    View host, android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName(android.widget.RadioButton.class.getName());
+                info.setCheckable(true);
+                info.setChecked(active);
+            }
+        });
         chip.setOnClickListener(v -> {
             if ("original".equals(id)) toggleOriginal();
             else pickFilmChip(id);
         });
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(92), dp(46));
+        LinearLayout.LayoutParams lp =
+                new LinearLayout.LayoutParams(dp(92), dp(MIN_TOUCH_DP));
         lp.rightMargin = dp(6);
         filmChipRow.addView(chip, lp);
     }
@@ -2227,7 +2384,7 @@ public class MainActivity extends Activity {
         if (paperValue != null) {
             int i = printIds.indexOf(printStock);
             paperValue.setText(i >= 0 && i < printLabels.size()
-                    ? shortStockName(printLabels.get(i)) : printStock);
+                    ? shortReadoutName(printLabels.get(i)) : printStock);
         }
         refreshReadoutStrip();
     }
@@ -2371,6 +2528,16 @@ public class MainActivity extends Activity {
 
             card.setClickable(true);
             card.setFocusable(true);
+            card.setSelected(active);
+            card.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+                @Override public void onInitializeAccessibilityNodeInfo(
+                        View host, android.view.accessibility.AccessibilityNodeInfo info) {
+                    super.onInitializeAccessibilityNodeInfo(host, info);
+                    info.setClassName(android.widget.RadioButton.class.getName());
+                    info.setCheckable(true);
+                    info.setChecked(active);
+                }
+            });
             card.setOnClickListener(v -> pickScale(gate.id));
             LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(dp(80), dp(105));
             cardLp.rightMargin = dp(9);
@@ -2410,16 +2577,16 @@ public class MainActivity extends Activity {
 
         overscanMark = new Square(this, palette.color(Palette.Role.ACCENT),
                 palette.color(Palette.Role.MARK_OFF));
-        View edgeRow = toggleRow("片边（胶片边缘）", overscanMark, overscanOn, on -> {
-            if (on && edgeIds.isEmpty()) {
-                overscanMark.setLit(false);
-                showInAppToast("这张图的长宽比不对应任何片门");
-                return;
-            }
-            overscanOn = on;
-            onEdgeChanged();
-        });
-        panel.addView(edgeRow, new LinearLayout.LayoutParams(-1, dp(52)));
+        overscanToggleRow = toggleRow("片边（胶片边缘）", null, overscanMark,
+                () -> overscanOn, on -> {
+                    if (on && edgeIds.isEmpty()) {
+                        showInAppToast("这张图的长宽比不对应任何片门");
+                        return;
+                    }
+                    overscanOn = on;
+                    onEdgeChanged();
+                });
+        panel.addView(overscanToggleRow, new LinearLayout.LayoutParams(-1, dp(52)));
 
         LinearLayout edgeChoiceRow = new LinearLayout(this);
         edgeChoiceRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -2428,6 +2595,8 @@ public class MainActivity extends Activity {
         LinearLayout edgeButton = new LinearLayout(this);
         edgeButton.setOrientation(LinearLayout.HORIZONTAL);
         edgeButton.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
+        edgeButton.setFocusable(true);
+        edgeButton.setContentDescription("选择片门格式");
         edgeButton.setOnClickListener(v -> showEdgePicker());
         edgeValue = label(GateScale.resolve(overscanFormat, filmFormatMm).label,
                 10, palette.color(Palette.Role.INK), tfHan);
@@ -2446,13 +2615,13 @@ public class MainActivity extends Activity {
                         ? (dateText != null ? dateText : imprintDate())
                         : "关闭",
                 7, palette.color(Palette.Role.MUTED_INK), tfBody);
-        View dateRow = toggleRow("日期水印", dateDetail, dateMark, dateOn, on -> {
+        dateToggleRow = toggleRow("日期水印", dateDetail, dateMark, () -> dateOn, on -> {
             dateOn = on;
             if (dateOn && dateText == null) dateText = imprintDate();
             dateDetail.setText(dateOn ? imprintDate() : "关闭");
             onEdgeChanged();
         });
-        panel.addView(dateRow, new LinearLayout.LayoutParams(-1, dp(52)));
+        panel.addView(dateToggleRow, new LinearLayout.LayoutParams(-1, dp(52)));
 
         TextView note = label("片门与尺度联动；片边只在这张图可用的片门里选", 8,
                 palette.color(Palette.Role.MUTED_INK), tfHan);
@@ -2497,6 +2666,17 @@ public class MainActivity extends Activity {
             final int index = i;
             android.widget.FrameLayout cell = new android.widget.FrameLayout(this);
             cell.setFocusable(true);
+            cell.setContentDescription(TAB_NAMES[i] + " " + TAB_ENGLISH[i]);
+            cell.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+                @Override public void onInitializeAccessibilityNodeInfo(
+                        View host, android.view.accessibility.AccessibilityNodeInfo info) {
+                    super.onInitializeAccessibilityNodeInfo(host, info);
+                    info.setSelected(index == activeTabIndex);
+                    info.setCollectionItemInfo(
+                            android.view.accessibility.AccessibilityNodeInfo
+                                    .CollectionItemInfo.obtain(0, 1, index, 1, false));
+                }
+            });
 
             LinearLayout content = new LinearLayout(this);
             content.setOrientation(LinearLayout.HORIZONTAL);
@@ -2560,8 +2740,24 @@ public class MainActivity extends Activity {
         if (panelHolder != null) panelHolder.setVisibility(collapsed ? View.GONE : View.VISIBLE);
         if (controls != null) {
             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) controls.getLayoutParams();
-            lp.height = dp(collapsed ? CONTROLS_CLOSED_DP : CONTROLS_OPEN_DP);
+            if (wideLayout) {
+                // The column keeps the window height; collapsing hides only the
+                // panel, leaving the tabs where they are.
+                lp.width = dp(ConsoleLayout.controlColumnWidthDp(currentWidthDp()));
+                lp.height = -1;
+            } else {
+                lp.width = -1;
+                lp.height = dp(collapsed ? CONTROLS_CLOSED_DP : CONTROLS_OPEN_DP);
+            }
+            lp.weight = 0f;
             controls.setLayoutParams(lp);
+        }
+        if (panelHolder != null) {
+            LinearLayout.LayoutParams lp =
+                    (LinearLayout.LayoutParams) panelHolder.getLayoutParams();
+            lp.height = wideLayout ? 0 : dp(PANEL_HEIGHT_DP);
+            lp.weight = wideLayout ? 1f : 0f;
+            panelHolder.setLayoutParams(lp);
         }
     }
 
@@ -2886,6 +3082,7 @@ public class MainActivity extends Activity {
         dateOn = false;
         overscanMark.setLit(false);
         dateMark.setLit(false);
+        syncToggleRows();
         if (dateDetail != null) dateDetail.setText("关闭");
         if (session != null) onEdgeChanged();
     }
@@ -3098,17 +3295,16 @@ public class MainActivity extends Activity {
         }
     }
 
-    private View toggleRow(String labelText, Square mark, boolean initial,
-                           java.util.function.Consumer<Boolean> onChange) {
-        return toggleRow(labelText, null, mark, initial, onChange);
-    }
-
     /**
-     * The same row with one quiet line under the label. Edge uses it for the
-     * date back: the imprint's own text is shown only while the toggle is on,
-     * and it is the same text the engine is given.
+     * A two-state Edge row. `current` is the authoritative Look field, so a
+     * rejected change (a Gate that does not fit) reverts the row instead of
+     * leaving its checked state out of step with the engine value.
+     *
+     * <p>The optional detail line is the date back's imprint, shown only while
+     * the toggle is on and using the same text the engine is given.
      */
-    private View toggleRow(String labelText, TextView detail, Square mark, boolean initial,
+    private View toggleRow(String labelText, TextView detail, Square mark,
+                           java.util.function.BooleanSupplier current,
                            java.util.function.Consumer<Boolean> onChange) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -3124,22 +3320,45 @@ public class MainActivity extends Activity {
         }
         row.addView(textCol, new LinearLayout.LayoutParams(0, -2, 1f));
 
+        final boolean initial = current.getAsBoolean();
         mark.setLit(initial);
         row.addView(mark, new LinearLayout.LayoutParams(dp(12), dp(12)));
-        final boolean[] state = {initial};
         row.setFocusable(true);
+        row.setSelected(initial);
         row.setContentDescription(toggleDescription(labelText, initial));
+        row.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(
+                    View host, android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName(android.widget.CheckBox.class.getName());
+                info.setCheckable(true);
+                info.setChecked(current.getAsBoolean());
+            }
+        });
         row.setOnClickListener(v -> {
-            state[0] = !state[0];
-            mark.setLit(state[0]);
-            row.setContentDescription(toggleDescription(labelText, state[0]));
-            onChange.accept(state[0]);
+            onChange.accept(!current.getAsBoolean());
+            final boolean now = current.getAsBoolean();
+            mark.setLit(now);
+            row.setSelected(now);
+            row.setContentDescription(toggleDescription(labelText, now));
         });
         return row;
     }
 
     private static String toggleDescription(String labelText, boolean on) {
         return labelText + "，" + (on ? "开" : "关");
+    }
+
+    /** Re-apply a restored Look to the Edge rows, not only to their marks. */
+    private void syncToggleRows() {
+        syncToggleRow(overscanToggleRow, "片边（胶片边缘）", overscanOn);
+        syncToggleRow(dateToggleRow, "日期水印", dateOn);
+    }
+
+    private void syncToggleRow(View row, String labelText, boolean on) {
+        if (row == null) return;
+        row.setSelected(on);
+        row.setContentDescription(toggleDescription(labelText, on));
     }
 
     /** One calibrated optics row: label, value, unit, display-only Δ, a reset,
@@ -3180,13 +3399,27 @@ public class MainActivity extends Activity {
         bar.setMax(1000);
         bar.setProgress(Math.round((initial - lo) / (hi - lo) * 1000f));
         styleRange(bar);
-        barRow.addView(bar, new LinearLayout.LayoutParams(0, dp(32), 1f));
+        // A SeekBar's own range is 0..1000; expose the Look's real value and
+        // unit to accessibility services instead.
+        bar.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(
+                    View host, android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                final float current = lo + (hi - lo) * bar.getProgress() / 1000f;
+                info.setRangeInfo(android.view.accessibility.AccessibilityNodeInfo
+                        .RangeInfo.obtain(android.view.accessibility.AccessibilityNodeInfo
+                                .RangeInfo.RANGE_TYPE_FLOAT, lo, hi, current));
+            }
+        });
+        barRow.addView(bar, new LinearLayout.LayoutParams(0, dp(SLIDER_HEIGHT_DP), 1f));
 
         final TextView reset = label("重置", 7,
                 palette.color(Palette.Role.MUTED_INK), tfHan);
         reset.setGravity(android.view.Gravity.CENTER);
-        barRow.addView(reset, new LinearLayout.LayoutParams(dp(32), dp(32)));
-        row.addView(barRow, new LinearLayout.LayoutParams(-1, dp(32)));
+        reset.setFocusable(true);
+        barRow.addView(reset, new LinearLayout.LayoutParams(
+                dp(MIN_TOUCH_DP), dp(MIN_TOUCH_DP)));
+        row.addView(barRow, new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
 
         final OpticsRow optics = new OpticsRow(bar, valueView, deltaView, reset,
                 name, unit, lo, hi, defaultValue);
@@ -3309,11 +3542,11 @@ public class MainActivity extends Activity {
         thumb.setIntrinsicHeight(dp(9));
         bar.setThumb(thumb);
         bar.setSplitTrack(false);
-        // 32 dp tall view, 10 dp of drawable between 11 dp of vertical padding:
-        // the track keeps its old 2 px look while the touch target is a finger
-        // wide. Without the padding the inset above would have to be 15 dp and
-        // the track would vanish into it.
-        bar.setPadding(dp(5), dp(11), dp(5), dp(11));
+        // 48 dp tall view, 10 dp of drawable between 19 dp of vertical padding:
+        // the track keeps its old 2 px look while the touch target meets the
+        // platform minimum. Without the padding the inset above would have to
+        // be 23 dp and the track would vanish into it.
+        bar.setPadding(dp(5), dp(19), dp(5), dp(19));
     }
 
     /** The old four-step ribbon is gone; the render state is in the canvas foot. */
@@ -3587,10 +3820,10 @@ public class MainActivity extends Activity {
             return before != null && after != null;
         }
 
-        /** A touch this close to an established divider belongs to CompareView. */
+        /** A touch within 24 dp of an established divider belongs to CompareView. */
         boolean dividerHit(float x) {
             return canCompare() && split > 0f
-                    && Math.abs(x - split * getWidth()) <= 18f * density;
+                    && Math.abs(x - split * getWidth()) <= 24f * density;
         }
 
         /** Hand one gesture to the divider while Scan inspect is on top. */
