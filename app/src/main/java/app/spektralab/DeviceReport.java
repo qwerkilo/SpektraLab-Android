@@ -51,7 +51,7 @@ final class DeviceReport {
 
     static boolean enabled(Context c) {
         final SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        return p.getBoolean(KEY_ENABLED, true);
+        return p.getBoolean(KEY_ENABLED, false);
     }
 
     static void setEnabled(Context c, boolean on) {

@@ -17,6 +17,7 @@ import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 
 /**
@@ -180,6 +181,27 @@ final class UpdateCheck {
         }
     }
 
+    private static final String DEFAULT_RELEASE_URL =
+            "https://github.com/SAINTTaiYi/SpektraLab-Android/releases/latest";
+
+    /** The only hosts an announcement may send a browser to. */
+    private static String releaseUrl(String raw) {
+        if (raw == null) return DEFAULT_RELEASE_URL;
+        try {
+            final URI uri = new URI(raw);
+            if (!"https".equalsIgnoreCase(uri.getScheme())) return DEFAULT_RELEASE_URL;
+            final String host = uri.getHost();
+            if (host == null) return DEFAULT_RELEASE_URL;
+            if ("update.workshop.skin".equalsIgnoreCase(host)) return raw;
+            final String path = uri.getPath();
+            if ("github.com".equalsIgnoreCase(host) && path != null
+                    && path.startsWith("/SAINTTaiYi/SpektraLab-Android/")) {
+                return raw;
+            }
+        } catch (Exception ignored) { }
+        return DEFAULT_RELEASE_URL;
+    }
+
     /** One announcement: what it is, where to get it, what changed. */
     static final class Announcement {
         final int versionCode;
@@ -199,7 +221,7 @@ final class UpdateCheck {
             int code = o.optInt("latest_version_code", 0);
             if (code <= 0) return null;
             String name = o.optString("latest_version_name", String.valueOf(code));
-            String url = o.optString("url", "https://github.com/SAINTTaiYi/SpektraLab-Android/releases/latest");
+            String url = releaseUrl(o.optString("url", DEFAULT_RELEASE_URL));
             JSONArray arr = o.optJSONArray("notes");
             String[] notes = new String[arr == null ? 0 : arr.length()];
             for (int i = 0; i < notes.length; ++i) notes[i] = arr.optString(i, "");
