@@ -46,6 +46,8 @@ public final class PaletteCheck {
                 Palette.Role.SURFACE,
                 Palette.Role.SURFACE_ELEVATED,
                 Palette.Role.SURFACE_SUNKEN,
+                // Selected tabs, chips, and the source strip's current frame.
+                Palette.Role.ACCENT_SOFT,
         };
         for (Palette.Role surface : surfaces) {
             atLeast(palette, mode + " ink on " + surface, Palette.Role.INK, surface, 4.5);
@@ -69,6 +71,8 @@ public final class PaletteCheck {
         }
         atLeast(palette, mode + " accent as a control", Palette.Role.ACCENT,
                 Palette.Role.BACKGROUND, 3.0);
+        atLeast(palette, mode + " accent boundary on a raised chip", Palette.Role.ACCENT,
+                Palette.Role.SURFACE_ELEVATED, 3.0);
         atLeast(palette, mode + " stage ink as large text", Palette.Role.STAGE_INK,
                 Palette.Role.STAGE, 3.0);
     }
