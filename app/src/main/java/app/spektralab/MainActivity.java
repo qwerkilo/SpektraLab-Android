@@ -1421,7 +1421,7 @@ public class MainActivity extends AppCompatActivity {
         if (id == null || id.isEmpty()) return "\u2014";
         final int i = ids.indexOf(id);
         if (i < 0 || i >= labels.size()) return id;
-        return labels.get(i);
+        return StockNames.full(labels.get(i));
     }
 
     /**
