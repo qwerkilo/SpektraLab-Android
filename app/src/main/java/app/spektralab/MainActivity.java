@@ -347,7 +347,7 @@ public class MainActivity extends Activity {
     private static final int TABS_HEIGHT_DP = 49;
     /** 48 dp sliders plus their labels need more than the old 232 dp panel.
      *  The brand row adds 48 dp; 292 leaves 4 dp for density rounding. */
-    private static final int PANEL_HEIGHT_DP = 292;
+    private static final int PANEL_HEIGHT_DP = 304;
     /** Breathing room above the gesture bar; the root also carries the inset. */
     private static final int PANEL_BOTTOM_DP = 8;
     private static final int CONTROLS_OPEN_DP = PANEL_HEIGHT_DP + TABS_HEIGHT_DP;
@@ -490,6 +490,13 @@ public class MainActivity extends Activity {
         inAppToast = null;
         buildUi();
         restoreUiState(state);
+        if (uiRoot != null) {
+            final int duration = motionDuration(180);
+            uiRoot.setAlpha(duration > 0 ? 0f : 1f);
+            if (duration > 0) {
+                uiRoot.animate().alpha(1f).setDuration(duration).start();
+            }
+        }
     }
 
     /** Presentation that the rebuild has to put back by hand. */
@@ -647,6 +654,17 @@ public class MainActivity extends Activity {
         super.onConfigurationChanged(newConfig);
         applyResponsiveLayout(ConsoleLayout.isWide(newConfig.screenWidthDp),
                 newConfig.screenWidthDp);
+    }
+
+    /** A flat fill with a quiet press ripple; the shape never shifts bounds. */
+    private android.graphics.drawable.Drawable pressableFill(Palette.Role fill) {
+        final android.graphics.drawable.GradientDrawable shape =
+                new android.graphics.drawable.GradientDrawable();
+        shape.setColor(palette.color(fill));
+        shape.setCornerRadius(dp(2));
+        final int ripple = (palette.color(Palette.Role.ACCENT) & 0x00FFFFFF) | 0x33000000;
+        return new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(ripple), shape, null);
     }
 
     private TextView label(String s, float sp, int color, Typeface tf) {
@@ -829,6 +847,8 @@ public class MainActivity extends Activity {
         private String emptyLabel = SpectrumCurve.UNAVAILABLE_LABEL;
         private boolean scanMarkVisible;
         private float scanMarkFraction = ScanSample.DEFAULT_FRACTION;
+        private android.animation.ValueAnimator revealAnimator;
+        private float reveal = 1f;
 
         FilmCurveView(android.content.Context context, Palette palette) {
             super(context);
@@ -848,11 +868,44 @@ public class MainActivity extends Activity {
             return v * density;
         }
 
-        void setCurve(SpectrumCurve curve, String seriesLabel, String emptyLabel) {
-            this.curve = curve == null ? SpectrumCurve.unavailable() : curve;
+        void setCurve(SpectrumCurve curve, String seriesLabel, String emptyLabel,
+                      int durationMs) {
+            final SpectrumCurve next = curve == null ? SpectrumCurve.unavailable() : curve;
+            final boolean same = next == this.curve;
+            final boolean animate = durationMs > 0 && next.available() && !same;
+            this.curve = next;
             this.seriesLabel = seriesLabel == null ? "" : seriesLabel;
             this.emptyLabel = emptyLabel == null ? SpectrumCurve.UNAVAILABLE_LABEL : emptyLabel;
+            // A render-state refresh re-sends the same curve. Let the reveal
+            // finish instead of snapping it to the end on the second call.
+            if (same && revealAnimator != null && revealAnimator.isRunning()) {
+                invalidate();
+                return;
+            }
+            if (revealAnimator != null) {
+                revealAnimator.cancel();
+                revealAnimator = null;
+            }
+            if (animate) {
+                reveal = 0f;
+                revealAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f);
+                revealAnimator.setDuration(durationMs);
+                revealAnimator.setInterpolator(
+                        new android.view.animation.DecelerateInterpolator());
+                revealAnimator.addUpdateListener(a -> {
+                    reveal = (float) a.getAnimatedValue();
+                    invalidate();
+                });
+                revealAnimator.start();
+            } else {
+                reveal = 1f;
+            }
             invalidate();
+        }
+
+        @Override protected void onDetachedFromWindow() {
+            if (revealAnimator != null) revealAnimator.cancel();
+            super.onDetachedFromWindow();
         }
 
         /** Scan inspect's fraction on the same axis as the wavelength series. */
@@ -928,6 +981,8 @@ public class MainActivity extends Activity {
             paint.setStrokeCap(android.graphics.Paint.Cap.ROUND);
             paint.setStrokeJoin(android.graphics.Paint.Join.ROUND);
 
+            canvas.save();
+            canvas.clipRect(left, top, left + (right - left) * reveal, bottom + dp(2));
             for (int channel = 0; channel < curve.channelCount(); ++channel) {
                 paint.setColor(seriesColors[channel]);
                 final int runs = curve.runCount(channel);
@@ -952,6 +1007,19 @@ public class MainActivity extends Activity {
                         canvas.drawPath(path, paint);
                     }
                 }
+            }
+            canvas.restore();
+
+            // A plotter head while the trace is being revealed. It disappears
+            // at rest, so the finished curve carries no extra chrome.
+            if (reveal < 1f) {
+                final float head = left + reveal * (right - left);
+                paint.setStyle(android.graphics.Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(1f, density * 0.5f));
+                paint.setColor(scanColor);
+                paint.setAlpha(90);
+                canvas.drawLine(head, top - dp(2), head, bottom + dp(2), paint);
+                paint.setAlpha(255);
             }
 
             // Scan inspect's position, on the same fraction axis as the curve.
@@ -1043,7 +1111,7 @@ public class MainActivity extends Activity {
         LinearLayout load = new LinearLayout(this);
         load.setOrientation(LinearLayout.HORIZONTAL);
         load.setGravity(android.view.Gravity.CENTER);
-        load.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
+        load.setBackground(pressableFill(Palette.Role.SURFACE_ELEVATED));
         load.setPadding(dp(18), 0, dp(18), 0);
         load.setOnClickListener(v -> showImportMenu());
         load.addView(label("选择照片", 9, palette.color(Palette.Role.ACCENT), tfHan));
@@ -2255,7 +2323,8 @@ public class MainActivity extends Activity {
         final FilmStock stock = currentFilmStock();
         filmCurve.setCurve(stock == null ? SpectrumCurve.unavailable() : stock.curve,
                 stock == null ? "" : stock.seriesLabel,
-                filmStock == null ? "NO FILM STOCK SELECTED" : SpectrumCurve.UNAVAILABLE_LABEL);
+                filmStock == null ? "NO FILM STOCK SELECTED" : SpectrumCurve.UNAVAILABLE_LABEL,
+                motionDuration(520));
         filmCurve.setContentDescription(curveDescription(stock));
         refreshFilmMetrics(stock);
         filmNote.setText(filmNoteText(stock));
@@ -3492,6 +3561,9 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams deltaLp = new LinearLayout.LayoutParams(-2, -2);
         deltaLp.leftMargin = dp(8);
         head.addView(deltaView, deltaLp);
+        // The four rows are useless without their names: the head carries the
+        // parameter, live value, unit, and Δ. It was built but never attached.
+        row.addView(head, new LinearLayout.LayoutParams(-1, dp(15)));
 
         LinearLayout barRow = new LinearLayout(this);
         barRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -3655,6 +3727,7 @@ public class MainActivity extends Activity {
     private void setStep(int active) { }
 
     private void setTab(int active) {
+        final int previous = activeTabIndex;
         activeTabIndex = active;
         for (int i = 0; i < panels.length; ++i) {
             final boolean on = i == active;
@@ -3677,6 +3750,17 @@ public class MainActivity extends Activity {
                     ? Palette.Role.ACCENT : Palette.Role.MUTED_INK));
             if (tabEnglish[i] != null) tabEnglish[i].setTextColor(palette.color(on
                     ? Palette.Role.ACCENT : Palette.Role.MUTED_INK));
+        }
+        if (uiReady && previous != active && active >= 0 && active < panels.length) {
+            final int duration = motionDuration(170);
+            final View panel = panels[active];
+            panel.setAlpha(duration > 0 ? 0f : 1f);
+            panel.setTranslationY(dp(4));
+            if (duration > 0) {
+                panel.animate().alpha(1f).translationY(0f).setDuration(duration).start();
+            } else {
+                panel.setTranslationY(0f);
+            }
         }
     }
 
