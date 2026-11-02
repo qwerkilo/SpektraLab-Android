@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Keep the local CodeGraph index fresh after a commit. The index is per
+# machine (.codegraph/ ignores its database), and this is a no-op where the
+# CLI is not installed. Never let an index refresh fail a commit.
+if [ -d .codegraph ] && command -v codegraph >/dev/null 2>&1; then
+  codegraph sync --quiet >/dev/null 2>&1 || true
+fi

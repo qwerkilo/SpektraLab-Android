@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Keep the local CodeGraph index fresh after a merge or fast-forward pull.
+# Same rules as post-commit: local data, optional CLI, never blocks.
+if [ -d .codegraph ] && command -v codegraph >/dev/null 2>&1; then
+  codegraph sync --quiet >/dev/null 2>&1 || true
+fi
