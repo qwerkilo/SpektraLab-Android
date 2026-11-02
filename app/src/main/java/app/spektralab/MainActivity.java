@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
@@ -23,6 +24,8 @@ import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.color.DynamicColors;
 import com.google.android.material.color.MaterialColors;
+import com.google.android.material.navigation.NavigationBarView;
+import com.google.android.material.navigationrail.NavigationRailView;
 import com.google.android.material.tabs.TabLayout;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -370,10 +373,15 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String[] TAB_NAMES = {"胶片", "光学", "尺度", "边框"};
     private static final String[] TAB_ENGLISH = {"FILM", "OPTICS", "SCALE", "EDGE"};
+    /** The rail menu ids, in the same order as the phone tabs. */
+    private static final int[] TAB_ITEM_IDS = {
+            R.id.nav_film, R.id.nav_optics, R.id.nav_scale, R.id.nav_edge};
     private TabLayout tabLayout;
-    /** True while a rebuild selects a tab programmatically; the listener must
-     *  not treat that as a user gesture. */
-    private boolean suppressTabSelection = false;
+    /** The tablet navigation rail; it and the phone tabs share `activeTabIndex`. */
+    private NavigationRailView navigationRail;
+    /** True while a rebuild or a rail/tab sync selects a workspace; the
+     *  listener must not treat that as a user gesture. */
+    private boolean suppressWorkspaceSelection = false;
     /** When the last real touch landed on a tab. A layout pass can dispatch a
      *  reselect while the window changes size; that is not a collapse gesture. */
     private long lastTabTouchAt = 0L;
@@ -604,9 +612,21 @@ public class MainActivity extends AppCompatActivity {
      * foldable resize or a rotation does not rebuild the Frame or its Look.
      */
     private void applyResponsiveLayout(boolean wide, int widthDp) {
-        if (body == null || mainCol == null || controls == null || panelHolder == null) return;
+        if (body == null || mainCol == null || controls == null || panelHolder == null
+                || navigationRail == null) return;
         wideLayout = wide;
         body.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+
+        // The M3 navigation rail takes the leading edge only on a wide window;
+        // the phone keeps the secondary tabs under the stage.
+        LinearLayout.LayoutParams railLp =
+                (LinearLayout.LayoutParams) navigationRail.getLayoutParams();
+        railLp.width = dp(ConsoleLayout.railWidthDp(widthDp));
+        railLp.height = -1;
+        railLp.weight = 0f;
+        navigationRail.setLayoutParams(railLp);
+        navigationRail.setVisibility(wide ? View.VISIBLE : View.GONE);
+        if (tabLayout != null) tabLayout.setVisibility(wide ? View.GONE : View.VISIBLE);
 
         LinearLayout.LayoutParams mainLp = (LinearLayout.LayoutParams) mainCol.getLayoutParams();
         mainLp.width = wide ? 0 : -1;
@@ -1078,6 +1098,10 @@ public class MainActivity extends AppCompatActivity {
         body.setOrientation(LinearLayout.VERTICAL);
         body.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
         app.addView(body, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        navigationRail = buildNavigationRail();
+        body.addView(navigationRail, new LinearLayout.LayoutParams(
+                dp(ConsoleLayout.RAIL_WIDTH_DP), -1));
 
         mainCol = new LinearLayout(this);
         mainCol.setOrientation(LinearLayout.VERTICAL);
@@ -2809,6 +2833,47 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * The M3 navigation rail used at ≥600 dp. It is the same four workspaces
+     * as the phone tabs, with the same {@link #activeTabIndex}; {@link #setTab}
+     * keeps both forms in sync. The real {@link NavigationRailView} supplies
+     * the selected indicator, 48 dp-plus item targets, and the selected state
+     * that accessibility services announce.
+     */
+    private NavigationRailView buildNavigationRail() {
+        final NavigationRailView rail = new NavigationRailView(this);
+        rail.setLabelVisibilityMode(NavigationBarView.LABEL_VISIBILITY_LABELED);
+        rail.inflateMenu(R.menu.console_nav);
+        for (int i = 0; i < TAB_NAMES.length; ++i) {
+            final MenuItem item = rail.getMenu().findItem(TAB_ITEM_IDS[i]);
+            if (item == null) continue;
+            // A span keeps the Chinese label on OPPOSans through the rail's
+            // active/inactive text-appearance changes.
+            item.setTitle(typed(TAB_NAMES[i], tfHan));
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                item.setContentDescription(TAB_NAMES[i] + " " + TAB_ENGLISH[i]);
+            }
+        }
+        rail.setOnItemSelectedListener(item -> {
+            if (suppressWorkspaceSelection) return true;
+            final int index = workspaceIndex(item.getItemId());
+            if (index < 0) return false;
+            if (index != activeTabIndex) {
+                setTab(index);
+                setPanelCollapsed(false);
+            }
+            return true;
+        });
+        return rail;
+    }
+
+    private static int workspaceIndex(int itemId) {
+        for (int i = 0; i < TAB_ITEM_IDS.length; ++i) {
+            if (TAB_ITEM_IDS[i] == itemId) return i;
+        }
+        return -1;
+    }
+
+    /**
      * The four phone workspaces use Material secondary tabs: one selected
      * indicator, 48 dp targets, and the selected state exposed by TabLayout
      * itself. The panel below is owned by {@link #setTab(int)}.
@@ -2840,7 +2905,7 @@ public class MainActivity extends AppCompatActivity {
 
         tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override public void onTabSelected(TabLayout.Tab tab) {
-                if (suppressTabSelection) return;
+                if (suppressWorkspaceSelection) return;
                 final int index = tab.getPosition();
                 if (index == activeTabIndex) return;
                 setTab(index);
@@ -2850,7 +2915,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onTabUnselected(TabLayout.Tab tab) { }
 
             @Override public void onTabReselected(TabLayout.Tab tab) {
-                if (suppressTabSelection) return;
+                if (suppressWorkspaceSelection) return;
                 // A real tap just set lastTabTouchAt; a reselect from a layout
                 // pass must not expand the panel the user collapsed. Keyboard,
                 // switch-access, and TalkBack activation carry focus instead.
@@ -3696,11 +3761,22 @@ public class MainActivity extends AppCompatActivity {
         if (tabLayout != null) {
             final TabLayout.Tab tab = tabLayout.getTabAt(active);
             if (tab != null && tabLayout.getSelectedTabPosition() != active) {
-                suppressTabSelection = true;
+                suppressWorkspaceSelection = true;
                 try {
                     tabLayout.selectTab(tab, false);
                 } finally {
-                    suppressTabSelection = false;
+                    suppressWorkspaceSelection = false;
+                }
+            }
+        }
+        if (navigationRail != null && active >= 0 && active < TAB_ITEM_IDS.length) {
+            final MenuItem item = navigationRail.getMenu().findItem(TAB_ITEM_IDS[active]);
+            if (item != null && !item.isChecked()) {
+                suppressWorkspaceSelection = true;
+                try {
+                    navigationRail.setSelectedItemId(TAB_ITEM_IDS[active]);
+                } finally {
+                    suppressWorkspaceSelection = false;
                 }
             }
         }
