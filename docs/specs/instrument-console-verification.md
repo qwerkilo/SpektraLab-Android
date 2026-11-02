@@ -50,28 +50,34 @@ install and the scan overlay was not reopened afterwards.
 
 ## Integration rebuild
 
-- The integration branch was rebuilt by replacing `classes.dex` in the shipped
-  `1.3.3j` APK and regenerating `stock_catalog.json` from the shipped profiles
-  (25 films, 24 with spectra; 9 prints). The native libraries and resources
-  came from the shipped APK unchanged.
-- Debug-signed build installed and exercised: header brand and console label,
-  light and dark themes, JPEG import, engine render, Scan inspect RGB/λ, the
-  Portra 400 curve (81 samples) with the scan marker, and the >= 600 dp
-  two-column shell.
+- The integration branch was rebased onto upstream `SAINTTaiYi/SpektraLab-Android`
+  `1.3.4` (68), which carries the JPEG colour-space fix: `input_color_space`,
+  `input_cctf_decoding`, and `auto_exposure` now ride the stock delta. RAW keeps
+  ProPhoto/linear and the meter.
+- The APK was rebuilt from source: `javac` + `d8` (R8 from `cmdline-tools`, not
+  the build-tools 34 `d8`, which crashes on `MainActivity$1.class`), `aapt`
+  resources, then the shipped assets and native libraries from the previous
+  APK. `classes.dex` and `AndroidManifest.xml` are new.
+- Verified on the device: the release build reports `1.3.4` (68); a camera JPEG
+  renders with normal contrast and white highlights (the pre-fix symptom was
+  the top 5% flattening at 126/255), the Console header, light theme, film
+  curve, and paper picker remain intact. A JPEG export completed and opened in
+  MIUI Gallery with the same contrast.
 - Final release build signed with `qwerkilo.jks` (alias `qwerkilo`, certificate
   SHA-256 `9B:C0:F4:CA:34:24:5C:8E:5C:5A:DD:1B:F7:4C:5C:6D:D8:AE:B5:73:85:28:0C:59:A5:B8:FD:DB:84:A0:90:7E`)
-  and installed on the same device. Package `app.spektralab`, versionCode `66`,
-  versionName `1.3.3j`.
-- Final artifact: `app/build/SpektraLab-1.3.3j-console.apk`,
-  SHA-256 `4D621B755E34AF22297DEAF66A5D8AB1A90CEE68FB5D155707A97FC882BA0A44`.
+  and installed on the same device. Package `app.spektralab`, versionCode `68`,
+  versionName `1.3.4`.
+- Final artifact: `app/build/SpektraLab-1.3.4-console.apk`,
+  SHA-256 `9D3B48F0BFDF78394FD8A117D2EBBCD5F7D24DE891C46624B397687B56CDE14B`.
 
 ## Unverified in this pass
 
-- The final visual pass on the release-signed build: it was installed, but the
-  device locked before Scan, export, and both-theme rechecks.
-- The full export matrix: JPEG, TIFF, and DNG, each Theme mode, Original
-  compare, Scale and Rebate changes, date imprint, theme toggle after a render,
-  and restart after a theme change.
+- Scan inspect and TIFF/DNG export on the release-signed 1.3.4 build; the camera
+  JPEG render and JPEG export were checked, but the overlay and the other two
+  formats were not reopened.
+- The wider export matrix: TIFF and DNG, each Theme mode, Original compare,
+  Scale and Rebate changes, date imprint, theme toggle after a render, and
+  restart after a theme change.
 - `SpektraLabJNI` and `SpektraLabRAW` logcat review on this exact build.
 - Tablet screenshots after the rail and curve change.
 

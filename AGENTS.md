@@ -26,6 +26,12 @@ Never hand-copy `libspektrafilm_engine.so` into `app/build/apk/lib` (README stil
 
 `build-apk.sh` signs with `$HOME/SpektraLab-apk/debug.keystore` (gitignored). `app/build/apk/res` and most of `app/build/apk/assets` are local-only staging: no script creates them. `app/src/main/assets` is gitignored too (~30 MB of profiles and resources).
 
+## Upstreams
+
+- **Engine**: `JamesQiu2005/SpektraLab`, branch `assist/vulkan-engine-1.3.4` at `445e314`. The engine is out of tree; sync by reapplying `patches/engine-android.patch` to the new baseline, never by merging the desktop app.
+- **Android app**: `SAINTTaiYi/SpektraLab-Android`, branch `master`. Fetch it as a second remote and merge fixes into the feature branch. The fork's `origin` is `qwerkilo/SpektraLab-Android`; pushing there does not update the user-facing channel.
+- On Windows, build-tools 34 `d8` crashes on `MainActivity$1.class` (`NullPointerException`). Use the R8 jar in `android-sdk/cmdline-tools/latest/lib/r8.jar` with JDK 17 instead.
+
 ## Where the code lives
 
 - `MainActivity.java` — ~4.7k lines, programmatic `View` UI in one file. No XML layouts; theme only in `app/build/values/themes.xml`.
