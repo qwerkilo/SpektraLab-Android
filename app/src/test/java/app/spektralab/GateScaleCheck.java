@@ -91,12 +91,12 @@ public final class GateScaleCheck {
                 "120_made_up", null};
         for (String id : ids) {
             for (float edge : legacyEdges) {
-                final GateScale.Pair pair = GateScale.pair(id, edge);
-                require("pair(" + id + ", " + edge + ") has a gate", pair.gate != null);
-                require("pair(" + id + ", " + edge + ") uses the gate's edge",
-                        Math.abs(pair.longEdgeMm - pair.gate.longEdgeMm) < 0.001f);
+                final GateScale.Gate pair = GateScale.pair(id, edge);
+                require("pair(" + id + ", " + edge + ") has a gate", pair != null);
+                require("pair(" + id + ", " + edge + ") carries a measured edge",
+                        pair.longEdgeMm > 0f);
                 require("pair(" + id + ", " + edge + ") is a valid layout",
-                        GateScale.pairIsValid(pair.gate.id, pair.longEdgeMm));
+                        GateScale.pairIsValid(pair.id, pair.longEdgeMm));
             }
         }
         require("a legacy 170 mm 6x17 pair normalises to 168 mm",
@@ -106,7 +106,7 @@ public final class GateScaleCheck {
         require("a legacy 70 mm 6x7 pair normalises to 69.5 mm",
                 Math.abs(GateScale.pair("120_6x7", 70f).longEdgeMm - 69.5f) < 0.001f);
         require("a missing gate resolves from the scale",
-                "135".equals(GateScale.pair(null, 36f).gate.id));
+                "135".equals(GateScale.pair(null, 36f).id));
     }
 
     private static void frameAspectFiltersGates() {

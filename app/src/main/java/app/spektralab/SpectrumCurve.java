@@ -212,6 +212,18 @@ public final class SpectrumCurve {
         return Math.max(0.0, Math.min(1.0, fraction));
     }
 
+    /**
+     * The plot axis fraction for a Scan inspect sample. The mark follows the
+     * sampled wavelength, not the picture's horizontal position: a red scan
+     * line and a blue one can sit at the same x while measuring different
+     * points on the shipped series. A sample with no dominant wavelength (or
+     * no sample at all) has no mark on this axis.
+     */
+    public double fractionForSample(ScanSample sample) {
+        if (sample == null || !sample.hasWavelength()) return Double.NaN;
+        return fractionAtNm(sample.wavelengthNm());
+    }
+
     /** The profile's channel name, or an empty string for an unknown index. */
     public static String channelLabel(int channel) {
         switch (channel) {

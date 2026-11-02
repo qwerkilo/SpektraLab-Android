@@ -20,6 +20,7 @@ public final class SpectrumCurveCheck {
         runPairingPerChannel();
         unpairedWavelengthsAreGaps();
         fractionAxis();
+        scanSampleMapping();
 
         System.out.println("SpectrumCurveCheck: " + checks + " checks passed");
     }
@@ -213,6 +214,33 @@ public final class SpectrumCurveCheck {
                 new double[][]{{1.0}, {2.0}});
         require("a zero-width range draws on the middle line",
                 close(flat.fractionAtNm(500), 0.5));
+    }
+
+    /**
+     * Scan inspect's mark is mapped from the sample's wavelength, not from the
+     * picture's 0..1 position. Grayscale and the line of purples have no mark.
+     */
+    private static void scanSampleMapping() {
+        final SpectrumCurve curve = SpectrumCurve.of(
+                new double[]{400, 600},
+                new double[][]{{1.0}, {2.0}});
+        final int[] spectrumRow = {0xFF00FF00};   // green, ~540 nm
+        final ScanSample green = ScanSample.at(spectrumRow, spectrumRow.length, 0.5f);
+        require("a coloured scan sample has a wavelength", green.hasWavelength());
+        require("the mark uses the sample's wavelength on the plot axis",
+                close(curve.fractionForSample(green),
+                        curve.fractionAtNm(green.wavelengthNm())));
+        require("the mark is not the picture's horizontal position",
+                Math.abs(curve.fractionForSample(green) - 0.5) > 0.01);
+
+        final int[] grayRow = {0xFF808080};
+        final ScanSample gray = ScanSample.at(grayRow, grayRow.length, 0.5f);
+        require("a grayscale sample has no mark",
+                Double.isNaN(curve.fractionForSample(gray)));
+        require("a missing sample has no mark",
+                Double.isNaN(curve.fractionForSample(null)));
+        require("an unavailable curve has no mark",
+                Double.isNaN(SpectrumCurve.unavailable().fractionForSample(green)));
     }
 
     private static boolean close(double actual, double expected) {

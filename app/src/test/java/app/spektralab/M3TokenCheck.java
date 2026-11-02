@@ -245,12 +245,14 @@ public final class M3TokenCheck {
                     close(role.lineHeightSp, expected[1]));
             require(role + " tracking is " + expected[2] + "em",
                     close(role.letterSpacingEm, expected[2]));
+            require(role + " tracking is real em, not Material's " + expected[4] + "sp token",
+                    close(role.letterSpacingEm * role.sizeSp, expected[4]));
             require(role + " weight is " + (int) expected[3],
                     role.weight == (int) expected[3]);
             require(role + " line height clears its size",
                     role.lineHeightSp >= role.sizeSp);
             require(role + " tracking stays inside the M3 range",
-                    role.letterSpacingEm >= -0.3f && role.letterSpacingEm <= 0.6f);
+                    role.letterSpacingEm >= -0.01f && role.letterSpacingEm <= 0.05f);
         }
         rises(M3Tokens.TypeRole.DISPLAY_LARGE, M3Tokens.TypeRole.DISPLAY_MEDIUM,
                 M3Tokens.TypeRole.DISPLAY_SMALL);
@@ -272,21 +274,22 @@ public final class M3TokenCheck {
 
     private static float[] expectedType(M3Tokens.TypeRole role) {
         switch (role) {
-            case DISPLAY_LARGE: return new float[]{57f, 64f, -0.25f, 400};
-            case DISPLAY_MEDIUM: return new float[]{45f, 52f, 0f, 400};
-            case DISPLAY_SMALL: return new float[]{36f, 44f, 0f, 400};
-            case HEADLINE_LARGE: return new float[]{32f, 40f, 0f, 400};
-            case HEADLINE_MEDIUM: return new float[]{28f, 36f, 0f, 400};
-            case HEADLINE_SMALL: return new float[]{24f, 32f, 0f, 400};
-            case TITLE_LARGE: return new float[]{22f, 28f, 0f, 400};
-            case TITLE_MEDIUM: return new float[]{16f, 24f, 0.15f, 500};
-            case TITLE_SMALL: return new float[]{14f, 20f, 0.1f, 500};
-            case BODY_LARGE: return new float[]{16f, 24f, 0.5f, 400};
-            case BODY_MEDIUM: return new float[]{14f, 20f, 0.25f, 400};
-            case BODY_SMALL: return new float[]{12f, 16f, 0.4f, 400};
-            case LABEL_LARGE: return new float[]{14f, 20f, 0.1f, 500};
-            case LABEL_MEDIUM: return new float[]{12f, 16f, 0.5f, 500};
-            case LABEL_SMALL: return new float[]{11f, 16f, 0.5f, 500};
+            // sizeSp, lineHeightSp, letterSpacingEm, weight, Material trackingSp
+            case DISPLAY_LARGE: return new float[]{57f, 64f, -0.004386f, 400, -0.25f};
+            case DISPLAY_MEDIUM: return new float[]{45f, 52f, 0f, 400, 0f};
+            case DISPLAY_SMALL: return new float[]{36f, 44f, 0f, 400, 0f};
+            case HEADLINE_LARGE: return new float[]{32f, 40f, 0f, 400, 0f};
+            case HEADLINE_MEDIUM: return new float[]{28f, 36f, 0f, 400, 0f};
+            case HEADLINE_SMALL: return new float[]{24f, 32f, 0f, 400, 0f};
+            case TITLE_LARGE: return new float[]{22f, 28f, 0f, 400, 0f};
+            case TITLE_MEDIUM: return new float[]{16f, 24f, 0.009375f, 500, 0.15f};
+            case TITLE_SMALL: return new float[]{14f, 20f, 0.007143f, 500, 0.1f};
+            case BODY_LARGE: return new float[]{16f, 24f, 0.03125f, 400, 0.5f};
+            case BODY_MEDIUM: return new float[]{14f, 20f, 0.017857f, 400, 0.25f};
+            case BODY_SMALL: return new float[]{12f, 16f, 0.033333f, 400, 0.4f};
+            case LABEL_LARGE: return new float[]{14f, 20f, 0.007143f, 500, 0.1f};
+            case LABEL_MEDIUM: return new float[]{12f, 16f, 0.041667f, 500, 0.5f};
+            case LABEL_SMALL: return new float[]{11f, 16f, 0.045455f, 500, 0.5f};
             default: throw new AssertionError("unhandled type role " + role);
         }
     }
@@ -312,6 +315,10 @@ public final class M3TokenCheck {
         require("focus is 10%", close(M3Tokens.StateLayer.FOCUS.opacity, 0.10f));
         require("pressed is 10%", close(M3Tokens.StateLayer.PRESSED.opacity, 0.10f));
         require("dragged is 16%", close(M3Tokens.StateLayer.DRAGGED.opacity, 0.16f));
+        require("medium emphasis is 70%",
+                close(M3Tokens.MEDIUM_EMPHASIS_ALPHA, 0.70f));
+        require("disabled content is 38%",
+                close(M3Tokens.DISABLED_CONTENT_ALPHA, 0.38f));
         require("a state layer never hides the role beneath it",
                 M3Tokens.StateLayer.DRAGGED.opacity < 0.5f);
     }

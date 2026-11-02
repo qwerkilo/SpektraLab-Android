@@ -52,6 +52,9 @@ public final class ConsoleLayoutCheck {
     private static void wideWidths() {
         require("600 dp control column is 300 dp",
                 ConsoleLayout.controlColumnWidthDp(600) == 300);
+        // 600 - 80 rail - 300 control floor = 220. The spec records this as the
+        // wide-layout consequence; 280 cannot coexist with a 300 dp control
+        // column inside a 600 dp window.
         require("600 dp stage column is 220 dp",
                 ConsoleLayout.stageColumnWidthDp(600) == 220);
         // 800 - 80 rail = 720; 720 * 0.40 = 288, clamped up to the 300 dp floor.
