@@ -3787,9 +3787,12 @@ public class MainActivity extends AppCompatActivity {
         return optics;
     }
 
-    /** One parameter delta and one render for a completed optics gesture. */
+    /**
+     * One render for a completed optics gesture. The render thread sends the
+     * parameter delta under the same lock as the draw, so a gesture produces
+     * one update and one picture.
+     */
     private void commitOptics() {
-        applyParams();
         if (uiReady && session != null) {
             showingOriginal = false;
             setOriginalVisual(false);
