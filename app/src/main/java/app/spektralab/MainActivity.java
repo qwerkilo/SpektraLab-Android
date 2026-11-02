@@ -150,11 +150,15 @@ public class MainActivity extends Activity {
     /** Which stage surface is showing, captured so a theme rebuild can restore it. */
     private int stageMode = 0;
     /**
-     * Scan inspect is presentation-only. A later ticket draws the line; these
-     * two fields already survive a theme rebuild so its position is not lost.
+     * Scan inspect is presentation-only: it samples the preview and never
+     * touches a Look or the engine. Both values are saved per Frame and
+     * captured across a theme rebuild.
      */
-    private float scanFraction = 0.5f;
+    private float scanFraction = ScanSample.DEFAULT_FRACTION;
     private boolean scanVisible = false;
+    private ScanOverlayView scanOverlay;
+    private TextView scanToggleChip, scanReadoutRgb, scanReadoutLambda;
+    private View scanToggleTouch, scanReadout;
 
     private Typeface tfDisplay;      // Inter 300 — numbers and the wordmark
     private Typeface tfBody;         // Inter 400 — Latin labels
@@ -272,6 +276,9 @@ public class MainActivity extends Activity {
         final String name;
         Bitmap thumb;
         Look look = new Look();
+        /** Scan inspect belongs to the Frame it was moved on, not to the Look. */
+        float scanFraction = ScanSample.DEFAULT_FRACTION;
+        boolean scanVisible = false;
         Frame(Uri uri, boolean raw, String name) {
             this.uri = uri; this.raw = raw; this.name = name;
         }
@@ -715,12 +722,14 @@ public class MainActivity extends Activity {
         private final android.graphics.Paint paint =
                 new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         private final android.graphics.Path path = new android.graphics.Path();
-        private final int surfaceColor, lineColor, mutedColor;
+        private final int surfaceColor, lineColor, mutedColor, scanColor;
         private final int[] seriesColors;
         private final float density;
         private SpectrumCurve curve = SpectrumCurve.unavailable();
         private String seriesLabel = "";
         private String emptyLabel = SpectrumCurve.UNAVAILABLE_LABEL;
+        private boolean scanMarkVisible;
+        private float scanMarkFraction = ScanSample.DEFAULT_FRACTION;
 
         FilmCurveView(android.content.Context context, Palette palette) {
             super(context);
@@ -728,6 +737,7 @@ public class MainActivity extends Activity {
             surfaceColor = palette.color(Palette.Role.SURFACE_ELEVATED);
             lineColor = palette.color(Palette.Role.LINE);
             mutedColor = palette.color(Palette.Role.MUTED_INK);
+            scanColor = palette.color(Palette.Role.ACCENT);
             seriesColors = new int[]{
                     palette.color(Palette.Role.SPECTRUM_RED),
                     palette.color(Palette.Role.SPECTRUM_GREEN),
@@ -743,6 +753,16 @@ public class MainActivity extends Activity {
             this.curve = curve == null ? SpectrumCurve.unavailable() : curve;
             this.seriesLabel = seriesLabel == null ? "" : seriesLabel;
             this.emptyLabel = emptyLabel == null ? SpectrumCurve.UNAVAILABLE_LABEL : emptyLabel;
+            invalidate();
+        }
+
+        /** Scan inspect's fraction on the same axis as the wavelength series. */
+        void setScanMark(boolean visible, float fraction) {
+            final float next = Float.isNaN(fraction) ? ScanSample.DEFAULT_FRACTION : fraction;
+            final float clamped = Math.max(0f, Math.min(1f, next));
+            if (scanMarkVisible == visible && Math.abs(scanMarkFraction - clamped) < 1e-5f) return;
+            scanMarkVisible = visible;
+            scanMarkFraction = clamped;
             invalidate();
         }
 
@@ -835,6 +855,19 @@ public class MainActivity extends Activity {
                 }
             }
 
+            // Scan inspect's position, on the same fraction axis as the curve.
+            if (scanMarkVisible) {
+                final float x = left + scanMarkFraction * (right - left);
+                paint.setStyle(android.graphics.Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(1f, density));
+                paint.setColor(scanColor);
+                paint.setAlpha(210);
+                canvas.drawLine(x, top - dp(2), x, bottom + dp(2), paint);
+                paint.setStyle(android.graphics.Paint.Style.FILL);
+                canvas.drawCircle(x, top - dp(2), dp(1.6f), paint);
+                paint.setAlpha(255);
+            }
+
             paint.setStyle(android.graphics.Paint.Style.FILL);
             paint.setColor(mutedColor);
             paint.setTextSize(dp(5f));
@@ -878,6 +911,13 @@ public class MainActivity extends Activity {
         compare = new CompareView(this, palette);
         compare.setVisibility(View.GONE);
         stage.addView(compare, new android.widget.FrameLayout.LayoutParams(-1, -1));
+
+        // Scan inspect draws over the picture but under the corner readouts and
+        // the shelf handle. It handles touches only while the mode is on; when
+        // it is off, CompareView keeps the divider and the long-press hold.
+        scanOverlay = new ScanOverlayView(this, palette, compare, this::onScanSample);
+        scanOverlay.setVisibility(View.GONE);
+        stage.addView(scanOverlay, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout empty = new LinearLayout(this);
         empty.setOrientation(LinearLayout.VERTICAL);
@@ -928,6 +968,7 @@ public class MainActivity extends Activity {
         stage.addView(busyLabel, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
         addStageReadouts(stage);
+        addScanControls(stage);
 
         shelfHandle = buildShelfHandle();
         android.widget.FrameLayout.LayoutParams handleLp = new android.widget.FrameLayout.LayoutParams(
@@ -1377,6 +1418,192 @@ public class MainActivity extends Activity {
                 dp(26), -1, android.view.Gravity.END));
     }
 
+    /**
+     * Scan inspect's two controls: a small toggle under the file readout, and
+     * a readout above the shelf handle. The readout is deliberately away from
+     * the print-exposure corner, the status line, and the folded shelf so the
+     * three never share a corner.
+     */
+    private void addScanControls(android.widget.FrameLayout stage) {
+        scanToggleChip = mixedLabel("SCAN · 扫描", 7.5f,
+                palette.color(Palette.Role.STAGE_INK));
+        scanToggleChip.setGravity(android.view.Gravity.CENTER);
+        scanToggleChip.setLetterSpacing(0.06f);
+        scanToggleChip.setSingleLine(true);
+        scanToggleChip.setPadding(dp(12), 0, dp(12), 0);
+        scanToggleTouch = touchTarget(scanToggleChip, 92);
+        scanToggleTouch.setOnClickListener(v -> toggleScan());
+        android.widget.FrameLayout.LayoutParams toggleLp =
+                new android.widget.FrameLayout.LayoutParams(
+                        -2, dp(48), android.view.Gravity.TOP | android.view.Gravity.START);
+        toggleLp.leftMargin = dp(14);
+        toggleLp.topMargin = dp(34);
+        stage.addView(scanToggleTouch, toggleLp);
+
+        final LinearLayout block = new LinearLayout(this);
+        block.setOrientation(LinearLayout.VERTICAL);
+        block.setPadding(dp(9), dp(5), dp(10), dp(6));
+        final android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable();
+        bg.setColor(palette.color(Palette.Role.STAGE_SCRIM_TOP));
+        bg.setCornerRadius(dp(2));
+        block.setBackground(bg);
+        block.setClickable(false);
+        block.setVisibility(View.GONE);
+        scanReadout = block;
+
+        final TextView caption = label("SCAN INSPECT · CENTRE ROW", 5f,
+                palette.color(Palette.Role.STAGE_INK), tfBody);
+        caption.setAlpha(0.72f);
+        caption.setLetterSpacing(0.10f);
+        caption.setSingleLine(true);
+        caption.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
+        block.addView(caption);
+
+        scanReadoutRgb = label("R \u2014  G \u2014  B \u2014", 8f,
+                palette.color(Palette.Role.STAGE_INK), tfBody);
+        scanReadoutRgb.setSingleLine(true);
+        scanReadoutRgb.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
+        final LinearLayout.LayoutParams rgbLp = new LinearLayout.LayoutParams(-2, -2);
+        rgbLp.topMargin = dp(2);
+        block.addView(scanReadoutRgb, rgbLp);
+
+        scanReadoutLambda = label("\u03bb \u2014", 8f,
+                palette.color(Palette.Role.STAGE_INK), tfDisplay);
+        scanReadoutLambda.setSingleLine(true);
+        scanReadoutLambda.setLetterSpacing(0.02f);
+        scanReadoutLambda.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
+        block.addView(scanReadoutLambda);
+
+        android.widget.FrameLayout.LayoutParams readoutLp =
+                new android.widget.FrameLayout.LayoutParams(
+                        -2, -2, android.view.Gravity.BOTTOM | android.view.Gravity.START);
+        readoutLp.leftMargin = dp(14);
+        // Clear of the 62 dp shelf handle and its 12 dp margin.
+        readoutLp.bottomMargin = dp(84);
+        stage.addView(block, readoutLp);
+        updateScanToggleVisual(false);
+    }
+
+    /** Turn Scan inspect on or off. It never renders and never edits a Look. */
+    private void toggleScan() {
+        if (scanBitmap() == null) {
+            showInAppToast("先导入一张照片");
+            return;
+        }
+        scanVisible = !scanVisible;
+        syncScanAvailability();
+        if (scanVisible && scanOverlay != null) scanOverlay.requestFocus();
+        saveScanStateIntoFrame();
+        try {
+            DebugSink.text("scan", "visible=" + scanVisible + " fraction=" + scanFraction);
+        } catch (Throwable ignored) { }
+    }
+
+    /**
+     * The picture Scan inspect is allowed to read: the Original while 原图 is
+     * showing, the last rendered preview otherwise. No bitmap means no scan —
+     * never a mock and never a placeholder number.
+     */
+    private Bitmap scanBitmap() {
+        if (stageMode != 1) return null;
+        return showingOriginal ? beforeBitmap : lastRenderedBitmap;
+    }
+
+    /** Put the overlay, its readout, and the curve mark on one state. */
+    private void syncScanAvailability() {
+        if (scanOverlay == null) return;
+        final Bitmap bitmap = scanBitmap();
+        final boolean available = bitmap != null;
+        // Put the Activity's fraction onto the overlay first: a null bitmap
+        // still reports, and must not carry the previous frame's position back.
+        scanOverlay.setFraction(scanFraction);
+        scanOverlay.setPreviewBitmap(bitmap);
+        final boolean show = scanVisible && available;
+        scanOverlay.setScanVisible(show);
+        if (scanReadout != null) {
+            scanReadout.setVisibility(show ? View.VISIBLE : View.GONE);
+        }
+        updateScanToggleVisual(available);
+        if (filmCurve != null) filmCurve.setScanMark(show, scanFraction);
+    }
+
+    /** The toggle's chip: enabled only when there is a preview to read. */
+    private void updateScanToggleVisual(boolean enabled) {
+        if (scanToggleChip == null) return;
+        final android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable();
+        bg.setColor(palette.color(Palette.Role.STAGE_SCRIM_TOP));
+        bg.setCornerRadius(dp(99));
+        final int stroke = palette.color(scanVisible
+                ? Palette.Role.ACCENT : Palette.Role.STAGE_INK);
+        bg.setStroke(Math.max(1, dp(1)), scanVisible
+                ? stroke : withAlpha(stroke, 0x66));
+        scanToggleChip.setBackground(bg);
+        scanToggleChip.setTextColor(palette.color(Palette.Role.STAGE_INK));
+        if (scanToggleTouch != null) {
+            scanToggleTouch.setEnabled(enabled);
+            scanToggleTouch.setAlpha(enabled ? 1f : 0.38f);
+            final String state = scanVisible
+                    ? (enabled ? "扫描检视已开启，点击关闭"
+                            : "扫描检视已开启，等待预览")
+                    : (enabled ? "扫描检视，点击开启"
+                            : "扫描检视，需先导入照片");
+            scanToggleTouch.setContentDescription(state);
+        }
+    }
+
+    private static int withAlpha(int color, int alpha) {
+        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
+    }
+
+    /** The overlay reports every move; the readout and the curve follow it. */
+    private void onScanSample(ScanSample sample, float fraction) {
+        scanFraction = fraction;
+        if (scanReadoutRgb != null) {
+            scanReadoutRgb.setText(sample.available()
+                    ? sample.rgbText() : "R \u2014  G \u2014  B \u2014");
+        }
+        if (scanReadoutLambda != null) {
+            scanReadoutLambda.setText(sample.hasWavelength()
+                    ? "\u03bb " + sample.wavelengthText() + " nm"
+                    : "\u03bb \u2014");
+        }
+        if (scanReadout != null) {
+            scanReadout.setContentDescription(sample.description()
+                    + "，位置 " + Math.round(fraction * 100f) + "%");
+        }
+        if (filmCurve != null) {
+            filmCurve.setScanMark(scanVisible && scanBitmap() != null, fraction);
+        }
+    }
+
+    private void saveScanStateIntoFrame() {
+        if (currentFrame < 0 || currentFrame >= frames.size()) return;
+        final Frame frame = frames.get(currentFrame);
+        frame.scanFraction = scanFraction;
+        frame.scanVisible = scanVisible;
+    }
+
+    private void restoreScanStateFromFrame(Frame frame) {
+        scanFraction = frame == null ? ScanSample.DEFAULT_FRACTION : frame.scanFraction;
+        scanVisible = frame != null && frame.scanVisible;
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
+        // When the scan line has focus its own onKeyDown consumes the key; this
+        // path keeps the arrows working while another control has focus, but a
+        // focused slider keeps its own arrow keys.
+        final View focus = getCurrentFocus();
+        if (scanVisible && scanOverlay != null
+                && !(focus instanceof android.widget.SeekBar)
+                && scanOverlay.handleKey(keyCode, event.isShiftPressed())) {
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
     /** Solid paper shelf outside the canvas: ＋, one chip per photograph opened
      *  this session, and a way to fold the whole row away.
      *
@@ -1604,6 +1831,8 @@ public class MainActivity extends Activity {
         }
         final Frame frame = new Frame(uri, isRawFile, name);
         frame.look = captureLook();
+        frame.scanFraction = scanFraction;
+        frame.scanVisible = scanVisible;
         if (beforeBitmap != null) {
             try {
                 final int w = Math.max(1, dp(42));
@@ -1674,6 +1903,8 @@ public class MainActivity extends Activity {
         if (index == currentFrame) {
             currentFrame = -1;
             lastRenderedBitmap = null;
+            scanVisible = false;
+            scanFraction = ScanSample.DEFAULT_FRACTION;
             if (compare != null) compare.clear();
             setStage(0, null);
             statusText.setText("等待导入");
@@ -1692,6 +1923,7 @@ public class MainActivity extends Activity {
         if (index == currentFrame && session != null) return;
         final Frame frame = frames.get(index);
         saveLookIntoFrames();
+        saveScanStateIntoFrame();
         currentFrame = index;
         reopeningFrame = true;
         suppressBudgetDialog = true;
@@ -1822,6 +2054,9 @@ public class MainActivity extends Activity {
         refreshFilmMetrics(stock);
         filmNote.setText(filmNoteText(stock));
         refreshReadoutStrip();
+        // The curve mark and the scan line share one fraction; a refresh must
+        // never leave the mark on the previous stock or theme.
+        syncScanAvailability();
     }
 
     /** The small line under a chip: the measured type and speed, or the stock's role. */
@@ -2678,6 +2913,7 @@ public class MainActivity extends Activity {
             return;
         }
         setOriginalVisual(false);
+        syncScanAvailability();
         if (lastRenderedBitmap != null) {
             compare.setAfter(lastRenderedBitmap);
             compare.setVisibility(View.VISIBLE);
@@ -3161,6 +3397,7 @@ public class MainActivity extends Activity {
             stageMeta.setText(mode == 2 ? "RAW LOADED"
                     : mode == 1 ? (isRawFile ? "RAW PREVIEW" : "JPEG") : "NO FRAME");
         }
+        syncScanAvailability();
     }
 
     /**
@@ -3345,6 +3582,35 @@ public class MainActivity extends Activity {
             invalidate();
         }
 
+        /** True when both sides exist, so the divider and hold are meaningful. */
+        boolean canCompare() {
+            return before != null && after != null;
+        }
+
+        /** A touch this close to an established divider belongs to CompareView. */
+        boolean dividerHit(float x) {
+            return canCompare() && split > 0f
+                    && Math.abs(x - split * getWidth()) <= 18f * density;
+        }
+
+        /** Hand one gesture to the divider while Scan inspect is on top. */
+        boolean forwardTouch(android.view.MotionEvent event) {
+            return onTouchEvent(event);
+        }
+
+        /** Scan inspect's long-press keeps the Original hold available. */
+        void beginHold() {
+            if (!canCompare()) return;
+            holding = true;
+            invalidate();
+        }
+
+        void endHold() {
+            if (!holding) return;
+            holding = false;
+            invalidate();
+        }
+
         @Override protected void onDraw(android.graphics.Canvas canvas) {
             final Bitmap base = after != null ? after : before;
             if (base == null) return;
@@ -3427,6 +3693,325 @@ public class MainActivity extends Activity {
                 default:
                     return super.onTouchEvent(e);
             }
+        }
+    }
+
+    /**
+     * Scan inspect's draggable line and its touch/keyboard surface.
+     *
+     * <p>It sits over CompareView only while the mode is on. A touch that
+     * starts on an established compare divider is forwarded, and a long press
+     * still asks CompareView for the Original hold, so the overlay never makes
+     * the core review gesture unreachable. The fraction is reported to
+     * accessibility as a 0–100 range with scroll and set-progress actions.
+     */
+    private static class ScanOverlayView extends View {
+        interface Listener {
+            void onScanSample(ScanSample sample, float fraction);
+        }
+
+        private final android.graphics.Paint paint =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Path triangle = new android.graphics.Path();
+        private final android.graphics.RectF image = new android.graphics.RectF();
+        private final android.os.Handler handler =
+                new android.os.Handler(android.os.Looper.getMainLooper());
+        private final float density;
+        private final float slop;
+        private final CompareView compare;
+        private final Listener listener;
+        private final int accentColor, shadowColor;
+        private Bitmap preview;
+        private int[] row;
+        private int rowWidth;
+        private float fraction = ScanSample.DEFAULT_FRACTION;
+        private float downX, downY;
+        private boolean dragging, holding, forwarding;
+
+        private final Runnable hold = new Runnable() {
+            @Override public void run() {
+                if (dragging || compare == null || !compare.canCompare()) return;
+                holding = true;
+                compare.beginHold();
+                performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+            }
+        };
+
+        ScanOverlayView(android.content.Context context, Palette palette,
+                        CompareView compare, Listener listener) {
+            super(context);
+            this.compare = compare;
+            this.listener = listener;
+            density = getResources().getDisplayMetrics().density;
+            slop = android.view.ViewConfiguration.get(context).getScaledTouchSlop();
+            accentColor = palette.color(Palette.Role.ACCENT);
+            shadowColor = palette.color(Palette.Role.STAGE_SHADOW);
+            setFocusable(true);
+            setFocusableInTouchMode(true);
+            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
+            setContentDescription("扫描线，位置 50%");
+        }
+
+        private float dp(float v) {
+            return v * density;
+        }
+
+        /** Cache the centre row once per bitmap; every move samples it. */
+        void setPreviewBitmap(Bitmap bitmap) {
+            if (bitmap == preview) {
+                if (bitmap != null) notifySample();
+                return;
+            }
+            preview = bitmap;
+            if (bitmap == null) {
+                row = null;
+                rowWidth = 0;
+            } else {
+                rowWidth = bitmap.getWidth();
+                row = new int[rowWidth];
+                bitmap.getPixels(row, 0, rowWidth, 0, bitmap.getHeight() / 2, rowWidth, 1);
+            }
+            invalidate();
+            notifySample();
+        }
+
+        void setScanVisible(boolean visible) {
+            setVisibility(visible ? VISIBLE : GONE);
+            if (!visible) {
+                handler.removeCallbacks(hold);
+                if (holding) {
+                    holding = false;
+                    if (compare != null) compare.endHold();
+                }
+                dragging = false;
+                forwarding = false;
+            }
+            invalidate();
+        }
+
+        void setFraction(float value) {
+            float next = Float.isNaN(value) ? ScanSample.DEFAULT_FRACTION : value;
+            next = Math.max(0f, Math.min(1f, next));
+            if (Math.abs(next - fraction) < 1e-5f) {
+                notifySample();
+                return;
+            }
+            fraction = next;
+            invalidate();
+            notifySample();
+        }
+
+        private void notifySample() {
+            if (listener == null) return;
+            listener.onScanSample(ScanSample.at(row, rowWidth, fraction), fraction);
+        }
+
+        private boolean imageRect() {
+            final int vw = getWidth(), vh = getHeight();
+            if (preview == null || vw <= 0 || vh <= 0) return false;
+            final int bw = preview.getWidth(), bh = preview.getHeight();
+            if (bw <= 0 || bh <= 0) return false;
+            final float scale = Math.min(vw / (float) bw, vh / (float) bh);
+            final float w = bw * scale, h = bh * scale;
+            final float left = (vw - w) * 0.5f, top = (vh - h) * 0.5f;
+            image.set(left, top, left + w, top + h);
+            return true;
+        }
+
+        private float fractionAt(float x) {
+            if (!imageRect() || image.width() <= 0f) return fraction;
+            return (x - image.left) / image.width();
+        }
+
+        @Override protected void onDraw(android.graphics.Canvas canvas) {
+            if (preview == null || !imageRect()) return;
+            final float x = image.left + fraction * image.width();
+
+            // A dark halo under the accent keeps the line readable on both a
+            // bright print and a night scene, in either Theme mode.
+            paint.setStyle(android.graphics.Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(3));
+            paint.setColor(shadowColor);
+            paint.setAlpha(170);
+            canvas.drawLine(x, image.top, x, image.bottom, paint);
+
+            paint.setStrokeWidth(Math.max(1f, density));
+            paint.setColor(accentColor);
+            paint.setAlpha(255);
+            canvas.drawLine(x, image.top, x, image.bottom, paint);
+
+            paint.setStyle(android.graphics.Paint.Style.FILL);
+            paint.setColor(shadowColor);
+            triangle.reset();
+            triangle.moveTo(x, image.top);
+            triangle.lineTo(x - dp(5), image.top + dp(9));
+            triangle.lineTo(x + dp(5), image.top + dp(9));
+            triangle.close();
+            canvas.drawPath(triangle, paint);
+
+            paint.setColor(accentColor);
+            triangle.reset();
+            triangle.moveTo(x, image.top);
+            triangle.lineTo(x - dp(3), image.top + dp(6));
+            triangle.lineTo(x + dp(3), image.top + dp(6));
+            triangle.close();
+            canvas.drawPath(triangle, paint);
+
+            paint.setColor(shadowColor);
+            triangle.reset();
+            triangle.moveTo(x, image.bottom);
+            triangle.lineTo(x - dp(5), image.bottom - dp(9));
+            triangle.lineTo(x + dp(5), image.bottom - dp(9));
+            triangle.close();
+            canvas.drawPath(triangle, paint);
+
+            paint.setColor(accentColor);
+            triangle.reset();
+            triangle.moveTo(x, image.bottom);
+            triangle.lineTo(x - dp(3), image.bottom - dp(6));
+            triangle.lineTo(x + dp(3), image.bottom - dp(6));
+            triangle.close();
+            canvas.drawPath(triangle, paint);
+            paint.setAlpha(255);
+        }
+
+        @Override public boolean onTouchEvent(android.view.MotionEvent event) {
+            if (getVisibility() != VISIBLE || preview == null) return false;
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    requestFocus();
+                    downX = event.getX();
+                    downY = event.getY();
+                    dragging = false;
+                    holding = false;
+                    // Keep the compare divider draggable while Scan is on.
+                    if (compare != null && compare.dividerHit(downX)) {
+                        forwarding = true;
+                        return compare.forwardTouch(event);
+                    }
+                    forwarding = false;
+                    handler.postDelayed(hold, android.view.ViewConfiguration.getLongPressTimeout());
+                    return true;
+                case android.view.MotionEvent.ACTION_MOVE:
+                    if (forwarding) return compare.forwardTouch(event);
+                    if (holding) return true;
+                    if (!dragging) {
+                        if (Math.abs(event.getX() - downX) < slop
+                                && Math.abs(event.getY() - downY) < slop) return true;
+                        dragging = true;
+                        handler.removeCallbacks(hold);
+                    }
+                    setFraction(fractionAt(event.getX()));
+                    return true;
+                case android.view.MotionEvent.ACTION_UP:
+                    if (forwarding) {
+                        forwarding = false;
+                        return compare.forwardTouch(event);
+                    }
+                    handler.removeCallbacks(hold);
+                    if (holding) {
+                        holding = false;
+                        if (compare != null) compare.endHold();
+                    } else if (!dragging) {
+                        setFraction(fractionAt(event.getX()));
+                    }
+                    dragging = false;
+                    return true;
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    if (forwarding) {
+                        forwarding = false;
+                        compare.forwardTouch(event);
+                        return true;
+                    }
+                    handler.removeCallbacks(hold);
+                    if (holding) {
+                        holding = false;
+                        if (compare != null) compare.endHold();
+                    }
+                    dragging = false;
+                    return true;
+                default:
+                    return true;
+            }
+        }
+
+        /** Arrow, Home, and End handling shared by the view and the Activity. */
+        boolean handleKey(int keyCode, boolean shift) {
+            if (getVisibility() != VISIBLE || preview == null) return false;
+            final float step = shift ? 0.05f : 0.01f;
+            switch (keyCode) {
+                case android.view.KeyEvent.KEYCODE_DPAD_LEFT:
+                    setFraction(fraction - step);
+                    return true;
+                case android.view.KeyEvent.KEYCODE_DPAD_RIGHT:
+                    setFraction(fraction + step);
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MOVE_HOME:
+                    setFraction(0f);
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MOVE_END:
+                    setFraction(1f);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        @Override public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
+            return handleKey(keyCode, event.isShiftPressed()) || super.onKeyDown(keyCode, event);
+        }
+
+        @Override public CharSequence getAccessibilityClassName() {
+            return android.widget.SeekBar.class.getName();
+        }
+
+        @Override public void onInitializeAccessibilityNodeInfo(
+                android.view.accessibility.AccessibilityNodeInfo info) {
+            super.onInitializeAccessibilityNodeInfo(info);
+            info.setClassName(android.widget.SeekBar.class.getName());
+            info.setRangeInfo(android.view.accessibility.AccessibilityNodeInfo.RangeInfo.obtain(
+                    android.view.accessibility.AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT,
+                    0f, 100f, fraction * 100f));
+            info.setContentDescription("扫描线，位置 " + Math.round(fraction * 100f)
+                    + "%，左右方向键移动");
+            if (getVisibility() == VISIBLE && preview != null) {
+                info.addAction(android.view.accessibility.AccessibilityNodeInfo
+                        .AccessibilityAction.ACTION_SCROLL_FORWARD);
+                info.addAction(android.view.accessibility.AccessibilityNodeInfo
+                        .AccessibilityAction.ACTION_SCROLL_BACKWARD);
+                info.addAction(android.view.accessibility.AccessibilityNodeInfo
+                        .AccessibilityAction.ACTION_SET_PROGRESS);
+            }
+        }
+
+        @Override public boolean performAccessibilityAction(int action, android.os.Bundle args) {
+            if (getVisibility() == VISIBLE && preview != null) {
+                if (action == android.view.accessibility.AccessibilityNodeInfo
+                        .ACTION_SCROLL_FORWARD) {
+                    setFraction(fraction + 0.01f);
+                    return true;
+                }
+                if (action == android.view.accessibility.AccessibilityNodeInfo
+                        .ACTION_SCROLL_BACKWARD) {
+                    setFraction(fraction - 0.01f);
+                    return true;
+                }
+                if (action == android.view.accessibility.AccessibilityNodeInfo
+                        .AccessibilityAction.ACTION_SET_PROGRESS.getId()) {
+                    final float target = args == null
+                            ? fraction * 100f
+                            : args.getFloat(android.view.accessibility.AccessibilityNodeInfo
+                                    .ACTION_ARGUMENT_PROGRESS_VALUE, fraction * 100f);
+                    setFraction(target / 100f);
+                    return true;
+                }
+            }
+            return super.performAccessibilityAction(action, args);
+        }
+
+        @Override protected void onDetachedFromWindow() {
+            handler.removeCallbacks(hold);
+            super.onDetachedFromWindow();
         }
     }
 
@@ -3919,11 +4504,16 @@ public class MainActivity extends Activity {
         dateText = null;
         // The frame's own look, stated before any session is built: a chip
         // returns to a photograph *and* to what was done to it; a pick from ＋
-        // starts with no film at all.
+        // starts with no film at all. Scan inspect belongs to the same Frame,
+        // so its position comes back with it.
         if (reopeningFrame) {
-            if (currentFrame >= 0 && currentFrame < frames.size())
-                applyLook(frames.get(currentFrame).look);
+            final Frame target = (currentFrame >= 0 && currentFrame < frames.size())
+                    ? frames.get(currentFrame) : null;
+            restoreScanStateFromFrame(target);
+            if (target != null) applyLook(target.look);
         } else {
+            saveScanStateIntoFrame();
+            restoreScanStateFromFrame(null);
             applyLook(defaultLook());
         }
         try {
