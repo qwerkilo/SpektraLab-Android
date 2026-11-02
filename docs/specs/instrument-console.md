@@ -95,6 +95,7 @@ The photograph remains the primary surface. The instrument readouts support it r
 - **Scale.** The Frame's long edge in millimetres, with the Gate that fits it. Choosing a scale chooses the matching Gate; the Frame and Rebate must not disagree.
 - **Edge.** Gate, Rebate, and date imprint. The Rebate and date imprint remain independent toggles with their existing engine parameters.
 - The readout strip and panels read from the same Look. No panel keeps a duplicate of a Look value.
+- **Spectral data delivery.** The stock-catalog generator bakes each stock's `data.wavelengths` and `data.log_sensitivity` from the shipped profile into the catalog. `data.log_sensitivity` is preferred because it is complete in the sampled profiles; `data.channel_density` is the density alternative and keeps its nulls as gaps. No JNI or engine accessor is added. A stock without samples shows an explicit unavailable state, never a fabricated curve.
 
 ### Scan inspect
 
