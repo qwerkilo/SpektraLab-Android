@@ -2,7 +2,9 @@
 
 **Type:** task
 **Blocked by:** 03, 04, 05, 06, 07, 08, 09
-**Status:** ready-for-agent
+**Status:** blocked
+
+**Blocker:** `10.110.67.69:35443` is unreachable (`adb connect` timeout 10060, no attached device), so the install, cold start, theme/dynamic-colour, rail, TalkBack, large-text, and 16 KB device checks cannot run. No emulator or system image is installed locally.
 
 **What to build:** The full M3 Console is audited on real devices and closed
 out against the spec. This is the only ticket that may claim the migration is

@@ -50,7 +50,8 @@ Look semantics, and the existing test seams stay intact.
   Device verification is still blocked because `10.110.67.69:35443` is offline.
 - **Implementation breakdown**: 02 tokens + phone shell, 03 rail, 04 film,
   05 optics, 06 scale/edge, 07 pickers, 08 curve, 09 scan/compare, 10 audit.
-  Only ticket 10 remains; it needs a reachable device.
+  Tickets 01–09 are merged on `feat/m3-spec`; only ticket 10 remains. It is
+  blocked because `10.110.67.69:35443` is offline and no emulator is installed.
 
 ## Not yet specified
 
