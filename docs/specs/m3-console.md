@@ -104,7 +104,10 @@ Adopt Material 3 as the control system while keeping the Console's identity:
 - **Shell.** A Material top app bar owns the wordmark, Theme mode, and Export.
   Phone widths use secondary tabs. Widths ≥600 dp use a navigation rail. Both
   reflect one `activeTab` value. `ConsoleLayout` remains the pure seam for the
-  breakpoint and column widths.
+  breakpoint and column widths. At the 600 dp floor the rail takes 80 dp and
+  the control column its 300 dp minimum, so the Frame column is 220 dp; the
+  spec records that consequence instead of carrying an unreachable 280 dp
+  stage floor. Wider windows return the surplus to the Frame.
 - **Panels.** Film chips/cards, Gate cards, optics sliders, paper pickers, and
   feedback migrate to Material components. The Look fields, defaults, ranges,
   and measured-value display do not change. Δ stays display-only.

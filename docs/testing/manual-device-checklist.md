@@ -22,6 +22,15 @@ Android version, and Theme mode.
 - [ ] Enable the system's reduced-motion setting, then select a stock: the full curve appears at once with no plotter sweep.
 - [ ] Light/dark toggle with a frame loaded: no white flash, no render, values survive.
 
+## Material 3
+
+- [ ] Android 12+ with dynamic colour on: the shell, readout strip, panel links, paper row, and compare divider follow the wallpaper scheme; the photographic stage and spectral R/G/B do not change.
+- [ ] Android 11 or older (or dynamic colour off): the brand fallback roles show the same layout with no missing or unreadable control.
+- [ ] TalkBack: tabs/rail announce selected state, film cards announce radio role and checked state, optics sliders announce their real range and value, and section actions announce buttons.
+- [ ] Large text (system font size at 200 %): readout values, optics labels, section heads, and sheet rows stay readable; no clipped or overlapping controls.
+- [ ] Pressed, focused, and disabled: tap and keyboard-focus a section link, film card, gate card, scan chip, and paper row; each shows an M3 state layer. Locked optics rows read disabled and expose that state.
+- [ ] Install the `align16k` APK on an Android 15/16 device with 16 KB pages; it launches with no page-size warning and opens a RAW.
+
 ## Exception and data
 
 - [ ] Import a truncated RAW; the user sees the E-11xx message and the app stays usable.
@@ -33,7 +42,7 @@ Android version, and Theme mode.
 ## Regression
 
 - [ ] Import a JPEG, enable Scan, switch Frame A→B→A; Scan fraction and visibility return.
-- [ ] Drag Scan while the film panel is open: the curve's mark follows the same 0–1 fraction; turn Scan off and the mark disappears.
+- [ ] Drag Scan while the film panel is open: the curve's mark follows the sampled wavelength, not the drag's horizontal fraction; grayscale clears the mark; turn Scan off and the mark disappears.
 - [ ] Filter to KODAK, switch Frame, and return; the filter stays KODAK.
 - [ ] Tap 重置当前页 while filtered and scrolled; the filter returns to 全部 and the shelf starts at the left.
 - [ ] Select a stock from another brand; it stays pinned first and remains selected.
