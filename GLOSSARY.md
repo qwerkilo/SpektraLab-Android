@@ -39,7 +39,7 @@ The emulsion chosen for a Look.
 _Avoid_: Film, negative, profile
 
 **Brand**:
-The maker family a Film stock belongs to: Kodak, Fujifilm, Ilford, CineStill, or Other. It is the shelf's filter, not a film format or a Look.
+The maker family a Film stock belongs to: Kodak, Fujifilm, Ilford, CineStill, or Other. The Film panel groups Film stocks by Brand; it is not a film format or a Look.
 _Avoid_: Series, line, maker filter, category
 
 **Reversal film** (反转片 / 幻灯):
@@ -47,7 +47,7 @@ A Film stock developed to a positive transparency. It is not printed onto paper 
 _Avoid_: Slide film, positive, transparency, chrome
 
 **Direct scan**:
-A Look that bypasses the Print stock because the developed film is scanned directly. Reversal film uses it; the paper row remains stored for the next negative Look but does not affect the result.
+The stage used for a Reversal film: the developed film is scanned instead of printed, so the Print stock does not affect the result.
 _Avoid_: Scan mode, no-paper, film scan
 
 **Print stock**:

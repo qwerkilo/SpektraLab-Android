@@ -21,7 +21,8 @@ force.
 Allow reversal stocks. A positive stock sends `scan_film: true` with the stock
 delta; a negative sends `false`. The Print stock stays in the Look for a later
 negative but does not affect the reversal result. The readout shows
-`DIRECT SCAN` and the film note says `REVERSAL · DIRECT SCAN · PAPER NOT USED`.
+`DIRECT SCAN` and the film note starts with
+`REVERSAL · DIRECT SCAN · PAPER NOT USED`.
 
 ## Decisions
 
@@ -46,7 +47,8 @@ negative but does not affect the reversal result. The readout shows
   the shipped catalogue.
 - Selecting KODAK shows 原图 plus only Kodak chips; selecting 全部 restores all.
 - The active stock remains visible and selected when another brand is chosen.
-- Selecting Fujifilm Provia 100F renders, shows POSITIVE, and reports
+- Selecting Fujifilm Provia 100F renders, shows POSITIVE (its chip reads
+  `REVERSAL · SCAN`), and its note starts with
   `REVERSAL · DIRECT SCAN · PAPER NOT USED`.
 - The paper readout reads `DIRECT SCAN` for a reversal Look.
 - `FilmBrandCheck` covers mapping, matching, labels, and counts.

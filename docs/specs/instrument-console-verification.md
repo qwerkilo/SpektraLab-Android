@@ -103,17 +103,17 @@ install and the scan overlay was not reopened afterwards.
 ## Film shelf and reversal follow-up
 
 - The Film panel now has a 48 dp brand facet above the stock chips, with counts
-  from the shipped catalogue. On the device it reads 全部 25, KODAK 17,
-  FUJIFILM 6, ILFORD 1, CINESTILL 1; selecting KODAK leaves 原图 plus the
+  from the shipped catalogue. On the device it reads 鍏ㄩ儴 25, KODAK 17,
+  FUJIFILM 6, ILFORD 1, CINESTILL 1; selecting KODAK leaves 鍘熷浘 plus the
   Kodak chips, and the selected stock is pinned first when it belongs to
   another brand.
 - Reversal stocks are allowed. Selecting Fujifilm Provia 100F renders with
   `scan_film: true`; the readout says `POSITIVE`, the note says
-  `REVERSAL · DIRECT SCAN · PAPER NOT USED`, and the preview completed at
-  1542×2048 with no engine error. The paper cell reads `DIRECT SCAN`.
-- `FilmBrandCheck` (26) covers brand mapping, matching, labels, and counts; all
+  `REVERSAL 路 DIRECT SCAN 路 PAPER NOT USED`, and the preview completed at
+  1542脳2048 with no engine error. The paper cell reads `DIRECT SCAN`.
+- `FilmBrandCheck` (30) covers brand mapping, matching, labels, and counts; all
   earlier checks still pass.
 - Final artifact: `app/build/SpektraLab-1.3.4-brands.apk`,
-  SHA-256 `ABBD361DECFD443BDD20FA10CD6A2E5F6D0476CA680B2D8C407D1161FE551FB1`.
+  SHA-256 `3892A52985BF517B49C2CEC642D3B45FFB2718A14C0A294DD107532DBC467D33`.
 - Not yet checked: exporting a reversal Look, the pinned-active chip across a
   real filter switch, and reset-on-import versus reset-on-reset.
