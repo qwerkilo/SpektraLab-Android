@@ -1,6 +1,5 @@
 package app.spektralab;
 
-import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -16,14 +15,22 @@ import android.widget.ScrollView;
 import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
 import app.spektralab.engine.SpektraLabEngine;
+import com.google.android.material.appbar.AppBarLayout;
+import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.color.DynamicColors;
+import com.google.android.material.color.MaterialColors;
+import com.google.android.material.tabs.TabLayout;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
-public class MainActivity extends Activity {
+public class MainActivity extends AppCompatActivity {
     private SpektraLabEngine engine;
     /** This GPU's limits, read once per engine. Drives the import cap and the export tiers. */
     private DeviceProbe probe = DeviceProbe.parse("{}");
@@ -341,10 +348,10 @@ public class MainActivity extends Activity {
     private volatile boolean pendingRender = false;
     private static final int PREVIEW_LONG_EDGE = 2048;
     private final List<View> formatCards = new ArrayList<>();
-    private static final int HEADER_HEIGHT_DP = 49;
+    private static final int HEADER_HEIGHT_DP = 64;
     private static final int READOUT_HEIGHT_DP = 52;
     private static final int SOURCE_HEIGHT_DP = 54;
-    private static final int TABS_HEIGHT_DP = 49;
+    private static final int TABS_HEIGHT_DP = 48;
     /** 48 dp sliders plus their labels need more than the old 232 dp panel.
      *  The brand row adds 48 dp; 292 leaves 4 dp for density rounding. */
     private static final int PANEL_HEIGHT_DP = 304;
@@ -363,11 +370,13 @@ public class MainActivity extends Activity {
 
     private static final String[] TAB_NAMES = {"胶片", "光学", "尺度", "边框"};
     private static final String[] TAB_ENGLISH = {"FILM", "OPTICS", "SCALE", "EDGE"};
-    private final View[] tabCells = new View[4];
-    private final View[] tabBars = new View[4];
-    private final TextView[] tabLabels = new TextView[4];
-    private final TextView[] tabIndices = new TextView[4];
-    private final TextView[] tabEnglish = new TextView[4];
+    private TabLayout tabLayout;
+    /** True while a rebuild selects a tab programmatically; the listener must
+     *  not treat that as a user gesture. */
+    private boolean suppressTabSelection = false;
+    /** When the last real touch landed on a tab. A layout pass can dispatch a
+     *  reselect while the window changes size; that is not a collapse gesture. */
+    private long lastTabTouchAt = 0L;
     private android.widget.FrameLayout uiRoot;
     private TextView inAppToast;
     private final Runnable hideUiToast = () -> {
@@ -397,10 +406,10 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Resolve the stored Theme mode before the Activity window is built.
-     * {@code AppTheme_Dark} exists in res/values/themes.xml as the launch-only
-     * mirror of the dark palette; a missing style falls back to the manifest
-     * theme instead of crashing.
+     * Resolve the stored Theme mode before the Activity window is built. The
+     * theme is applied here and again on every in-place theme switch; dynamic
+     * colour is re-applied after each setTheme so the overlay follows the
+     * Console's own light/dark choice, not the system's night mode.
      */
     private void applyLaunchTheme() {
         try {
@@ -410,22 +419,25 @@ public class MainActivity extends Activity {
             themeMode = ThemeMode.LIGHT;
         }
         palette = themeMode.palette();
+        applyTheme(themeMode);
+    }
+
+    private void applyTheme(ThemeMode mode) {
         try {
-            final String name = themeMode == ThemeMode.DARK ? "AppTheme_Dark" : "AppTheme";
-            final int id = getResources().getIdentifier(name, "style", getPackageName());
-            if (id != 0) {
-                setTheme(id);
-            } else {
-                // The staged res tree may not have been refreshed yet. Fall
-                // back to the framework's own light/dark window rather than
-                // starting a dark session on a light surface.
-                setTheme(themeMode == ThemeMode.DARK
-                        ? android.R.style.Theme_Material_NoActionBar
-                        : android.R.style.Theme_Material_Light_NoActionBar);
+            setTheme(mode == ThemeMode.DARK ? R.style.AppTheme_Dark : R.style.AppTheme);
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                DynamicColors.applyToActivityIfAvailable(this);
             }
         } catch (Throwable t) {
-            DebugSink.text("theme", "launch style: " + t);
+            DebugSink.text("theme", "apply style: " + t);
         }
+    }
+
+    /** The M3 surface role, resolved from the active theme (dynamic on API 31+). */
+    private int m3Surface() {
+        return MaterialColors.getColor(this,
+                com.google.android.material.R.attr.colorSurface,
+                palette.color(Palette.Role.SYSTEM_BAR_BACKGROUND));
     }
 
     /** The window behind the first frame, so the launch never flashes paper in dark. */
@@ -442,9 +454,10 @@ public class MainActivity extends Activity {
     private void applySystemBars() {
         try {
             getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-            // The Console header sits under the status bar, so the bar is the
-            // page, not the stage. Its glyphs follow that surface.
-            getWindow().setStatusBarColor(palette.color(Palette.Role.SYSTEM_BAR_BACKGROUND));
+            // The M3 top app bar owns the status-bar edge; the navigation bar
+            // sits behind the page, which is still Palette until the panels
+            // migrate to M3 surfaces.
+            getWindow().setStatusBarColor(m3Surface());
             getWindow().setNavigationBarColor(palette.color(Palette.Role.SYSTEM_BAR_BACKGROUND));
             final boolean lightBars = !palette.isDark();
             if (android.os.Build.VERSION.SDK_INT >= 30) {
@@ -476,6 +489,7 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             DebugSink.text("theme", "save: " + t);
         }
+        applyTheme(next);
         rebuildForTheme();
     }
 
@@ -720,18 +734,6 @@ public class MainActivity extends Activity {
         View v = new View(this);
         v.setBackgroundColor(color);
         return v;
-    }
-
-    /** clamp(30px, 8.6vw, 39px) */
-    private float wordmarkSp() {
-        float w = getResources().getConfiguration().screenWidthDp;
-        return Math.max(30f, Math.min(39f, 0.086f * w));
-    }
-
-    /** clamp(35px, 10.5vw, 48px) */
-    private float emptyTitleSp() {
-        float w = getResources().getConfiguration().screenWidthDp;
-        return Math.max(35f, Math.min(48f, 0.105f * w));
     }
 
     private void applySystemInsets(final View root) {
@@ -1271,57 +1273,36 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * The Console header: brand, Theme mode, and export sit on the page, not
-     * over the photograph. The bar under it is the only chrome on this row.
+     * The M3 small top app bar: the wordmark, Theme mode, and Export. It owns
+     * the control scheme's surface; the photograph and its readouts stay below
+     * on the Palette stage.
      */
     private View buildHeader() {
-        LinearLayout outer = new LinearLayout(this);
-        outer.setOrientation(LinearLayout.VERTICAL);
-        outer.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
-
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(14), 0, dp(8), 0);
-
-        LinearLayout brand = new LinearLayout(this);
-        brand.setOrientation(LinearLayout.HORIZONTAL);
-        brand.setGravity(android.view.Gravity.BOTTOM);
-        TextView word = label("SpektraLab", 18, palette.color(Palette.Role.INK), tfDisplay);
-        word.setLetterSpacing(-0.045f);
-        word.setSingleLine(true);
-        word.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        word.setOnLongClickListener(v -> { showAbout(); return true; });
-        brand.addView(word, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView console = label("/ CONSOLE", 6.5f,
-                palette.color(Palette.Role.MUTED_INK), tfBody);
-        console.setLetterSpacing(0.14f);
-        console.setSingleLine(true);
-        LinearLayout.LayoutParams consoleLp = new LinearLayout.LayoutParams(-2, -2);
-        consoleLp.leftMargin = dp(6);
-        consoleLp.bottomMargin = dp(3);
-        brand.addView(console, consoleLp);
-        header.addView(brand, new LinearLayout.LayoutParams(0, -2, 1f));
-
-        // Theme mode. The chip shows the active mode; the touch target around
-        // it is 48 dp even though the chip is 30.
         final boolean dark = themeMode == ThemeMode.DARK;
-        TextView themeChip = mixedLabel(dark ? "暗 DARK" : "亮 LIGHT", 7.5f,
-                palette.color(Palette.Role.INK));
-        themeChip.setGravity(android.view.Gravity.CENTER);
-        themeChip.setLetterSpacing(0.06f);
-        android.graphics.drawable.GradientDrawable themeBg =
-                new android.graphics.drawable.GradientDrawable();
-        themeBg.setColor(palette.color(Palette.Role.SURFACE_ELEVATED));
-        themeBg.setStroke(Math.max(1, dp(1)), palette.color(Palette.Role.LINE));
-        themeBg.setCornerRadius(dp(99));
-        themeChip.setBackground(themeBg);
-        themeChip.setPadding(dp(11), 0, dp(11), 0);
-        final android.widget.FrameLayout themeTouch = touchTarget(themeChip, 58);
-        themeTouch.setContentDescription(dark
-                ? "当前深色主题，点击切换到浅色"
-                : "当前浅色主题，点击切换到深色");
-        themeTouch.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+
+        final AppBarLayout appBar = new AppBarLayout(this);
+        appBar.setElevation(0);
+        appBar.setLiftOnScroll(false);
+
+        final MaterialToolbar toolbar = new MaterialToolbar(this);
+        toolbar.setTitle(typed("SpektraLab", tfDisplay));
+        toolbar.setSubtitle(mixedText("/ CONSOLE"));
+        toolbar.setLongClickable(true);
+        toolbar.setOnLongClickListener(v -> { showAbout(); return true; });
+
+        final LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        sharePill = actionButton(mixedText("分享"), "分享最近一次导出");
+        sharePill.setVisibility(View.GONE);
+        sharePill.setOnClickListener(v -> shareLastExport());
+        actions.addView(sharePill, actionButtonParams());
+
+        final MaterialButton themeButton = actionButton(
+                mixedText(dark ? "暗 DARK" : "亮 LIGHT"),
+                dark ? "当前深色主题，点击切换到浅色" : "当前浅色主题，点击切换到深色");
+        themeButton.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(
                     View host, android.view.accessibility.AccessibilityNodeInfo info) {
                 super.onInitializeAccessibilityNodeInfo(host, info);
@@ -1330,50 +1311,59 @@ public class MainActivity extends Activity {
                 info.setChecked(dark);
             }
         });
-        themeTouch.setOnClickListener(v -> toggleTheme());
-        header.addView(themeTouch, new LinearLayout.LayoutParams(-2, dp(48)));
+        themeButton.setOnClickListener(v -> toggleTheme());
+        actions.addView(themeButton, actionButtonParams());
 
-        sharePill = label("分享", 9, palette.color(Palette.Role.ACCENT), tfHan);
-        sharePill.setGravity(android.view.Gravity.CENTER);
-        android.graphics.drawable.GradientDrawable shareBg = new android.graphics.drawable.GradientDrawable();
-        shareBg.setColor(palette.color(Palette.Role.SURFACE_ELEVATED));
-        shareBg.setAlpha(220);
-        shareBg.setCornerRadius(dp(99));
-        sharePill.setBackground(shareBg);
-        sharePill.setPadding(dp(11), 0, dp(11), 0);
-        sharePill.setVisibility(View.GONE);
-        sharePill.setOnClickListener(v -> shareLastExport());
-        LinearLayout.LayoutParams shareLp = new LinearLayout.LayoutParams(-2, dp(30));
-        shareLp.rightMargin = dp(6);
-        header.addView(sharePill, shareLp);
+        final MaterialButton export = actionButton(mixedText("导出"), "导出 EXPORT 照片");
+        export.setOnClickListener(v -> showExportDialog());
+        actions.addView(export, actionButtonParams());
 
-        // Export carries a rule, like the prototype's underlined command. The
-        // rule is the accent; the word stays ink-dark for contrast.
-        LinearLayout exportCol = new LinearLayout(this);
-        exportCol.setOrientation(LinearLayout.VERTICAL);
-        exportCol.setGravity(android.view.Gravity.CENTER);
-        TextView exportText = mixedLabel("导出 EXPORT", 7.5f,
-                palette.color(Palette.Role.ACCENT));
-        exportText.setLetterSpacing(0.06f);
-        exportText.setSingleLine(true);
-        exportCol.addView(exportText);
-        View exportRule = new View(this);
-        exportRule.setBackgroundColor(palette.color(Palette.Role.ACCENT));
-        // A deliberate rule width keeps this WRAP_CONTENT column from
-        // measuring to the header's whole remaining width through a
-        // MATCH_PARENT child, which used to starve the weighted brand.
-        LinearLayout.LayoutParams ruleLp = new LinearLayout.LayoutParams(dp(56), dp(1));
-        ruleLp.topMargin = dp(3);
-        exportCol.addView(exportRule, ruleLp);
-        final android.widget.FrameLayout exportTouch = touchTarget(exportCol, 66);
-        exportTouch.setContentDescription("导出照片");
-        exportTouch.setOnClickListener(v -> showExportDialog());
-        header.addView(exportTouch, new LinearLayout.LayoutParams(-2, dp(48)));
+        toolbar.addView(actions, new Toolbar.LayoutParams(
+                -2, dp(48), android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL));
+        appBar.addView(toolbar, new AppBarLayout.LayoutParams(-1, -1));
+        return appBar;
+    }
 
-        outer.addView(header, new LinearLayout.LayoutParams(-1, 0, 1f));
-        outer.addView(hairline(palette.color(Palette.Role.LINE)),
-                new LinearLayout.LayoutParams(-1, dp(1)));
-        return outer;
+    /** A top app bar action: the real M3 text-button style, 48 dp tall. */
+    private MaterialButton actionButton(CharSequence text, String description) {
+        final MaterialButton button = new MaterialButton(this);
+        button.setText(text);
+        button.setAllCaps(false);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setInsetTop(0);
+        button.setInsetBottom(0);
+        button.setPadding(dp(12), 0, dp(12), 0);
+        button.setGravity(android.view.Gravity.CENTER);
+        button.setSingleLine(true);
+        button.setContentDescription(description);
+        return button;
+    }
+
+    private LinearLayout.LayoutParams actionButtonParams() {
+        return new LinearLayout.LayoutParams(-2, dp(48));
+    }
+
+    /** A run with one family, for the wordmark's Inter Light. */
+    private CharSequence typed(String text, Typeface face) {
+        final android.text.SpannableString span = new android.text.SpannableString(text);
+        span.setSpan(new TfSpan(face), 0, span.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return span;
+    }
+
+    /** Text inside a Material component: one M3 type role, brand families. */
+    private void applyTypeface(android.view.View root, Typeface face) {
+        if (root instanceof TextView) {
+            ((TextView) root).setTypeface(face);
+            return;
+        }
+        if (root instanceof android.view.ViewGroup) {
+            final android.view.ViewGroup group = (android.view.ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); ++i) {
+                applyTypeface(group.getChildAt(i), face);
+            }
+        }
     }
 
     /** A 48 dp touch target around a smaller visual control. */
@@ -2819,90 +2809,61 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Four tabs, each with an index and the project's own name. The active tab
-     * carries a soft accent field, an accent rule, and a selected state for
-     * accessibility services -- three signals for one state.
+     * The four phone workspaces use Material secondary tabs: one selected
+     * indicator, 48 dp targets, and the selected state exposed by TabLayout
+     * itself. The panel below is owned by {@link #setTab(int)}.
      */
     private View buildTabs() {
-        LinearLayout outer = new LinearLayout(this);
-        outer.setOrientation(LinearLayout.VERTICAL);
-        outer.setBackgroundColor(palette.color(Palette.Role.SURFACE));
-        outer.addView(hairline(palette.color(Palette.Role.LINE)),
-                new LinearLayout.LayoutParams(-1, dp(1)));
+        tabLayout = new TabLayout(this);
+        tabLayout.setTabMode(TabLayout.MODE_FIXED);
+        tabLayout.setTabGravity(TabLayout.GRAVITY_FILL);
+        tabLayout.setSelectedTabIndicatorColor(MaterialColors.getColor(this,
+                com.google.android.material.R.attr.colorPrimary,
+                palette.color(Palette.Role.ACCENT)));
 
-        LinearLayout tabs = new LinearLayout(this);
-        tabs.setOrientation(LinearLayout.HORIZONTAL);
         for (int i = 0; i < TAB_NAMES.length; ++i) {
-            final int index = i;
-            android.widget.FrameLayout cell = new android.widget.FrameLayout(this);
-            cell.setFocusable(true);
-            cell.setContentDescription(TAB_NAMES[i] + " " + TAB_ENGLISH[i]);
-            cell.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-                @Override public void onInitializeAccessibilityNodeInfo(
-                        View host, android.view.accessibility.AccessibilityNodeInfo info) {
-                    super.onInitializeAccessibilityNodeInfo(host, info);
-                    info.setSelected(index == activeTabIndex);
-                    info.setCollectionItemInfo(
-                            android.view.accessibility.AccessibilityNodeInfo
-                                    .CollectionItemInfo.obtain(0, 1, index, 1, false));
+            final TabLayout.Tab tab = tabLayout.newTab()
+                    .setText(TAB_NAMES[i])
+                    .setContentDescription(TAB_NAMES[i] + " " + TAB_ENGLISH[i]);
+            tabLayout.addTab(tab, i, i == 0);
+            tab.view.setMinimumHeight(dp(48));
+            tab.view.setOnTouchListener((v, event) -> {
+                if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+                    lastTabTouchAt = android.os.SystemClock.uptimeMillis();
                 }
+                return false;
             });
-
-            LinearLayout content = new LinearLayout(this);
-            content.setOrientation(LinearLayout.HORIZONTAL);
-            content.setGravity(android.view.Gravity.CENTER);
-            content.setClickable(false);
-            TextView number = label(String.format(java.util.Locale.US, "%02d", i + 1),
-                    6.5f, palette.color(Palette.Role.MUTED_INK), tfBody);
-            number.setLetterSpacing(0.1f);
-            number.setSingleLine(true);
-            LinearLayout.LayoutParams numberLp = new LinearLayout.LayoutParams(-2, -2);
-            numberLp.rightMargin = dp(5);
-            content.addView(number, numberLp);
-
-            TextView name = label(TAB_NAMES[i], 10.5f,
-                    palette.color(Palette.Role.MUTED_INK), tfHan);
-            name.setSingleLine(true);
-            LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(-2, -2);
-            nameLp.rightMargin = dp(4);
-            content.addView(name, nameLp);
-
-            TextView english = label(TAB_ENGLISH[i], 6.5f,
-                    palette.color(Palette.Role.MUTED_INK), tfBody);
-            english.setLetterSpacing(0.08f);
-            english.setSingleLine(true);
-            content.addView(english);
-            cell.addView(content, new android.widget.FrameLayout.LayoutParams(
-                    -2, -2, android.view.Gravity.CENTER));
-
-            View bar = new View(this);
-            bar.setBackgroundColor(palette.color(Palette.Role.ACCENT));
-            bar.setVisibility(View.INVISIBLE);
-            cell.addView(bar, new android.widget.FrameLayout.LayoutParams(
-                    dp(30), dp(2), android.view.Gravity.BOTTOM
-                            | android.view.Gravity.CENTER_HORIZONTAL));
-            cell.setOnClickListener(v -> onTabClicked(index));
-
-            tabs.addView(cell, new LinearLayout.LayoutParams(0, -1, 1f));
-            tabCells[i] = cell;
-            tabBars[i] = bar;
-            tabLabels[i] = name;
-            tabIndices[i] = number;
-            tabEnglish[i] = english;
+            // The tab text appearance is the M3 title-small role; the family
+            // stays OPPOSans for the Chinese labels.
+            applyTypeface(tab.view, tfHan);
         }
-        outer.addView(tabs, new LinearLayout.LayoutParams(-1, 0, 1f));
-        return outer;
-    }
 
-    private void onTabClicked(int index) {
-        if (index == activeTabIndex) {
-            setPanelCollapsed(!panelCollapsed);
-            showInAppToast(panelCollapsed ? "参数面板已收起，再点当前页签展开" : "参数面板已展开");
-        } else {
-            activeTabIndex = index;
-            setTab(index);
-            setPanelCollapsed(false);
-        }
+        tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override public void onTabSelected(TabLayout.Tab tab) {
+                if (suppressTabSelection) return;
+                final int index = tab.getPosition();
+                if (index == activeTabIndex) return;
+                setTab(index);
+                setPanelCollapsed(false);
+            }
+
+            @Override public void onTabUnselected(TabLayout.Tab tab) { }
+
+            @Override public void onTabReselected(TabLayout.Tab tab) {
+                if (suppressTabSelection) return;
+                // A real tap just set lastTabTouchAt; a reselect from a layout
+                // pass must not expand the panel the user collapsed. Keyboard,
+                // switch-access, and TalkBack activation carry focus instead.
+                final boolean activated = tab.view.isPressed()
+                        || tab.view.isFocused()
+                        || tab.view.isAccessibilityFocused()
+                        || android.os.SystemClock.uptimeMillis() - lastTabTouchAt <= 500L;
+                if (!activated) return;
+                setPanelCollapsed(!panelCollapsed);
+                showInAppToast(panelCollapsed ? "参数面板已收起，再点当前页签展开" : "参数面板已展开");
+            }
+        });
+        return tabLayout;
     }
 
     private void setPanelCollapsed(boolean collapsed) {
@@ -3730,26 +3691,18 @@ public class MainActivity extends Activity {
         final int previous = activeTabIndex;
         activeTabIndex = active;
         for (int i = 0; i < panels.length; ++i) {
-            final boolean on = i == active;
-            panels[i].setVisibility(on ? View.VISIBLE : View.GONE);
-            tabBars[i].setVisibility(on ? View.VISIBLE : View.INVISIBLE);
-            if (tabCells[i] != null) {
-                android.graphics.drawable.GradientDrawable bg =
-                        new android.graphics.drawable.GradientDrawable();
-                bg.setColor(palette.color(on
-                        ? Palette.Role.ACCENT_SOFT : Palette.Role.SURFACE));
-                bg.setCornerRadius(dp(2));
-                tabCells[i].setBackground(bg);
-                tabCells[i].setSelected(on);
-                tabCells[i].setContentDescription(TAB_NAMES[i] + " " + TAB_ENGLISH[i]
-                        + (on ? "，已选中" : ""));
+            panels[i].setVisibility(i == active ? View.VISIBLE : View.GONE);
+        }
+        if (tabLayout != null) {
+            final TabLayout.Tab tab = tabLayout.getTabAt(active);
+            if (tab != null && tabLayout.getSelectedTabPosition() != active) {
+                suppressTabSelection = true;
+                try {
+                    tabLayout.selectTab(tab, false);
+                } finally {
+                    suppressTabSelection = false;
+                }
             }
-            if (tabLabels[i] != null) tabLabels[i].setTextColor(palette.color(on
-                    ? Palette.Role.INK : Palette.Role.MUTED_INK));
-            if (tabIndices[i] != null) tabIndices[i].setTextColor(palette.color(on
-                    ? Palette.Role.ACCENT : Palette.Role.MUTED_INK));
-            if (tabEnglish[i] != null) tabEnglish[i].setTextColor(palette.color(on
-                    ? Palette.Role.ACCENT : Palette.Role.MUTED_INK));
         }
         if (uiReady && previous != active && active >= 0 && active < panels.length) {
             final int duration = motionDuration(170);
