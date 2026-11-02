@@ -39,6 +39,7 @@ public final class M3TokenCheck {
                 requireTheme("AppTheme.Dark", styles.get("AppTheme.Dark"), colors);
 
         requiredRoles();
+        dynamicOverlays(styles);
         contrast(light, "light");
         contrast(dark, "dark");
         distinctModes(light, dark);
@@ -106,8 +107,21 @@ public final class M3TokenCheck {
         return resolved;
     }
 
-    private static void contrast(Map<M3Tokens.ColorRole, Integer> c, String mode) {
-        pair(c, mode, M3Tokens.ColorRole.ON_PRIMARY,
+    /**
+     * The app's own Theme mode chooses the dynamic overlay, not the system's
+     * night mode: a light Console must stay light on a dark system, and vice
+     * versa. On API 24–30 the same theme uses the brand fallback instead.
+     */
+    private static void dynamicOverlays(Map<String, Map<String, String>> styles) {
+        final String light = styles.get("AppTheme").get("dynamicColorThemeOverlay");
+        final String dark = styles.get("AppTheme.Dark").get("dynamicColorThemeOverlay");
+        require("AppTheme applies the light dynamic overlay",
+                "@style/ThemeOverlay.Material3.DynamicColors.Light".equals(light));
+        require("AppTheme.Dark applies the dark dynamic overlay",
+                "@style/ThemeOverlay.Material3.DynamicColors.Dark".equals(dark));
+    }
+
+    private static void contrast(Map<M3Tokens.ColorRole, Integer> c, String mode) {        pair(c, mode, M3Tokens.ColorRole.ON_PRIMARY,
                 M3Tokens.ColorRole.PRIMARY, M3Tokens.BODY_CONTRAST);
         pair(c, mode, M3Tokens.ColorRole.ON_PRIMARY_CONTAINER,
                 M3Tokens.ColorRole.PRIMARY_CONTAINER, M3Tokens.BODY_CONTRAST);
