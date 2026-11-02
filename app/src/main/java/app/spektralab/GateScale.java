@@ -61,6 +61,21 @@ public final class GateScale {
             new Gate("120_6x17", "6×17", 168f, 168.0 / 56.0),
     };
 
+    /**
+     * A resolved Scale/Gate pair: the shipped Gate and the edge it measured.
+     * The two fields always agree, so a caller cannot send one without the
+     * other.
+     */
+    public static final class Pair {
+        public final Gate gate;
+        public final float longEdgeMm;
+
+        private Pair(Gate gate) {
+            this.gate = gate;
+            this.longEdgeMm = gate.longEdgeMm;
+        }
+    }
+
     private static final List<Gate> ALL = Collections.unmodifiableList(Arrays.asList(GATES));
 
     private GateScale() {
@@ -104,6 +119,16 @@ public final class GateScale {
             return gate;
         }
         return forLongEdge(longEdgeMm);
+    }
+
+    /**
+     * The one pair the Scale and Edge controls send to the engine. A stored
+     * Gate and Scale that disagree -- the old 170, 120, and 70 mm pages -- are
+     * pulled onto the Gate's measured edge; a missing or unknown Gate falls
+     * back to the Gate for the Scale.
+     */
+    public static Pair pair(String gateId, float longEdgeMm) {
+        return new Pair(resolve(gateId, longEdgeMm));
     }
 
     /** The shipped Gate whose measured long edge is closest to {@code longEdgeMm}. */

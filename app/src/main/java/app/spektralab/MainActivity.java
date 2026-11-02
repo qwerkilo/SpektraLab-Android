@@ -1,11 +1,13 @@
 package app.spektralab;
 
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
@@ -21,8 +23,13 @@ import app.spektralab.engine.SpektraLabEngine;
 import com.google.android.material.appbar.AppBarLayout;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.chip.Chip;
 import com.google.android.material.color.DynamicColors;
 import com.google.android.material.color.MaterialColors;
+import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.navigation.NavigationBarView;
+import com.google.android.material.navigationrail.NavigationRailView;
 import com.google.android.material.slider.Slider;
 import com.google.android.material.tabs.TabLayout;
 import java.io.InputStream;
@@ -165,8 +172,9 @@ public class MainActivity extends AppCompatActivity {
     private float scanFraction = ScanSample.DEFAULT_FRACTION;
     private boolean scanVisible = false;
     private ScanOverlayView scanOverlay;
-    private TextView scanToggleChip, scanReadoutRgb, scanReadoutLambda;
-    private View scanToggleTouch, scanReadout;
+    private Chip scanToggleChip;
+    private TextView scanReadoutRgb, scanReadoutLambda;
+    private MaterialCardView scanReadout;
 
     private Typeface tfDisplay;      // Inter 300 — numbers and the wordmark
     private Typeface tfBody;         // Inter 400 — Latin labels
@@ -192,7 +200,9 @@ public class MainActivity extends AppCompatActivity {
     private String overscanFormat = "135";
     private boolean dateOn = false;
     private String dateText = null;
-    private Square overscanMark, dateMark;
+    private MaterialSwitch overscanSwitch, dateSwitch;
+    /** True while a Look restore sets switch state; the listener must not render. */
+    private boolean syncingToggles = false;
     /** The date back's own line: the text shown while the imprint is on. */
     private TextView dateDetail;
     /** The Edge toggles, kept so a Look restore can resync their checked state. */
@@ -374,10 +384,15 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String[] TAB_NAMES = {"胶片", "光学", "尺度", "边框"};
     private static final String[] TAB_ENGLISH = {"FILM", "OPTICS", "SCALE", "EDGE"};
+    /** The rail menu ids, in the same order as the phone tabs. */
+    private static final int[] TAB_ITEM_IDS = {
+            R.id.nav_film, R.id.nav_optics, R.id.nav_scale, R.id.nav_edge};
     private TabLayout tabLayout;
-    /** True while a rebuild selects a tab programmatically; the listener must
-     *  not treat that as a user gesture. */
-    private boolean suppressTabSelection = false;
+    /** The tablet navigation rail; it and the phone tabs share `activeTabIndex`. */
+    private NavigationRailView navigationRail;
+    /** True while a rebuild or a rail/tab sync selects a workspace; the
+     *  listener must not treat that as a user gesture. */
+    private boolean suppressWorkspaceSelection = false;
     /** When the last real touch landed on a tab. A layout pass can dispatch a
      *  reselect while the window changes size; that is not a collapse gesture. */
     private long lastTabTouchAt = 0L;
@@ -445,23 +460,29 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** A control colour from the active M3 scheme, with a Palette safety net. */
-    private int m3Color(int attr, int fallback) {
-        return MaterialColors.getColor(this, attr, fallback);
-    }
-
     private int m3OnSurface() {
-        return m3Color(com.google.android.material.R.attr.colorOnSurface,
-                palette.color(Palette.Role.INK));
+        return m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
     }
 
     private int m3OnSurfaceVariant() {
-        return m3Color(com.google.android.material.R.attr.colorOnSurfaceVariant,
-                palette.color(Palette.Role.MUTED_INK));
+        return m3Role(com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
     }
 
     private int m3Primary() {
-        return m3Color(com.google.android.material.R.attr.colorPrimary,
-                palette.color(Palette.Role.ACCENT));
+        return m3Role(com.google.android.material.R.attr.colorPrimary, Palette.Role.ACCENT);
+    }
+
+    /** A control colour role, with the Palette only as the pre-theme fallback. */
+    private int m3Role(int attr, Palette.Role fallback) {
+        return MaterialColors.getColor(this, attr, palette.color(fallback));
+    }
+
+    /** A two-state colour for a real checkable control (checked, then default). */
+    private static android.content.res.ColorStateList checkedColors(int checked, int unchecked) {
+        return new android.content.res.ColorStateList(
+                new int[][] { { android.R.attr.state_checked }, {} },
+                new int[] { checked, unchecked });
     }
 
     /** The window behind the first frame, so the launch never flashes paper in dark. */
@@ -628,9 +649,21 @@ public class MainActivity extends AppCompatActivity {
      * foldable resize or a rotation does not rebuild the Frame or its Look.
      */
     private void applyResponsiveLayout(boolean wide, int widthDp) {
-        if (body == null || mainCol == null || controls == null || panelHolder == null) return;
+        if (body == null || mainCol == null || controls == null || panelHolder == null
+                || navigationRail == null) return;
         wideLayout = wide;
         body.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+
+        // The M3 navigation rail takes the leading edge only on a wide window;
+        // the phone keeps the secondary tabs under the stage.
+        LinearLayout.LayoutParams railLp =
+                (LinearLayout.LayoutParams) navigationRail.getLayoutParams();
+        railLp.width = dp(ConsoleLayout.railWidthDp(widthDp));
+        railLp.height = -1;
+        railLp.weight = 0f;
+        navigationRail.setLayoutParams(railLp);
+        navigationRail.setVisibility(wide ? View.VISIBLE : View.GONE);
+        if (tabLayout != null) tabLayout.setVisibility(wide ? View.GONE : View.VISIBLE);
 
         LinearLayout.LayoutParams mainLp = (LinearLayout.LayoutParams) mainCol.getLayoutParams();
         mainLp.width = wide ? 0 : -1;
@@ -1103,6 +1136,10 @@ public class MainActivity extends AppCompatActivity {
         body.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
         app.addView(body, new LinearLayout.LayoutParams(-1, 0, 1f));
 
+        navigationRail = buildNavigationRail();
+        body.addView(navigationRail, new LinearLayout.LayoutParams(
+                dp(ConsoleLayout.RAIL_WIDTH_DP), -1));
+
         mainCol = new LinearLayout(this);
         mainCol.setOrientation(LinearLayout.VERTICAL);
         mainCol.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
@@ -1178,10 +1215,10 @@ public class MainActivity extends AppCompatActivity {
         addScanControls(stage);
         // TalkBack reaches the scan line after the chip that turns it on,
         // even though the overlay was added before the corner controls.
-        if (scanToggleTouch != null) {
-            scanToggleTouch.setId(View.generateViewId());
+        if (scanToggleChip != null) {
+            scanToggleChip.setId(View.generateViewId());
             scanOverlay.setId(View.generateViewId());
-            scanOverlay.setAccessibilityTraversalAfter(scanToggleTouch.getId());
+            scanOverlay.setAccessibilityTraversalAfter(scanToggleChip.getId());
         }
 
         shelfHandle = buildShelfHandle();
@@ -1388,16 +1425,6 @@ public class MainActivity extends AppCompatActivity {
                 applyTypeface(group.getChildAt(i), face);
             }
         }
-    }
-
-    /** A 48 dp touch target around a smaller visual control. */
-    private android.widget.FrameLayout touchTarget(View content, int minWidthDp) {
-        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
-        box.setMinimumWidth(dp(minWidthDp));
-        box.setFocusable(true);
-        box.addView(content, new android.widget.FrameLayout.LayoutParams(
-                -2, -2, android.view.Gravity.CENTER));
-        return box;
     }
 
     /**
@@ -1647,64 +1674,107 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Scan inspect's two controls: a small toggle under the file readout, and
-     * a readout above the shelf handle. The readout is deliberately away from
-     * the print-exposure corner, the status line, and the folded shelf so the
-     * three never share a corner.
+     * Scan inspect's two controls: a checkable M3 chip under the file readout,
+     * and an M3 filled-card readout above the shelf handle. The readout is
+     * deliberately away from the print-exposure corner, the status line, and
+     * the folded shelf so the three never share a corner.
      */
     private void addScanControls(android.widget.FrameLayout stage) {
-        scanToggleChip = mixedLabel("SCAN · 扫描", 7.5f,
-                palette.color(Palette.Role.STAGE_INK));
-        scanToggleChip.setGravity(android.view.Gravity.CENTER);
-        scanToggleChip.setLetterSpacing(0.06f);
-        scanToggleChip.setSingleLine(true);
-        scanToggleChip.setPadding(dp(12), 0, dp(12), 0);
-        scanToggleTouch = touchTarget(scanToggleChip, 92);
-        scanToggleTouch.setOnClickListener(v -> toggleScan());
+        final int chipSurface = scanColor(
+                com.google.android.material.R.attr.colorSurfaceContainerLow,
+                Palette.Role.SURFACE_ELEVATED);
+        final int chipSelected = scanColor(
+                com.google.android.material.R.attr.colorSecondaryContainer,
+                Palette.Role.ACCENT_SOFT);
+        final int chipText = scanColor(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+        final int chipTextSelected = scanColor(
+                com.google.android.material.R.attr.colorOnSecondaryContainer,
+                Palette.Role.ACCENT);
+        final int chipOutline = scanColor(
+                com.google.android.material.R.attr.colorOutlineVariant,
+                Palette.Role.LINE);
+        final Chip chip = new Chip(this, null,
+                com.google.android.material.R.attr.chipStyle);
+        chip.setCheckable(true);
+        chip.setCheckedIconVisible(false);
+        chip.setChipIconVisible(false);
+        chip.setEnsureMinTouchTargetSize(true);
+        chip.setText(mixedText("SCAN · 扫描"));
+        chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
+                M3Tokens.TypeRole.LABEL_LARGE.sizeSp);
+        chip.setGravity(android.view.Gravity.CENTER);
+        chip.setSingleLine(true);
+        chip.setChipBackgroundColor(scanCheckedColors(chipSelected, chipSurface));
+        chip.setChipStrokeWidth(Math.max(1, dp(1)));
+        chip.setChipStrokeColor(scanCheckedColors(chipSelected, chipOutline));
+        chip.setTextColor(scanCheckedColors(chipTextSelected, chipText));
+        chip.setContentDescription("扫描检视，点击开启");
+        chip.setOnClickListener(v -> toggleScan());
+        scanToggleChip = chip;
         android.widget.FrameLayout.LayoutParams toggleLp =
                 new android.widget.FrameLayout.LayoutParams(
-                        -2, dp(48), android.view.Gravity.TOP | android.view.Gravity.START);
+                        -2, -2, android.view.Gravity.TOP | android.view.Gravity.START);
         toggleLp.leftMargin = dp(14);
         toggleLp.topMargin = dp(34);
-        stage.addView(scanToggleTouch, toggleLp);
+        stage.addView(chip, toggleLp);
+
+        // A filled M3 card is the readout surface; the numbers inside stay
+        // measured text, and the card remains a non-interactive announcement.
+        final int cardSurface = scanColor(
+                com.google.android.material.R.attr.colorSurfaceContainer,
+                Palette.Role.SURFACE_ELEVATED);
+        final int cardText = scanColor(
+                com.google.android.material.R.attr.colorOnSurface,
+                Palette.Role.INK);
+        final int cardMuted = scanColor(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+        final MaterialCardView card = new MaterialCardView(this, null,
+                com.google.android.material.R.attr.materialCardViewFilledStyle);
+        card.setCardBackgroundColor(cardSurface);
+        card.setRadius(dp(M3Tokens.ShapeRole.SMALL.radiusDp));
+        card.setCardElevation(0f);
+        card.setUseCompatPadding(false);
+        card.setClickable(false);
+        card.setFocusable(false);
+        card.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        card.setVisibility(View.GONE);
+        scanReadout = card;
 
         final LinearLayout block = new LinearLayout(this);
         block.setOrientation(LinearLayout.VERTICAL);
-        block.setPadding(dp(9), dp(5), dp(10), dp(6));
-        final android.graphics.drawable.GradientDrawable bg =
-                new android.graphics.drawable.GradientDrawable();
-        bg.setColor(palette.color(Palette.Role.STAGE_SCRIM_TOP));
-        bg.setCornerRadius(dp(2));
-        block.setBackground(bg);
-        block.setClickable(false);
-        block.setVisibility(View.GONE);
-        scanReadout = block;
+        block.setPadding(dp(12), dp(7), dp(12), dp(8));
+        card.addView(block, new android.widget.FrameLayout.LayoutParams(-2, -2));
 
-        final TextView caption = label("SCAN INSPECT · CENTRE ROW", 5f,
-                palette.color(Palette.Role.STAGE_INK), tfBody);
-        caption.setAlpha(0.72f);
-        caption.setLetterSpacing(0.10f);
-        caption.setSingleLine(true);
-        caption.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
         // A bare addView in a vertical LinearLayout takes MATCH_PARENT width,
         // so the caption used to be measured against the narrower RGB line and
         // clipped at 390 dp. Wrapping it makes the caption the block's widest
         // child and gives the readout one stable width while the numbers change.
+        final TextView caption = label("SCAN INSPECT · CENTRE ROW",
+                M3Tokens.TypeRole.LABEL_SMALL.sizeSp,
+                cardMuted, tfBody);
+        caption.setLetterSpacing(0.10f);
+        caption.setSingleLine(true);
+        caption.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         block.addView(caption, new LinearLayout.LayoutParams(-2, -2));
 
-        scanReadoutRgb = label("R \u2014  G \u2014  B \u2014", 8f,
-                palette.color(Palette.Role.STAGE_INK), tfBody);
+        scanReadoutRgb = label("R \u2014  G \u2014  B \u2014",
+                M3Tokens.TypeRole.BODY_SMALL.sizeSp,
+                cardText, tfBody);
         scanReadoutRgb.setSingleLine(true);
-        scanReadoutRgb.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
+        scanReadoutRgb.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         final LinearLayout.LayoutParams rgbLp = new LinearLayout.LayoutParams(-2, -2);
-        rgbLp.topMargin = dp(2);
+        rgbLp.topMargin = dp(3);
         block.addView(scanReadoutRgb, rgbLp);
 
-        scanReadoutLambda = label("\u03bb \u2014", 8f,
-                palette.color(Palette.Role.STAGE_INK), tfDisplay);
+        scanReadoutLambda = label("\u03bb \u2014",
+                M3Tokens.TypeRole.BODY_SMALL.sizeSp,
+                cardText, tfDisplay);
         scanReadoutLambda.setSingleLine(true);
         scanReadoutLambda.setLetterSpacing(0.02f);
-        scanReadoutLambda.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
+        scanReadoutLambda.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         block.addView(scanReadoutLambda, new LinearLayout.LayoutParams(-2, -2));
 
         android.widget.FrameLayout.LayoutParams readoutLp =
@@ -1713,7 +1783,7 @@ public class MainActivity extends AppCompatActivity {
         readoutLp.leftMargin = dp(14);
         // Clear of the 62 dp shelf handle and its 12 dp margin.
         readoutLp.bottomMargin = dp(84);
-        stage.addView(block, readoutLp);
+        stage.addView(card, readoutLp);
         updateScanToggleVisual(false);
     }
 
@@ -1760,46 +1830,40 @@ public class MainActivity extends AppCompatActivity {
         if (filmCurve != null) filmCurve.setScanMark(show, scanFraction);
     }
 
-    /** The toggle's chip: enabled only when there is a preview to read. */
-    private void updateScanToggleVisual(boolean enabled) {
-        if (scanToggleChip == null) return;
-        final android.graphics.drawable.GradientDrawable bg =
-                new android.graphics.drawable.GradientDrawable();
-        bg.setColor(palette.color(Palette.Role.STAGE_SCRIM_TOP));
-        bg.setCornerRadius(dp(99));
-        final int stroke = palette.color(scanVisible
-                ? Palette.Role.ACCENT : Palette.Role.STAGE_INK);
-        bg.setStroke(Math.max(1, dp(1)), scanVisible
-                ? stroke : withAlpha(stroke, 0x66));
-        scanToggleChip.setBackground(bg);
-        scanToggleChip.setTextColor(palette.color(Palette.Role.STAGE_INK));
-        if (scanToggleTouch != null) {
-            scanToggleTouch.setEnabled(enabled);
-            scanToggleTouch.setAlpha(enabled ? 1f : 0.38f);
-            final String state = scanVisible
-                    ? (enabled ? "扫描检视已开启，点击关闭"
-                            : "扫描检视已开启，等待预览")
-                    : (enabled ? "扫描检视，点击开启"
-                            : "扫描检视，需先导入照片");
-            scanToggleTouch.setContentDescription(state);
-        }
+    /** An M3 control role, with the Palette only as the pre-theme fallback. */
+    private int scanColor(int attr, Palette.Role fallback) {
+        return MaterialColors.getColor(this, attr, palette.color(fallback));
     }
 
-    private static int withAlpha(int color, int alpha) {
-        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
+    /** A two-state colour for a real checkable control (checked, then default). */
+    private static ColorStateList scanCheckedColors(int checked, int unchecked) {
+        return new ColorStateList(
+                new int[][]{{android.R.attr.state_checked}, {}},
+                new int[]{checked, unchecked});
+    }
+
+    /** The toggle's chip state: enabled only when there is a preview to read. */
+    private void updateScanToggleVisual(boolean enabled) {
+        if (scanToggleChip == null) return;
+        scanToggleChip.setChecked(scanVisible);
+        scanToggleChip.setEnabled(enabled);
+        scanToggleChip.setAlpha(enabled ? 1f : 0.38f);
+        final String state = scanVisible
+                ? (enabled ? "扫描检视已开启，点击关闭"
+                        : "扫描检视已开启，等待预览")
+                : (enabled ? "扫描检视，点击开启"
+                        : "扫描检视，需先导入照片");
+        scanToggleChip.setContentDescription(state);
     }
 
     /** The overlay reports every move; the readout and the curve follow it. */
     private void onScanSample(ScanSample sample, float fraction) {
         scanFraction = fraction;
         if (scanReadoutRgb != null) {
-            scanReadoutRgb.setText(sample.available()
-                    ? sample.rgbText() : "R \u2014  G \u2014  B \u2014");
+            scanReadoutRgb.setText(sample.rgbReadoutText());
         }
         if (scanReadoutLambda != null) {
-            scanReadoutLambda.setText(sample.hasWavelength()
-                    ? "\u03bb " + sample.wavelengthText() + " nm"
-                    : "\u03bb \u2014");
+            scanReadoutLambda.setText(sample.lambdaText());
         }
         if (scanReadout != null) {
             scanReadout.setContentDescription(sample.description()
@@ -1964,26 +2028,20 @@ public class MainActivity extends AppCompatActivity {
         overscanOn = look.overscanOn;
         overscanFormat = look.overscanFormat;
         dateOn = look.dateOn;
-        final GateScale.Gate gate = GateScale.resolve(overscanFormat, filmFormatMm);
+        final GateScale.Pair pair = GateScale.pair(overscanFormat, filmFormatMm);
         // One piece of film geometry: a stored Gate and Scale that disagree are
         // pulled onto the Gate's measured edge before either control can draw.
-        overscanFormat = gate.id;
-        filmFormatMm = gate.longEdgeMm;
+        overscanFormat = pair.gate.id;
+        filmFormatMm = pair.longEdgeMm;
         if (exposureRow != null) exposureRow.setValue(printExposure);
         if (grainRow != null) grainRow.setValue(grainAmount);
         if (halationRow != null) halationRow.setValue(halationAmount);
         if (glareRow != null) glareRow.setValue(glareAmount);
-        if (overscanMark != null) overscanMark.setLit(overscanOn);
-        if (dateMark != null) dateMark.setLit(dateOn);
         syncToggleRows();
-        if (edgeValue != null) edgeValue.setText(gate.label);
-        if (dateDetail != null) {
-            dateDetail.setText(dateOn
-                    ? (dateText != null ? dateText : imprintDate())
-                    : "关闭");
-        }
+        syncDateDetail();
+        if (edgeValue != null) edgeValue.setText(pair.gate.label);
         if (formatFootValue != null) {
-            formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
+            formatFootValue.setText(mmText(pair.longEdgeMm) + " mm");
         }
         refreshFilmPanel();
         refreshPaperLabel();
@@ -2283,15 +2341,6 @@ public class MainActivity extends AppCompatActivity {
         if (label == null) return "";
         int cut = label.indexOf(" · ");
         return cut > 0 ? label.substring(0, cut) : label;
-    }
-
-    /** A card's border: the shared selected/unselected treatment. */
-    private android.graphics.drawable.GradientDrawable cardBorder(boolean active) {
-        android.graphics.drawable.GradientDrawable bg =
-                new android.graphics.drawable.GradientDrawable();
-        bg.setColor(palette.color(Palette.Role.SURFACE));
-        bg.setStroke(dp(1), palette.color(active ? Palette.Role.ACCENT : Palette.Role.LINE));
-        return bg;
     }
 
     /** A film record currently on the strip, or null when none is chosen. */
@@ -2692,61 +2741,81 @@ public class MainActivity extends AppCompatActivity {
             if (gate == null) continue;
             final boolean active = gate.id.equals(overscanFormat);
 
-            android.widget.FrameLayout card = new android.widget.FrameLayout(this);
-            card.setBackground(cardBorder(active));
-            card.setPadding(dp(1), dp(1), dp(1), dp(1));
+            final int surface = m3Role(
+                    com.google.android.material.R.attr.colorSurfaceContainerLow,
+                    Palette.Role.SURFACE_ELEVATED);
+            final int selectedSurface = m3Role(
+                    com.google.android.material.R.attr.colorSecondaryContainer,
+                    Palette.Role.SURFACE_ELEVATED);
+            final int outline = m3Role(
+                    com.google.android.material.R.attr.colorOutlineVariant,
+                    Palette.Role.LINE);
+            final int selectedOutline = m3Role(
+                    com.google.android.material.R.attr.colorPrimary,
+                    Palette.Role.ACCENT);
+            final int onSurface = m3Role(
+                    com.google.android.material.R.attr.colorOnSurface,
+                    Palette.Role.INK);
+            final int onSelected = m3Role(
+                    com.google.android.material.R.attr.colorOnSecondaryContainer,
+                    Palette.Role.INK);
+            final int onSurfaceVariant = m3Role(
+                    com.google.android.material.R.attr.colorOnSurfaceVariant,
+                    Palette.Role.MUTED_INK);
+
+            final MaterialCardView card = new MaterialCardView(this);
+            card.setCardElevation(0f);
+            card.setRadius(dp(12));
+            card.setStrokeWidth(dp(1));
+            card.setCardBackgroundColor(checkedColors(selectedSurface, surface));
+            card.setStrokeColor(checkedColors(selectedOutline, outline));
+            card.setCheckable(true);
+            card.setChecked(active);
+            card.setCheckedIconResource(
+                    com.google.android.material.R.drawable.mtrl_ic_check_mark);
+            card.setCheckedIconTint(android.content.res.ColorStateList.valueOf(onSelected));
+            card.setCheckedIconSize(dp(14));
+            card.setCheckedIconMargin(dp(4));
+            card.setCheckedIconGravity(MaterialCardView.CHECKED_ICON_GRAVITY_TOP_END);
+            card.setClickable(true);
+            card.setFocusable(true);
             card.setContentDescription(gate.label + "，" + mmText(gate.longEdgeMm) + " 毫米"
                     + (active ? "，已选" : ""));
 
-            LinearLayout top = new LinearLayout(this);
-            top.setOrientation(LinearLayout.VERTICAL);
-            top.setPadding(dp(8), dp(16), dp(7), dp(2));
+            LinearLayout stack = new LinearLayout(this);
+            stack.setOrientation(LinearLayout.VERTICAL);
+            stack.setPadding(dp(9), dp(11), dp(8), dp(7));
 
             LinearLayout valueRow = new LinearLayout(this);
             valueRow.setOrientation(LinearLayout.HORIZONTAL);
             valueRow.setGravity(android.view.Gravity.BOTTOM);
             TextView value = label(mmText(gate.longEdgeMm),
-                    22, palette.color(active ? Palette.Role.ACCENT : Palette.Role.MUTED_INK), tfDisplay);
+                    22, active ? onSelected : onSurface, tfDisplay);
             value.setLetterSpacing(-0.05f);
             valueRow.addView(value);
-            TextView unit = label("mm", 8,
-                    palette.color(active ? Palette.Role.ACCENT : Palette.Role.MUTED_INK), tfBody);
+            TextView unit = label("mm", 8, onSurfaceVariant, tfBody);
             LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
             unitLp.leftMargin = dp(2);
             unitLp.bottomMargin = dp(2);
             valueRow.addView(unit, unitLp);
-            top.addView(valueRow);
+            stack.addView(valueRow);
 
             TextView kind = label(gate.panoramic() ? "宽幅" : "常规", 7,
-                    palette.color(Palette.Role.MUTED_INK), tfHan);
+                    onSurfaceVariant, tfHan);
             LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-2, -2);
             kindLp.topMargin = dp(4);
-            top.addView(kind, kindLp);
-            card.addView(top, new android.widget.FrameLayout.LayoutParams(-1, -1));
+            stack.addView(kind, kindLp);
 
-            TextView name = label(gate.label, 8.5f, palette.color(active
-                    ? Palette.Role.ACCENT : Palette.Role.INK), tfHan);
+            View spacer = new View(this);
+            stack.addView(spacer, new LinearLayout.LayoutParams(1, 0, 1f));
+
+            TextView name = label(gate.label, 8.5f, active ? onSelected : onSurface, tfHan);
             name.setSingleLine(true);
             name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            name.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            name.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
-            name.setPadding(dp(8), 0, dp(7), 0);
-            card.addView(name, new android.widget.FrameLayout.LayoutParams(
-                    -1, dp(34), android.view.Gravity.BOTTOM));
+            stack.addView(name);
 
-            if (active) {
-                View mark = new View(this);
-                mark.setBackgroundColor(palette.color(Palette.Role.ACCENT));
-                android.widget.FrameLayout.LayoutParams markLp = new android.widget.FrameLayout.LayoutParams(
-                        dp(6), dp(6), android.view.Gravity.TOP | android.view.Gravity.END);
-                markLp.topMargin = dp(4);
-                markLp.rightMargin = dp(4);
-                card.addView(mark, markLp);
-            }
+            card.addView(stack, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
-            card.setClickable(true);
-            card.setFocusable(true);
-            card.setSelected(active);
             card.setAccessibilityDelegate(new View.AccessibilityDelegate() {
                 @Override public void onInitializeAccessibilityNodeInfo(
                         View host, android.view.accessibility.AccessibilityNodeInfo info) {
@@ -2757,7 +2826,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
             card.setOnClickListener(v -> pickScale(gate.id));
-            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(dp(80), dp(105));
+            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(dp(84), dp(105));
             cardLp.rightMargin = dp(9);
             formatCardStrip.addView(card, cardLp);
             formatCards.add(card);
@@ -2793,9 +2862,14 @@ public class MainActivity extends AppCompatActivity {
         panel.addView(sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
                 new LinearLayout.LayoutParams(-1, dp(38)));
 
-        overscanMark = new Square(this, palette.color(Palette.Role.ACCENT),
-                palette.color(Palette.Role.MARK_OFF));
-        overscanToggleRow = toggleRow("片边（胶片边缘）", null, overscanMark,
+        final int onSurface = m3Role(
+                com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
+        final int onSurfaceVariant = m3Role(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+
+        overscanSwitch = new MaterialSwitch(this);
+        overscanToggleRow = switchRow("片边（胶片边缘）", null, overscanSwitch,
                 () -> overscanOn, on -> {
                     if (on && edgeIds.isEmpty()) {
                         showInAppToast("这张图的长宽比不对应任何片门");
@@ -2804,48 +2878,60 @@ public class MainActivity extends AppCompatActivity {
                     overscanOn = on;
                     onEdgeChanged();
                 });
-        panel.addView(overscanToggleRow, new LinearLayout.LayoutParams(-1, dp(52)));
+        panel.addView(overscanToggleRow, new LinearLayout.LayoutParams(-1, dp(56)));
 
-        LinearLayout edgeChoiceRow = new LinearLayout(this);
-        edgeChoiceRow.setOrientation(LinearLayout.HORIZONTAL);
-        edgeChoiceRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        edgeChoiceRow.addView(label("片门格式", 9, palette.color(Palette.Role.MUTED_INK), tfHan));
-        LinearLayout edgeButton = new LinearLayout(this);
-        edgeButton.setOrientation(LinearLayout.HORIZONTAL);
-        edgeButton.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
-        edgeButton.setFocusable(true);
-        edgeButton.setContentDescription("选择片门格式");
-        edgeButton.setOnClickListener(v -> showEdgePicker());
+        final MaterialCardView gateCard = new MaterialCardView(this);
+        gateCard.setCardElevation(0f);
+        gateCard.setRadius(dp(12));
+        gateCard.setStrokeWidth(dp(1));
+        gateCard.setCardBackgroundColor(m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerLow,
+                Palette.Role.SURFACE_ELEVATED));
+        gateCard.setStrokeColor(m3Role(
+                com.google.android.material.R.attr.colorOutlineVariant,
+                Palette.Role.LINE));
+        gateCard.setClickable(true);
+        gateCard.setFocusable(true);
+        gateCard.setContentDescription("选择片门格式");
+        gateCard.setOnClickListener(v -> showEdgePicker());
+
+        LinearLayout gateRow = new LinearLayout(this);
+        gateRow.setOrientation(LinearLayout.HORIZONTAL);
+        gateRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        gateRow.setPadding(dp(14), 0, dp(14), 0);
+        gateRow.addView(label("片门格式", 9, onSurfaceVariant, tfHan),
+                new LinearLayout.LayoutParams(0, -2, 1f));
         edgeValue = label(GateScale.resolve(overscanFormat, filmFormatMm).label,
-                10, palette.color(Palette.Role.INK), tfHan);
+                10, onSurface, tfHan);
         edgeValue.setGravity(android.view.Gravity.END);
-        edgeButton.addView(edgeValue, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView edgeArrow = label("↓", 10, palette.color(Palette.Role.ACCENT), tfBody);
+        gateRow.addView(edgeValue, new LinearLayout.LayoutParams(-2, -2));
+        TextView edgeArrow = label("↓", 10, onSurfaceVariant, tfBody);
         LinearLayout.LayoutParams edgeArrowLp = new LinearLayout.LayoutParams(-2, -2);
         edgeArrowLp.leftMargin = dp(7);
-        edgeButton.addView(edgeArrow, edgeArrowLp);
-        edgeChoiceRow.addView(edgeButton, new LinearLayout.LayoutParams(0, dp(52), 1f));
-        panel.addView(edgeChoiceRow, new LinearLayout.LayoutParams(-1, dp(52)));
+        gateRow.addView(edgeArrow, edgeArrowLp);
+        gateCard.addView(gateRow, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        LinearLayout.LayoutParams gateCardLp = new LinearLayout.LayoutParams(-1, dp(52));
+        gateCardLp.topMargin = dp(4);
+        gateCardLp.bottomMargin = dp(4);
+        panel.addView(gateCard, gateCardLp);
 
-        dateMark = new Square(this, palette.color(Palette.Role.ACCENT),
-                palette.color(Palette.Role.MARK_OFF));
-        dateDetail = label(dateOn
-                        ? (dateText != null ? dateText : imprintDate())
-                        : "关闭",
-                7, palette.color(Palette.Role.MUTED_INK), tfBody);
-        dateToggleRow = toggleRow("日期水印", dateDetail, dateMark, () -> dateOn, on -> {
+        dateSwitch = new MaterialSwitch(this);
+        dateDetail = label("", 7, onSurfaceVariant, tfBody);
+        dateDetail.setVisibility(View.GONE);
+        dateToggleRow = switchRow("日期水印", dateDetail, dateSwitch, () -> dateOn, on -> {
             dateOn = on;
             if (dateOn && dateText == null) dateText = imprintDate();
-            dateDetail.setText(dateOn ? imprintDate() : "关闭");
+            syncDateDetail();
             onEdgeChanged();
         });
-        panel.addView(dateToggleRow, new LinearLayout.LayoutParams(-1, dp(52)));
+        panel.addView(dateToggleRow, new LinearLayout.LayoutParams(-1, dp(56)));
 
         TextView note = label("片门与尺度联动；片边只在这张图可用的片门里选", 8,
-                palette.color(Palette.Role.MUTED_INK), tfHan);
+                onSurfaceVariant, tfHan);
         LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
-        noteLp.topMargin = dp(12);
+        noteLp.topMargin = dp(8);
         panel.addView(note, noteLp);
+        syncDateDetail();
         return panel;
     }
 
@@ -2864,6 +2950,47 @@ public class MainActivity extends AppCompatActivity {
             selectGate(edgeIds.get(i));
             onEdgeChanged();
         });
+    }
+
+    /**
+     * The M3 navigation rail used at ≥600 dp. It is the same four workspaces
+     * as the phone tabs, with the same {@link #activeTabIndex}; {@link #setTab}
+     * keeps both forms in sync. The real {@link NavigationRailView} supplies
+     * the selected indicator, 48 dp-plus item targets, and the selected state
+     * that accessibility services announce.
+     */
+    private NavigationRailView buildNavigationRail() {
+        final NavigationRailView rail = new NavigationRailView(this);
+        rail.setLabelVisibilityMode(NavigationBarView.LABEL_VISIBILITY_LABELED);
+        rail.inflateMenu(R.menu.console_nav);
+        for (int i = 0; i < TAB_NAMES.length; ++i) {
+            final MenuItem item = rail.getMenu().findItem(TAB_ITEM_IDS[i]);
+            if (item == null) continue;
+            // A span keeps the Chinese label on OPPOSans through the rail's
+            // active/inactive text-appearance changes.
+            item.setTitle(typed(TAB_NAMES[i], tfHan));
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                item.setContentDescription(TAB_NAMES[i] + " " + TAB_ENGLISH[i]);
+            }
+        }
+        rail.setOnItemSelectedListener(item -> {
+            if (suppressWorkspaceSelection) return true;
+            final int index = workspaceIndex(item.getItemId());
+            if (index < 0) return false;
+            if (index != activeTabIndex) {
+                setTab(index);
+                setPanelCollapsed(false);
+            }
+            return true;
+        });
+        return rail;
+    }
+
+    private static int workspaceIndex(int itemId) {
+        for (int i = 0; i < TAB_ITEM_IDS.length; ++i) {
+            if (TAB_ITEM_IDS[i] == itemId) return i;
+        }
+        return -1;
     }
 
     /**
@@ -2898,7 +3025,7 @@ public class MainActivity extends AppCompatActivity {
 
         tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override public void onTabSelected(TabLayout.Tab tab) {
-                if (suppressTabSelection) return;
+                if (suppressWorkspaceSelection) return;
                 final int index = tab.getPosition();
                 if (index == activeTabIndex) return;
                 setTab(index);
@@ -2908,7 +3035,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onTabUnselected(TabLayout.Tab tab) { }
 
             @Override public void onTabReselected(TabLayout.Tab tab) {
-                if (suppressTabSelection) return;
+                if (suppressWorkspaceSelection) return;
                 // A real tap just set lastTabTouchAt; a reselect from a layout
                 // pass must not expand the panel the user collapsed. Keyboard,
                 // switch-access, and TalkBack activation carry focus instead.
@@ -3275,10 +3402,8 @@ public class MainActivity extends AppCompatActivity {
     private void resetEdgePanel() {
         overscanOn = false;
         dateOn = false;
-        overscanMark.setLit(false);
-        dateMark.setLit(false);
         syncToggleRows();
-        if (dateDetail != null) dateDetail.setText("关闭");
+        syncDateDetail();
         if (session != null) onEdgeChanged();
     }
 
@@ -3386,14 +3511,14 @@ public class MainActivity extends AppCompatActivity {
         } else {
             // No Gate fits this shape. Keep the stored pair consistent even
             // though the Rebate has nothing to cut.
-            final GateScale.Gate gate = GateScale.resolve(overscanFormat, filmFormatMm);
-            overscanFormat = gate.id;
-            filmFormatMm = gate.longEdgeMm;
+            final GateScale.Pair pair = GateScale.pair(overscanFormat, filmFormatMm);
+            overscanFormat = pair.gate.id;
+            filmFormatMm = pair.longEdgeMm;
             if (overscanOn) {
                 // A rebate cannot be drawn for a shape no Gate can hold. Leaving
                 // it on would send the engine a layout it has already refused.
                 overscanOn = false;
-                if (overscanMark != null) overscanMark.setLit(false);
+                syncToggleRows();
             }
         }
 
@@ -3454,51 +3579,16 @@ public class MainActivity extends AppCompatActivity {
         return dateText;
     }
 
-    /** A 12 px square that fills when on: the page has no switch, and a filled
-     *  square is the same vocabulary the tabs use. */
-    private static class Square extends View {
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final int onColor, offColor;
-        private final float stroke;
-        private boolean lit;
-
-        Square(android.content.Context context, int onColor, int offColor) {
-            super(context);
-            this.onColor = onColor;
-            this.offColor = offColor;
-            stroke = Math.max(1f, getResources().getDisplayMetrics().density);
-        }
-
-        void setLit(boolean on) {
-            lit = on;
-            invalidate();
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            final float w = getWidth(), h = getHeight(), inset = stroke / 2f;
-            if (lit) {
-                paint.setStyle(android.graphics.Paint.Style.FILL);
-                paint.setColor(onColor);
-                canvas.drawRect(0, 0, w, h, paint);
-            } else {
-                paint.setStyle(android.graphics.Paint.Style.STROKE);
-                paint.setStrokeWidth(stroke);
-                paint.setColor(offColor);
-                canvas.drawRect(inset, inset, w - inset, h - inset, paint);
-            }
-        }
-    }
-
     /**
-     * A two-state Edge row. `current` is the authoritative Look field, so a
-     * rejected change (a Gate that does not fit) reverts the row instead of
-     * leaving its checked state out of step with the engine value.
+     * A two-state Edge row built on the real M3 switch. `current` is the
+     * authoritative Look field, so a rejected change (a Gate that does not fit)
+     * reverts the switch instead of leaving its checked state out of step with
+     * the engine value.
      *
      * <p>The optional detail line is the date back's imprint, shown only while
-     * the toggle is on and using the same text the engine is given.
+     * the switch is on and using the same text the engine is given.
      */
-    private View toggleRow(String labelText, TextView detail, Square mark,
+    private View switchRow(String labelText, TextView detail, final MaterialSwitch toggle,
                            java.util.function.BooleanSupplier current,
                            java.util.function.Consumer<Boolean> onChange) {
         LinearLayout row = new LinearLayout(this);
@@ -3507,7 +3597,8 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout textCol = new LinearLayout(this);
         textCol.setOrientation(LinearLayout.VERTICAL);
-        textCol.addView(label(labelText, 8, palette.color(Palette.Role.INK), tfHan));
+        textCol.addView(label(labelText, 8, m3Role(
+                com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK), tfHan));
         if (detail != null) {
             LinearLayout.LayoutParams detailLp = new LinearLayout.LayoutParams(-1, -2);
             detailLp.topMargin = dp(3);
@@ -3516,27 +3607,27 @@ public class MainActivity extends AppCompatActivity {
         row.addView(textCol, new LinearLayout.LayoutParams(0, -2, 1f));
 
         final boolean initial = current.getAsBoolean();
-        mark.setLit(initial);
-        row.addView(mark, new LinearLayout.LayoutParams(dp(12), dp(12)));
-        row.setFocusable(true);
-        row.setSelected(initial);
-        row.setContentDescription(toggleDescription(labelText, initial));
-        row.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-            @Override public void onInitializeAccessibilityNodeInfo(
-                    View host, android.view.accessibility.AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                info.setClassName(android.widget.CheckBox.class.getName());
-                info.setCheckable(true);
-                info.setChecked(current.getAsBoolean());
-            }
-        });
-        row.setOnClickListener(v -> {
-            onChange.accept(!current.getAsBoolean());
+        toggle.setChecked(initial);
+        // An 8 dp pad above and below makes the switch's own touch bounds 48 dp.
+        toggle.setPadding(0, dp(8), 0, dp(8));
+        toggle.setContentDescription(toggleDescription(labelText, initial));
+        toggle.setOnCheckedChangeListener((button, checked) -> {
+            if (syncingToggles) return;
+            onChange.accept(checked);
             final boolean now = current.getAsBoolean();
-            mark.setLit(now);
-            row.setSelected(now);
-            row.setContentDescription(toggleDescription(labelText, now));
+            if (button.isChecked() != now) {
+                syncingToggles = true;
+                button.setChecked(now);
+                syncingToggles = false;
+            }
+            button.setContentDescription(toggleDescription(labelText, now));
         });
+        row.addView(toggle, new LinearLayout.LayoutParams(-2, -2));
+
+        row.setMinimumHeight(dp(MIN_TOUCH_DP));
+        row.setClickable(true);
+        row.setOnClickListener(v -> toggle.toggle());
+        row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         return row;
     }
 
@@ -3544,16 +3635,35 @@ public class MainActivity extends AppCompatActivity {
         return labelText + "，" + (on ? "开" : "关");
     }
 
-    /** Re-apply a restored Look to the Edge rows, not only to their marks. */
-    private void syncToggleRows() {
-        syncToggleRow(overscanToggleRow, "片边（胶片边缘）", overscanOn);
-        syncToggleRow(dateToggleRow, "日期水印", dateOn);
+    /** Show the date back's line only while the imprint is enabled. */
+    private void syncDateDetail() {
+        if (dateDetail == null) return;
+        if (dateOn) {
+            dateDetail.setText(imprintDate());
+            dateDetail.setVisibility(View.VISIBLE);
+        } else {
+            dateDetail.setText("");
+            dateDetail.setVisibility(View.GONE);
+        }
     }
 
-    private void syncToggleRow(View row, String labelText, boolean on) {
-        if (row == null) return;
-        row.setSelected(on);
-        row.setContentDescription(toggleDescription(labelText, on));
+    /** The one value both preview and export hand to the engine. */
+    private String dateParam() {
+        return dateOn ? imprintDate() : "";
+    }
+
+    /** Re-apply a restored Look to the Edge switches' checked state. */
+    private void syncToggleRows() {
+        syncToggleRow(overscanSwitch, "片边（胶片边缘）", overscanOn);
+        syncToggleRow(dateSwitch, "日期水印", dateOn);
+    }
+
+    private void syncToggleRow(MaterialSwitch toggle, String labelText, boolean on) {
+        if (toggle == null) return;
+        syncingToggles = true;
+        toggle.setChecked(on);
+        syncingToggles = false;
+        toggle.setContentDescription(toggleDescription(labelText, on));
     }
 
     /**
@@ -3753,11 +3863,22 @@ public class MainActivity extends AppCompatActivity {
         if (tabLayout != null) {
             final TabLayout.Tab tab = tabLayout.getTabAt(active);
             if (tab != null && tabLayout.getSelectedTabPosition() != active) {
-                suppressTabSelection = true;
+                suppressWorkspaceSelection = true;
                 try {
                     tabLayout.selectTab(tab, false);
                 } finally {
-                    suppressTabSelection = false;
+                    suppressWorkspaceSelection = false;
+                }
+            }
+        }
+        if (navigationRail != null && active >= 0 && active < TAB_ITEM_IDS.length) {
+            final MenuItem item = navigationRail.getMenu().findItem(TAB_ITEM_IDS[active]);
+            if (item != null && !item.isChecked()) {
+                suppressWorkspaceSelection = true;
+                try {
+                    navigationRail.setSelectedItemId(TAB_ITEM_IDS[active]);
+                } finally {
+                    suppressWorkspaceSelection = false;
                 }
             }
         }
@@ -5949,7 +6070,7 @@ public class MainActivity extends AppCompatActivity {
             longEdge,
             printExposure, grainAmount, halationAmount, glareAmount, filmFormatMm,
             overscanOn ? "true" : "false", overscanFormat, edgeTextFor(stock),
-            dateOn ? "true" : "false", dateOn ? imprintDate() : ""
+            dateOn ? "true" : "false", dateParam()
         ));
     }
 
@@ -5974,7 +6095,7 @@ public class MainActivity extends AppCompatActivity {
             longEdge,
             printExposure, grainAmount, halationAmount, glareAmount, filmFormatMm,
             overscanOn ? "true" : "false", overscanFormat, edgeTextFor(stock),
-            dateOn ? "true" : "false", dateOn ? imprintDate() : ""
+            dateOn ? "true" : "false", dateParam()
         ));
     }
 
