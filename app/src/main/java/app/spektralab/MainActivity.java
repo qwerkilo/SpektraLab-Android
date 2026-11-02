@@ -15,13 +15,18 @@ import android.widget.LinearLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ScrollView;
 import android.widget.ProgressBar;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
+import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.core.view.ViewCompat;
+import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
 import com.google.android.material.appbar.AppBarLayout;
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.chip.Chip;
@@ -32,7 +37,9 @@ import com.google.android.material.color.MaterialColors;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.navigation.NavigationBarView;
 import com.google.android.material.navigationrail.NavigationRailView;
+import com.google.android.material.radiobutton.MaterialRadioButton;
 import com.google.android.material.slider.Slider;
+import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.tabs.TabLayout;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -414,14 +421,12 @@ public class MainActivity extends AppCompatActivity {
      *  reselect while the window changes size; that is not a collapse gesture. */
     private long lastTabTouchAt = 0L;
     private android.widget.FrameLayout uiRoot;
-    private TextView inAppToast;
-    private final Runnable hideUiToast = () -> {
-        if (inAppToast == null) return;
-        inAppToast.animate().cancel();
-        inAppToast.animate().alpha(0f).translationY(dp(6))
-                .setDuration(motionDuration(160))
-                .withEndAction(() -> { if (inAppToast != null) inAppToast.setVisibility(View.GONE); }).start();
-    };
+    /** The M3 snackbar host. It lives inside the inset-padded root, so feedback
+     *  clears the gesture bar instead of sitting under it. */
+    private CoordinatorLayout snackbarHost;
+    private Snackbar currentSnackbar;
+    /** The one open bottom sheet. Opening a second one dismisses this first. */
+    private BottomSheetDialog openSheet;
     private final View[] panels = new View[4];
 
     private void loadUiFonts() {
@@ -567,7 +572,9 @@ public class MainActivity extends AppCompatActivity {
     private void rebuildForTheme() {
         if (isFinishing()) return;
         final UiState state = captureUiState();
-        inAppToast = null;
+        dismissOpenSheet();
+        currentSnackbar = null;
+        snackbarHost = null;
         buildUi();
         restoreUiState(state);
         if (uiRoot != null) {
@@ -843,6 +850,29 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    /**
+     * The M3 snackbar's parent. A CoordinatorLayout is what Snackbar expects
+     * for anchoring and swipe behaviour; the width cap is the M3 600 dp
+     * maximum, so a tablet gets a readable bar rather than a full-window strip.
+     */
+    private static final class SnackbarHost extends CoordinatorLayout {
+        private final int maxWidthPx;
+
+        SnackbarHost(android.content.Context context) {
+            super(context);
+            maxWidthPx = Math.round(600f * context.getResources().getDisplayMetrics().density);
+        }
+
+        @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            final int mode = MeasureSpec.getMode(widthMeasureSpec);
+            if (mode != MeasureSpec.UNSPECIFIED) {
+                final int width = Math.min(MeasureSpec.getSize(widthMeasureSpec), maxWidthPx);
+                widthMeasureSpec = MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY);
+            }
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        }
+    }
+
     private static class EdgeBackdrop extends android.graphics.drawable.Drawable {
         private final int background;
         private final android.graphics.Paint paint = new android.graphics.Paint();
@@ -932,6 +962,16 @@ public class MainActivity extends AppCompatActivity {
         app.setOrientation(LinearLayout.VERTICAL);
         app.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
         root.addView(app, new android.widget.FrameLayout.LayoutParams(-1, -1));
+
+        // Feedback is an overlay at the bottom of the inset-padded root. The
+        // root's padding owns the gesture bar, so the snackbar cannot land on
+        // top of it, and the bottom edge is below the photograph's centre.
+        snackbarHost = new SnackbarHost(this);
+        android.widget.FrameLayout.LayoutParams snackbarLp =
+                new android.widget.FrameLayout.LayoutParams(-1, -2,
+                        android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
+        snackbarLp.bottomMargin = dp(8);
+        root.addView(snackbarHost, snackbarLp);
 
         // The Console shell: a header on the page, then the photograph as a
         // full-bleed stage, its instrument readout strip, the source strip,
@@ -1107,38 +1147,65 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** All in-app messages use this paper/ink toast, never Android's Toast. */
-    void showInAppToast(final CharSequence message) {
+    /** All in-app messages use a real M3 snackbar, never Android's Toast. */
+    void showSnackbar(final CharSequence message) {
+        showSnackbar(message, Snackbar.LENGTH_LONG);
+    }
+
+    private void showSnackbar(final CharSequence message, final int duration) {
+        showSnackbar(message, null, null, duration);
+    }
+
+    private void showSnackbar(final CharSequence message, final String action,
+                              final View.OnClickListener onAction, final int duration) {
         if (message == null || message.length() == 0) return;
         if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
-            runOnUiThread(() -> showInAppToast(message));
+            runOnUiThread(() -> showSnackbar(message, action, onAction, duration));
             return;
         }
-        if (uiRoot == null) return;
-        if (inAppToast == null) {
-            inAppToast = label(String.valueOf(message), 10, palette.color(Palette.Role.ON_OVERLAY), tfHan);
-            inAppToast.setMaxWidth(Math.round(getResources().getConfiguration().screenWidthDp
-                    * 0.82f * getResources().getDisplayMetrics().density));
-            inAppToast.setGravity(android.view.Gravity.CENTER);
-            inAppToast.setMaxLines(4);
-            inAppToast.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            inAppToast.setPadding(dp(14), dp(10), dp(14), dp(10));
-            inAppToast.setBackgroundColor(palette.color(Palette.Role.OVERLAY));
-            inAppToast.setElevation(dp(6));
-            android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
-                    -2, -2, android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
-            lp.bottomMargin = dp(76);
-            uiRoot.addView(inAppToast, lp);
+        if (snackbarHost == null) return;
+        if (currentSnackbar != null) currentSnackbar.dismiss();
+        final Snackbar bar = Snackbar.make(snackbarHost, message, duration);
+        final TextView text = bar.getView().findViewById(
+                com.google.android.material.R.id.snackbar_text);
+        if (text != null) {
+            text.setMaxLines(4);
+            text.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            text.setTypeface(tfHan);
         }
-        inAppToast.animate().cancel();
-        inAppToast.setText(message);
-        inAppToast.setVisibility(View.VISIBLE);
-        inAppToast.setAlpha(0f);
-        inAppToast.setTranslationY(dp(8));
-        inAppToast.animate().alpha(1f).translationY(0f)
-                .setDuration(motionDuration(150)).start();
-        inAppToast.removeCallbacks(hideUiToast);
-        inAppToast.postDelayed(hideUiToast, 2200);
+        if (action != null && onAction != null) {
+            bar.setAction(action, onAction);
+            final TextView actionView = bar.getView().findViewById(
+                    com.google.android.material.R.id.snackbar_action);
+            if (actionView != null) actionView.setTypeface(tfHan);
+        }
+        bar.addCallback(new Snackbar.Callback() {
+            @Override public void onDismissed(Snackbar dismissed, int event) {
+                if (currentSnackbar == dismissed) currentSnackbar = null;
+            }
+        });
+        bar.show();
+        currentSnackbar = bar;
+    }
+
+    /**
+     * A failure's first line is the snackbar; the full, copyable report stays
+     * behind the 详情 action. That keeps feedback over the controls without
+     * losing the detail that made E-9000 unfixable for two releases.
+     */
+    private void showErrorSnackbar(String title, String body) {
+        final String shownTitle = (title == null || title.isEmpty()) ? "错误" : title;
+        final String shownBody = (body == null || body.isEmpty()) ? "[E-0000] 未知错误" : body;
+        // An error with a copyable report must not time out before it can be
+        // read; swiping it away is the dismissal.
+        final String first = firstLine(shownBody).trim();
+        showSnackbar(first.isEmpty() ? shownTitle : shownTitle + " · " + first, "详情",
+                v -> showErrorDialog(shownTitle, shownBody), Snackbar.LENGTH_INDEFINITE);
+    }
+
+    private static String firstLine(String text) {
+        final int newline = text.indexOf('\n');
+        return newline < 0 ? text : text.substring(0, newline);
     }
 
     /**
@@ -1349,27 +1416,21 @@ public class MainActivity extends AppCompatActivity {
         return shortReadoutName(labels.get(i));
     }
 
+    /** The picker's full name for the same record. */
+    private String fullStockLabel(String id, List<String> ids, List<String> labels) {
+        if (id == null || id.isEmpty()) return "\u2014";
+        final int i = ids.indexOf(id);
+        if (i < 0 || i >= labels.size()) return id;
+        return StockNames.full(labels.get(i));
+    }
+
     /**
      * The Readout strip is a glance, not the shelf: drop a leading maker and
      * the "Professional" tier so "Kodak Professional Portra Endura" reads as
      * "Portra Endura" at cell width. The full name stays in the pickers.
      */
     private String shortReadoutName(String label) {
-        String name = shortStockName(label);
-        final int space = name.indexOf(' ');
-        if (space > 0) {
-            final String maker = name.substring(0, space).toLowerCase(java.util.Locale.US);
-            if (maker.equals("kodak") || maker.equals("fujifilm") || maker.equals("ilford")
-                    || maker.equals("cinestill") || maker.equals("foma")
-                    || maker.equals("fomapan") || maker.equals("agfa")) {
-                name = name.substring(space + 1);
-            }
-        }
-        final String professional = "Professional ";
-        if (name.startsWith(professional)) {
-            name = name.substring(professional.length());
-        }
-        return name;
+        return StockNames.readout(label);
     }
 
     /**
@@ -1598,7 +1659,7 @@ public class MainActivity extends AppCompatActivity {
     /** Turn Scan inspect on or off. It never renders and never edits a Look. */
     private void toggleScan() {
         if (scanBitmap() == null) {
-            showInAppToast("先导入一张照片");
+            showSnackbar("先导入一张照片");
             return;
         }
         scanVisible = !scanVisible;
@@ -2065,12 +2126,26 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private View sectionHead(String title, Runnable reset) {
+        return sectionHead(title, null, null, reset);
+    }
+
+    private View sectionHead(String title, String actionLabel, Runnable action, Runnable reset) {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         TextView titleView = mixedLabel(title, 8.5f, palette.color(Palette.Role.INK));
         titleView.setLetterSpacing(0.06f);
         head.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1f));
+        if (actionLabel != null && action != null) {
+            TextView actionView = label(actionLabel, 8.5f,
+                    palette.color(Palette.Role.MUTED_INK), tfHan);
+            actionView.setPaintFlags(actionView.getPaintFlags()
+                    | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+            actionView.setPadding(dp(8), dp(10), 0, dp(10));
+            actionView.setFocusable(true);
+            actionView.setOnClickListener(v -> action.run());
+            head.addView(actionView);
+        }
         TextView resetView = label("重置当前页", 8.5f, palette.color(Palette.Role.MUTED_INK), tfHan);
         resetView.setPaintFlags(resetView.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         resetView.setPadding(dp(8), dp(10), 0, dp(10));
@@ -2083,7 +2158,8 @@ public class MainActivity extends AppCompatActivity {
     private View buildFilmPanel() {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(sectionHead("FILM STOCK / 胶片", this::resetFilmPanel),
+        panel.addView(sectionHead("FILM STOCK / 胶片",
+                        "全部胶片", this::showFilmPicker, this::resetFilmPanel),
                 new LinearLayout.LayoutParams(-1, dp(38)));
 
         HorizontalScrollView brandScroll = new HorizontalScrollView(this);
@@ -2162,9 +2238,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String shortStockName(String label) {
-        if (label == null) return "";
-        int cut = label.indexOf(" · ");
-        return cut > 0 ? label.substring(0, cut) : label;
+        return StockNames.shelf(label);
     }
 
     /** A film record currently on the strip, or null when none is chosen. */
@@ -2473,23 +2547,56 @@ public class MainActivity extends AppCompatActivity {
 
     private void refreshPaperLabel() {
         if (paperValue != null) {
-            int i = printIds.indexOf(printStock);
-            paperValue.setText(i >= 0 && i < printLabels.size()
-                    ? shortReadoutName(printLabels.get(i)) : printStock);
+            // The picker value is the full catalogue name; only the Readout
+            // strip shortens it. Both read the same printLabels record.
+            paperValue.setText(fullStockLabel(printStock, printIds, printLabels));
         }
         refreshReadoutStrip();
     }
 
+    /**
+     * The film picker is the full catalogue, not the brand-filtered shelf. The
+     * shelf card and the Readout strip keep their short working names; the
+     * sheet lists the record's full label.
+     */
+    private void showFilmPicker() {
+        if (filmIds.isEmpty()) {
+            showSnackbar("片库还没有载入");
+            return;
+        }
+        final List<String> names = new ArrayList<>();
+        names.add("原图");
+        names.addAll(filmLabels);
+        final int filmIndex = filmStock == null ? -1 : filmIds.indexOf(filmStock);
+        final int current = showingOriginal ? 0 : (filmIndex < 0 ? -1 : 1 + filmIndex);
+        showChoiceSheet("选择胶片", "共 " + filmIds.size() + " 支，品牌标签只筛片架",
+                names, current, picked -> {
+                    if (picked == 0) {
+                        if (!showingOriginal) toggleOriginal();
+                        return;
+                    }
+                    final int index = picked - 1;
+                    if (index >= 0 && index < filmIds.size()) {
+                        pickFilmChip(filmIds.get(index));
+                    }
+                });
+    }
+
     private void showPaperPicker() {
-        if (printIds.isEmpty()) return;
-        showChoiceSheet("选择相纸 / 拷贝片", printLabels, printStock, picked -> {
-            int i = printLabels.indexOf(picked);
-            if (i < 0 || printStock.equals(printIds.get(i))) return;
-            printStock = printIds.get(i);
-            refreshPaperLabel();
-            showingOriginal = false;
-            onStockChanged();
-        });
+        if (printIds.isEmpty()) {
+            showSnackbar("没有可用的相纸");
+            return;
+        }
+        final int current = printIds.indexOf(printStock);
+        showChoiceSheet("选择相纸 / 拷贝片", "当前 Look 会沿这张相纸显影",
+                printLabels, current, picked -> {
+                    if (picked < 0 || picked >= printIds.size()
+                            || printStock.equals(printIds.get(picked))) return;
+                    printStock = printIds.get(picked);
+                    refreshPaperLabel();
+                    showingOriginal = false;
+                    onStockChanged();
+                });
     }
 
     private LinearLayout buildOpticsPanel() {
@@ -2499,7 +2606,7 @@ public class MainActivity extends AppCompatActivity {
         opticsPanel = new LinearLayout(this);
         opticsPanel.setOrientation(LinearLayout.VERTICAL);
         opticsPanel.setOnClickListener(v -> {
-            if (!opticsUnlocked) showInAppToast(opticsLockReason());
+            if (!opticsUnlocked) showSnackbar(opticsLockReason());
         });
         exposureRow = opticsRow(opticsPanel, "EXPOSURE 曝光", OpticsDelta.Param.EXPOSURE,
                 printExposure, v -> printExposure = v);
@@ -2730,7 +2837,7 @@ public class MainActivity extends AppCompatActivity {
         overscanToggleRow = switchRow("片边（胶片边缘）", null, overscanSwitch,
                 () -> overscanOn, on -> {
                     if (on && edgeIds.isEmpty()) {
-                        showInAppToast("这张图的长宽比不对应任何片门");
+                        showSnackbar("这张图的长宽比不对应任何片门");
                         return;
                     }
                     overscanOn = on;
@@ -2795,19 +2902,18 @@ public class MainActivity extends AppCompatActivity {
 
     private void showEdgePicker() {
         if (edgeIds.isEmpty()) {
-            showInAppToast("这张图没有可用片门");
+            showSnackbar("这张图没有可用片门");
             return;
         }
-        int current = edgeIds.indexOf(overscanFormat);
-        String currentLabel = current >= 0 && current < edgeLabels.size() ? edgeLabels.get(current) : edgeLabels.get(0);
-        showChoiceSheet("选择片门格式", edgeLabels, currentLabel, picked -> {
-            int i = edgeLabels.indexOf(picked);
-            if (i < 0) return;
-            // The frame that goes in this gate, not whatever the Scale page
-            // happened to be left on.
-            selectGate(edgeIds.get(i));
-            onEdgeChanged();
-        });
+        final int current = edgeIds.indexOf(overscanFormat);
+        showChoiceSheet("选择片门格式", "只列出与这张图形状相符的片门",
+                edgeLabels, current, picked -> {
+                    if (picked < 0 || picked >= edgeIds.size()) return;
+                    // The frame that goes in this gate, not whatever the Scale
+                    // page happened to be left on.
+                    selectGate(edgeIds.get(picked));
+                    onEdgeChanged();
+                });
     }
 
     /**
@@ -2903,7 +3009,7 @@ public class MainActivity extends AppCompatActivity {
                         || android.os.SystemClock.uptimeMillis() - lastTabTouchAt <= 500L;
                 if (!activated) return;
                 setPanelCollapsed(!panelCollapsed);
-                showInAppToast(panelCollapsed ? "参数面板已收起，再点当前页签展开" : "参数面板已展开");
+                showSnackbar(panelCollapsed ? "参数面板已收起，再点当前页签展开" : "参数面板已展开");
             }
         });
         return tabLayout;
@@ -2935,57 +3041,124 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** Import and export use the same paper sheet as the style pickers. */
-    void showActionSheet(String title, String note, String[] items,
-                                 java.util.function.IntConsumer onPick) {
-        final android.app.Dialog dialog = new android.app.Dialog(this);
-        LinearLayout sheet = new LinearLayout(this);
-        sheet.setOrientation(LinearLayout.VERTICAL);
-        sheet.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
-        View cap = new View(this);
-        cap.setBackgroundColor(palette.color(Palette.Role.ACCENT));
-        sheet.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
+    /**
+     * The M3 sheet header: a heading, a real text-button close, and the sheet's
+     * own surface. Every sheet in the Console starts here, so the title a
+     * TalkBack user hears and the title a sighted user reads are one view.
+     */
+    private LinearLayout sheetColumn(final BottomSheetDialog dialog, String title) {
+        final LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        // The BottomSheetDialog's M3 container owns the surface and its rounded
+        // top; a child background would square those corners off.
+        column.setPadding(0, dp(4), 0, dp(8));
 
-        LinearLayout head = new LinearLayout(this);
+        final LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        head.setPadding(dp(16), 0, dp(16), 0);
-        head.addView(label(title, 12, palette.color(Palette.Role.INK), tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView close = label("关闭", 9, palette.color(Palette.Role.MUTED_INK), tfHan);
-        close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
-        close.setPadding(dp(12), dp(14), 0, dp(14));
-        close.setOnClickListener(v -> dialog.dismiss());
-        head.addView(close);
-        sheet.addView(head, new LinearLayout.LayoutParams(-1, dp(54)));
+        head.setPadding(dp(16), 0, dp(8), 0);
+        final TextView titleView = m3Label(String.valueOf(title),
+                M3Tokens.TypeRole.TITLE_MEDIUM, m3OnSurface(), tfHan);
+        ViewCompat.setAccessibilityHeading(titleView, true);
+        head.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1f));
 
+        final MaterialButton close = new MaterialButton(this);
+        close.setText("关闭");
+        close.setAllCaps(false);
+        close.setMinWidth(0);
+        close.setMinimumWidth(0);
+        close.setInsetTop(0);
+        close.setInsetBottom(0);
+        close.setPadding(dp(12), 0, dp(12), 0);
+        close.setContentDescription("关闭");
+        close.setOnClickListener(v -> dialog.dismiss());
+        head.addView(close, new LinearLayout.LayoutParams(-2, dp(48)));
+        column.addView(head, new LinearLayout.LayoutParams(-1, -2));
+        return column;
+    }
+
+    /**
+     * A modal M3 bottom sheet. Focus is trapped by the dialog window; the view
+     * that opened the sheet is asked for focus again when it closes, so a
+     * keyboard or switch-access user returns to the control they left.
+     */
+    private void showSheet(final BottomSheetDialog dialog, View content) {
+        final View invoker = getCurrentFocus();
+        dialog.setContentView(content);
+        dialog.setCanceledOnTouchOutside(true);
+        dialog.setOnDismissListener(d -> {
+            if (openSheet == d) openSheet = null;
+            if (invoker != null && invoker.isAttachedToWindow()) invoker.requestFocus();
+        });
+        dialog.show();
+        final BottomSheetBehavior<android.widget.FrameLayout> behavior = dialog.getBehavior();
+        behavior.setFitToContents(true);
+        behavior.setSkipCollapsed(true);
+        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+        openSheet = dialog;
+    }
+
+    private void dismissOpenSheet() {
+        if (openSheet != null) {
+            if (openSheet.isShowing()) openSheet.dismiss();
+            openSheet = null;
+        }
+    }
+
+    /** A sheet body tall enough for its rows, never taller than 62 % of the window. */
+    private int sheetBodyHeight(int rows, int rowDp) {
+        final int max = Math.min(dp(430),
+                Math.round(getResources().getDisplayMetrics().heightPixels * 0.62f));
+        final int wanted = Math.max(dp(rowDp), rows * dp(rowDp) + dp(12));
+        return Math.min(max, wanted);
+    }
+
+    /** Import, export, and About use the same M3 sheet as the stock pickers. */
+    void showActionSheet(String title, String note, String[] items,
+                         java.util.function.IntConsumer onPick) {
+        if (items == null || items.length == 0 || isFinishing()) return;
+        dismissOpenSheet();
+        final BottomSheetDialog dialog = new BottomSheetDialog(this);
+        dialog.setTitle(title);
+        final LinearLayout column = sheetColumn(dialog, title);
+
+        final NestedScrollView scroll = new NestedScrollView(this);
+        scroll.setFillViewport(false);
+        final LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
         if (note != null && !note.isEmpty()) {
-            TextView noteView = label(note, 8.5f, palette.color(Palette.Role.MUTED_INK), tfHan);
-            noteView.setPadding(dp(16), 0, dp(16), dp(12));
-            sheet.addView(noteView);
+            final TextView noteView = m3Label(note, M3Tokens.TypeRole.BODY_MEDIUM,
+                    m3OnSurfaceVariant(), tfHan);
+            noteView.setLineSpacing(dp(3), 1f);
+            noteView.setPadding(dp(16), 0, dp(16), dp(8));
+            body.addView(noteView, new LinearLayout.LayoutParams(-1, -2));
         }
         for (int i = 0; i < items.length; ++i) {
             final int index = i;
-            TextView row = label(items[i], 11, palette.color(Palette.Role.INK), tfHan);
-            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(16), 0, dp(16), 0);
+            final MaterialButton row = new MaterialButton(this);
+            row.setText(items[i]);
+            row.setAllCaps(false);
+            row.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
+            row.setInsetTop(0);
+            row.setInsetBottom(0);
+            row.setMinWidth(0);
+            row.setMinimumWidth(0);
+            row.setMinimumHeight(dp(48));
+            row.setSingleLine(false);
+            row.setPadding(dp(16), dp(6), dp(16), dp(6));
+            row.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
+                    M3Tokens.TypeRole.BODY_LARGE.sizeSp);
+            row.setTypeface(tfHan);
             row.setOnClickListener(v -> {
                 dialog.dismiss();
                 onPick.accept(index);
             });
-            sheet.addView(row, new LinearLayout.LayoutParams(-1, dp(50)));
+            body.addView(row, new LinearLayout.LayoutParams(-1, -2));
         }
-        dialog.setContentView(sheet);
-        dialog.setCanceledOnTouchOutside(true);
-        dialog.show();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(
-                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-            dialog.getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-            dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);
-            dialog.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            dialog.getWindow().setDimAmount(0.35f);
-        }
+        scroll.addView(body, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        column.addView(scroll, new LinearLayout.LayoutParams(-1,
+                sheetBodyHeight(items.length + (note == null || note.isEmpty() ? 0 : 2), 52)));
+        showSheet(dialog, column);
     }
 
     /** The feedback group, in the app's own card rather than a system dialog.
@@ -3096,7 +3269,7 @@ public class MainActivity extends AppCompatActivity {
             mute.setOnClickListener(v -> {
                 p.edit().putBoolean(PROMO_MUTED, true).apply();
                 dialog.dismiss();
-                showInAppToast("已关闭，仍可在「关于」里找到反馈群");
+                showSnackbar("已关闭，仍可在「关于」里找到反馈群");
             });
             card.addView(mute, new LinearLayout.LayoutParams(-1, dp(30)));
         }
@@ -3143,78 +3316,71 @@ public class MainActivity extends AppCompatActivity {
             } catch (Throwable ignored) { }
         }
         copyToClipboard("SpektraLab 反馈群", QQ_GROUP);
-        showInAppToast("群号已复制，请在 QQ 里搜索加入");
+        showSnackbar("群号已复制，请在 QQ 里搜索加入");
     }
 
-    /** A paper bottom sheet in the same visual language as the cards. */
-    private void showChoiceSheet(String title, List<String> labels, String selected,
-                                 java.util.function.Consumer<String> onPick) {
-        final android.app.Dialog dialog = new android.app.Dialog(this);
-        LinearLayout sheet = new LinearLayout(this);
-        sheet.setOrientation(LinearLayout.VERTICAL);
-        sheet.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
-        View cap = new View(this);
-        cap.setBackgroundColor(palette.color(Palette.Role.ACCENT));
-        sheet.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
+    /**
+     * A choice bottom sheet built from real M3 radio buttons. The current
+     * choice is the checked button, so TalkBack announces it without a second
+     * custom description; the full stock name is the row's own text.
+     */
+    private void showChoiceSheet(String title, String note, List<String> labels,
+                                 int selectedIndex, java.util.function.IntConsumer onPick) {
+        if (labels == null || labels.isEmpty() || isFinishing()) return;
+        dismissOpenSheet();
+        final BottomSheetDialog dialog = new BottomSheetDialog(this);
+        dialog.setTitle(title);
+        final LinearLayout column = sheetColumn(dialog, title);
 
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        head.setPadding(dp(16), 0, dp(16), 0);
-        head.addView(label(title, 12, palette.color(Palette.Role.INK), tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView close = label("关闭", 9, palette.color(Palette.Role.MUTED_INK), tfHan);
-        close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
-        close.setPadding(dp(12), dp(14), 0, dp(14));
-        close.setOnClickListener(v -> dialog.dismiss());
-        head.addView(close);
-        sheet.addView(head, new LinearLayout.LayoutParams(-1, dp(54)));
+        if (note != null && !note.isEmpty()) {
+            final TextView noteView = m3Label(note, M3Tokens.TypeRole.BODY_MEDIUM,
+                    m3OnSurfaceVariant(), tfHan);
+            noteView.setLineSpacing(dp(3), 1f);
+            noteView.setPadding(dp(16), 0, dp(16), dp(4));
+            column.addView(noteView, new LinearLayout.LayoutParams(-1, -2));
+        }
 
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        for (final String name : labels) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
+        final RadioGroup group = new RadioGroup(this);
+        group.setOrientation(LinearLayout.VERTICAL);
+        final MaterialRadioButton[] rows = new MaterialRadioButton[labels.size()];
+        for (int i = 0; i < labels.size(); ++i) {
+            final MaterialRadioButton row = new MaterialRadioButton(this);
+            row.setId(View.generateViewId());
+            row.setText(labels.get(i));
+            row.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
+                    M3Tokens.TypeRole.BODY_LARGE.sizeSp);
+            row.setTypeface(tfHan);
             row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(16), 0, dp(16), 0);
-            boolean active = name.equals(selected);
-            TextView text = label(name, 11, palette.color(active
-                    ? Palette.Role.ACCENT : Palette.Role.INK), tfHan);
-            text.setMaxLines(1);
-            text.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            row.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
-            View dot = new View(this);
-            android.graphics.drawable.GradientDrawable dotBg = new android.graphics.drawable.GradientDrawable();
-            dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-            dotBg.setColor(active ? palette.color(Palette.Role.ACCENT)
-                    : android.graphics.Color.TRANSPARENT);
-            dotBg.setStroke(dp(1), palette.color(active
-                    ? Palette.Role.ACCENT : Palette.Role.MUTED_INK));
-            dot.setBackground(dotBg);
-            row.addView(dot, new LinearLayout.LayoutParams(dp(13), dp(13)));
-            row.setClickable(true);
-            row.setOnClickListener(v -> {
+            row.setPadding(dp(8), dp(4), dp(16), dp(4));
+            row.setMinHeight(dp(48));
+            row.setSingleLine(false);
+            row.setMaxLines(3);
+            row.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            rows[i] = row;
+            group.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+        if (selectedIndex >= 0 && selectedIndex < rows.length) {
+            rows[selectedIndex].setChecked(true);
+            // Tapping the current choice closes the sheet without changing the
+            // Look; choosing another row is handled by the group below.
+            rows[selectedIndex].setOnClickListener(v -> dialog.dismiss());
+        }
+        group.setOnCheckedChangeListener((g, checkedId) -> {
+            if (checkedId == View.NO_ID) return;
+            for (int i = 0; i < rows.length; ++i) {
+                if (rows[i].getId() != checkedId) continue;
                 dialog.dismiss();
-                onPick.accept(name);
-            });
-            list.addView(row, new LinearLayout.LayoutParams(-1, dp(49)));
-        }
-        scroll.addView(list, new android.widget.FrameLayout.LayoutParams(-1, -2));
-        int wanted = Math.min(dp(49) * Math.max(1, labels.size()), dp(420));
-        sheet.addView(scroll, new LinearLayout.LayoutParams(-1, wanted));
+                onPick.accept(i);
+                return;
+            }
+        });
 
-        dialog.setContentView(sheet);
-        dialog.setCanceledOnTouchOutside(true);
-        dialog.show();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(
-                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-            dialog.getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-            dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);
-            dialog.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            dialog.getWindow().setDimAmount(0.35f);
-        }
+        final NestedScrollView scroll = new NestedScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.addView(group, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        column.addView(scroll, new LinearLayout.LayoutParams(-1,
+                sheetBodyHeight(labels.size(), 56)));
+        showSheet(dialog, column);
     }
 
     private void resetFilmPanel() {
@@ -3227,7 +3393,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void resetOpticsPanel() {
         if (!opticsUnlocked) {
-            showInAppToast(opticsLockReason());
+            showSnackbar(opticsLockReason());
             return;
         }
         final boolean moved =
@@ -3264,13 +3430,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void toggleOriginal() {
         if (beforeBitmap == null) {
-            showInAppToast("先导入一张照片");
+            showSnackbar("先导入一张照片");
             return;
         }
         // An unrendered import is already the original: pressing this must not
         // become the thing that starts a render.
         if (showingOriginal && lastRenderedBitmap == null) {
-            showInAppToast("选一张胶片后才会渲染");
+            showSnackbar("选一张胶片后才会渲染");
             return;
         }
         showingOriginal = !showingOriginal;
@@ -3844,7 +4010,7 @@ public class MainActivity extends AppCompatActivity {
      */
     private void shareLastExport() {
         if (lastExportUri == null) {
-            showInAppToast("还没有导出过文件");
+            showSnackbar("还没有导出过文件");
             return;
         }
         try {
@@ -3854,13 +4020,13 @@ public class MainActivity extends AppCompatActivity {
             send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivity(Intent.createChooser(send, "发送到"));
         } catch (Throwable t) {
-            showErrorDialog("无法发送", describe(t));
+            showErrorSnackbar("无法发送", describe(t));
         }
     }
 
     private void showExportDialog() {
         if (session == null) {
-            showInAppToast("先导入一张照片");
+            showSnackbar("先导入一张照片");
             return;
         }
         final String full = (sourceWidth > 0 && sourceHeight > 0)
@@ -4819,7 +4985,7 @@ public class MainActivity extends AppCompatActivity {
         chain.add(new Intent(Intent.ACTION_OPEN_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"));
         if (!launchFirstResolvable(chain, 1)) {
-            showInAppToast("本机没有可用的图片选择器；请点「导入」→「从文件管理器选择」");
+            showSnackbar("本机没有可用的图片选择器；请点「导入」→「从文件管理器选择」");
         }
     }
 
@@ -4886,7 +5052,7 @@ public class MainActivity extends AppCompatActivity {
         content.putExtra(Intent.EXTRA_MIME_TYPES, types);
         chain.add(content);
         if (!launchFirstResolvable(chain, 1)) {
-            showInAppToast("本机没有可用的文件选择器");
+            showSnackbar("本机没有可用的文件选择器");
         }
     }
 
@@ -4902,7 +5068,7 @@ public class MainActivity extends AppCompatActivity {
         Uri uri = data == null ? null : data.getData();
         if (uri == null) {
             try { DebugSink.text("picker", "RESULT_OK with no data"); } catch (Throwable ignored) { }
-            showInAppToast("没有拿到图片（选择器返回空）。请点「导入」→「从文件管理器选择」再试一次");
+            showSnackbar("没有拿到图片（选择器返回空）。请点「导入」→「从文件管理器选择」再试一次");
             return;
         }
         loadImage(uri);
@@ -4946,7 +5112,7 @@ public class MainActivity extends AppCompatActivity {
             final String[] knownButUnsupported = {".heic.raw", ".iiq", ".mos"};
             for (String ext : knownButUnsupported) {
                 if (lower.endsWith(ext)) {
-                    showInAppToast("[E-1107] 暂不支持 " + ext + " 格式");
+                    showSnackbar("[E-1107] 暂不支持 " + ext + " 格式");
                     return;
                 }
             }
@@ -5112,7 +5278,7 @@ public class MainActivity extends AppCompatActivity {
             }
         } catch (Throwable t) {
             lastImportError = describeImportFailure(t);
-            showErrorDialog("导入失败", lastImportError);
+            showErrorSnackbar("导入失败", lastImportError);
             try { DebugSink.text("import-failed", lastImportError); } catch (Throwable ignored) { }
         }
     }
@@ -5229,7 +5395,7 @@ public class MainActivity extends AppCompatActivity {
             String filePath = getFilePathFromUri(uri);
             rawFilePath = filePath;
             if (filePath == null) {
-                showInAppToast("无法获取RAW文件路径");
+                showSnackbar("无法获取RAW文件路径");
                 return;
             }
             
@@ -5434,13 +5600,13 @@ public class MainActivity extends AppCompatActivity {
                     // and what to change, and leave the file alone.
                     runOnUiThread(() -> {
                         statusText.setText("RAW加载失败 " + SpkError.shortForm(said));
-                        showErrorDialog("RAW 加载失败", said);
+                        showErrorSnackbar("RAW 加载失败", said);
                     });
                 }
             }).start();
         } catch (Throwable t) {
             lastImportError = describeImportFailure(t);
-            showErrorDialog("RAW 加载失败", lastImportError);
+            showErrorSnackbar("RAW 加载失败", lastImportError);
         }
     }
     
@@ -5845,7 +6011,7 @@ public class MainActivity extends AppCompatActivity {
         if (filmStock == null) {
             // No film yet: the frame stays the import's own, and the sheet's
             // choice is remembered for the first render.
-            showInAppToast("选择一张胶片开始渲染");
+            showSnackbar("选择一张胶片开始渲染");
             return;
         }
         // No `applySessionParams()` here any more: it wrote the engine from the
@@ -5994,13 +6160,13 @@ public class MainActivity extends AppCompatActivity {
         if (session == null) {
             try { DebugSink.text("render", "no session, lastImportError=" + lastImportError); }
             catch (Throwable ignored) { }
-            showErrorDialog("还没有可渲染的图像", lastImportError == null
+            showErrorSnackbar("还没有可渲染的图像", lastImportError == null
                     ? "先导入一张照片。点画布中央的「选择照片」，或点下方「换图」；RAW / HEIC 请选「从文件管理器选择」。"
                     : "上次导入没有完成：\n\n" + lastImportError);
             return;
         }
         if (filmStock == null) {
-            showInAppToast("先在下方选一张胶片");
+            showSnackbar("先在下方选一张胶片");
             return;
         }
         if (rendering) {
@@ -6011,7 +6177,7 @@ public class MainActivity extends AppCompatActivity {
             // Not dropped: a tap that lands mid-render is the *last* choice the
             // user made, so it becomes the next render instead of a toast.
             pendingRender = true;
-            showInAppToast("正在渲染，完成后按新选择再画一次…");
+            showSnackbar("正在渲染，完成后按新选择再画一次…");
             return;
         }
         final String renderedStock = filmStock;
@@ -6088,6 +6254,7 @@ public class MainActivity extends AppCompatActivity {
                     refreshFilmPanel();
                     final int[] bands = blackBands(bmp);
                     statusText.setText("Preview ready " + fw + "×" + fh);
+                    showSnackbar("预览已更新 " + fw + "×" + fh, Snackbar.LENGTH_SHORT);
                     try {
                         DebugSink.text("bands", "render " + fw + "x" + fh
                                 + " black rows top=" + bands[0] + " bottom=" + bands[1]
@@ -6109,7 +6276,7 @@ public class MainActivity extends AppCompatActivity {
                     rendering = false;
                     // The foot is one 7 sp line: a failure has to be readable,
                     // and it has to arrive with enough context to be reported.
-                    showErrorDialog("渲染失败", SpkError.format(msg)
+                    showErrorSnackbar("渲染失败", SpkError.format(msg)
                             + "\n\n" + sourceWidth + "×" + sourceHeight
                             + "\n" + probe.describe());
                     if (pendingRender) { pendingRender = false; renderImage(); }
@@ -6259,11 +6426,11 @@ public class MainActivity extends AppCompatActivity {
         final String mime = dng ? "image/x-adobe-dng" : tiff ? "image/tiff" : "image/jpeg";
         if (sharePill != null) sharePill.setVisibility(View.GONE);
         if (engine == null || session == null) {
-            showInAppToast("请先导入照片");
+            showSnackbar("请先导入照片");
             return;
         }
         if (filmStock == null) {
-            showInAppToast("先选一张胶片，再导出");
+            showSnackbar("先选一张胶片，再导出");
             return;
         }
         // The preview and the export share one session; the render lock below
@@ -6393,7 +6560,7 @@ public class MainActivity extends AppCompatActivity {
                     final String tiffHint = tiff
                             ? "（TIFF：点导出旁边的「分享」发给手机版 Lightroom 即可使用）"
                             : dng ? "（DNG：线性 16 位，给电脑上的 Lightroom / ACR；手机版打不开，已知问题，不必反馈）" : "";
-                    showInAppToast("已保存 " + fw + "x" + fh + canvasNote + " · " + sizeLabel + tiffHint);
+                    showSnackbar("已保存 " + fw + "x" + fh + canvasNote + " · " + sizeLabel + tiffHint);
                     statusText.setText("已导出 " + fw + "x" + fh + canvasNote + " · " + sizeLabel
                         + "（" + secs + " 秒，其中渲染 " + (fRender / 1000.0) + " 秒）" + tiffHint);
                     exportProgressBar.setVisibility(View.GONE);
@@ -6406,7 +6573,7 @@ public class MainActivity extends AppCompatActivity {
                 uploadVkLog();
                 runOnUiThread(() -> {
                     statusText.setText("导出失败 " + SpkError.shortForm(msg));
-                    showErrorDialog("导出失败", SpkError.format(msg)
+                    showErrorSnackbar("导出失败", SpkError.format(msg)
                             + "\n\n" + sourceWidth + "×" + sourceHeight
                             + "\n" + probe.describe());
                     exportProgressBar.setVisibility(View.GONE);
@@ -6515,6 +6682,12 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        // A sheet or snackbar outliving its Activity would keep this instance
+        // reachable through a window the system still owns.
+        dismissOpenSheet();
+        if (currentSnackbar != null) currentSnackbar.dismiss();
+        currentSnackbar = null;
+        snackbarHost = null;
         // Session *and* engine go down under the same lock the render runs
         // under: a render that is mid-`renderBegin` is holding device buffers
         // owned by this engine, and tearing it down outside the lock is the
