@@ -21,7 +21,13 @@ public final class ConsoleLayout {
     public static final int CONTROL_MIN_DP = 300;
     /** Beyond this the panel would read as a phone column with margins. */
     public static final int CONTROL_MAX_DP = 400;
-    /** The Frame column never drops below this once the shell has a rail. */
+    /**
+     * The Frame column never drops below this once the shell has a rail.
+     * At the 600 dp breakpoint the arithmetic is fixed: 600 - 80 rail - 300
+     * control floor leaves 220 dp for the Frame. The earlier 280 dp stage floor
+     * and 300 dp control floor cannot both fit a 600 dp window with the rail;
+     * 220 is the documented consequence, not a silent retune.
+     */
     public static final int STAGE_MIN_DP = 220;
     /** The control column's share of the content left beside the rail. */
     private static final float CONTROL_FRACTION = 0.40f;

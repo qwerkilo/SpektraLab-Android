@@ -40,7 +40,7 @@ final class SpectrumCurveView extends View {
     private String seriesLabel = "";
     private String emptyLabel = SpectrumCurve.UNAVAILABLE_LABEL;
     private boolean scanMarkVisible;
-    private float scanMarkFraction = ScanSample.DEFAULT_FRACTION;
+    private ScanSample scanSample = ScanSample.unavailable();
     private ValueAnimator revealAnimator;
     private float reveal = 1f;
 
@@ -61,9 +61,17 @@ final class SpectrumCurveView extends View {
                 palette.color(Palette.Role.SPECTRUM_GREEN),
                 palette.color(Palette.Role.SPECTRUM_BLUE),
         };
-        this.labelTypeface = labelTypeface == null ? Typeface.DEFAULT : labelTypeface;
+        this.labelTypeface = weighted(labelTypeface == null ? Typeface.DEFAULT : labelTypeface,
+                LABEL_ROLE.weight);
         labelSizePx = sizePx(LABEL_ROLE);
         labelTracking = LABEL_ROLE.letterSpacingEm;
+    }
+
+    private static Typeface weighted(Typeface base, int weight) {
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            return Typeface.create(base, weight, false);
+        }
+        return Typeface.create(base, weight >= 600 ? Typeface.BOLD : Typeface.NORMAL);
     }
 
     private float dp(float v) {
@@ -117,13 +125,17 @@ final class SpectrumCurveView extends View {
         invalidate();
     }
 
-    /** Scan inspect's fraction on the same 0..1 axis the samples use. */
-    void setScanMark(boolean visible, float fraction) {
-        final float next = Float.isNaN(fraction) ? ScanSample.DEFAULT_FRACTION : fraction;
-        final float clamped = Math.max(0f, Math.min(1f, next));
-        if (scanMarkVisible == visible && Math.abs(scanMarkFraction - clamped) < 1e-5f) return;
-        scanMarkVisible = visible;
-        scanMarkFraction = clamped;
+    /**
+     * Scan inspect's sample, mapped onto the plot's wavelength axis. A sample
+     * with no dominant wavelength clears the mark instead of parking it at the
+     * picture position, which is a different axis.
+     */
+    void setScanMark(boolean visible, ScanSample sample) {
+        final ScanSample next = sample == null ? ScanSample.unavailable() : sample;
+        final boolean show = visible && next.hasWavelength();
+        if (scanMarkVisible == show && scanSample == next) return;
+        scanMarkVisible = show;
+        scanSample = next;
         invalidate();
     }
 
@@ -147,9 +159,7 @@ final class SpectrumCurveView extends View {
         // The MaterialCardView behind this view owns the surface, its radius,
         // and its ripple; the plot draws only its own ink.
         paint.setStyle(Paint.Style.FILL);
-        paint.setTypeface(labelTypeface);
-        paint.setTextSize(labelSizePx);
-        paint.setLetterSpacing(labelTracking);
+        applyLabelStyle(paint);
         paint.setColor(mutedColor);
         paint.setAlpha(255);
 
@@ -192,9 +202,7 @@ final class SpectrumCurveView extends View {
         if (!available) {
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(mutedColor);
-            paint.setTypeface(labelTypeface);
-            paint.setTextSize(labelSizePx);
-            paint.setLetterSpacing(labelTracking);
+            applyLabelStyle(paint);
             final float textWidth = paint.measureText(emptyLabel);
             canvas.drawText(emptyLabel, Math.max(pad, (w - textWidth) * 0.5f),
                     (top + bottom) * 0.5f + labelSizePx * 0.35f, paint);
@@ -252,30 +260,37 @@ final class SpectrumCurveView extends View {
             paint.setAlpha(255);
         }
 
-        // Scan inspect's position, on the same fraction axis as the curve.
-        // When Scan is off the Activity clears this mark.
+        // Scan inspect's sampled wavelength, mapped onto the shipped series'
+        // own wavelength axis. No wavelength means no mark.
         if (scanMarkVisible) {
-            final float x = left + scanMarkFraction * plotWidth;
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(Math.max(1f, density));
-            paint.setColor(scanColor);
-            paint.setAlpha(210);
-            canvas.drawLine(x, top - dp(2), x, bottom + dp(2), paint);
-            paint.setStyle(Paint.Style.FILL);
-            canvas.drawCircle(x, top - dp(2), dp(1.6f), paint);
-            paint.setAlpha(255);
+            final double fraction = curve.fractionForSample(scanSample);
+            if (!Double.isNaN(fraction)) {
+                final float x = left + (float) fraction * plotWidth;
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(1f, density));
+                paint.setColor(scanColor);
+                paint.setAlpha(210);
+                canvas.drawLine(x, top - dp(2), x, bottom + dp(2), paint);
+                paint.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(x, top - dp(2), dp(1.6f), paint);
+                paint.setAlpha(255);
+            }
         }
 
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(mutedColor);
-        paint.setTypeface(labelTypeface);
-        paint.setTextSize(labelSizePx);
-        paint.setLetterSpacing(labelTracking);
+        applyLabelStyle(paint);
         final String lo = formatNm(curve.minNm());
         final String hi = formatNm(curve.maxNm()) + " nm";
         final float axisBaseline = h - dp(4);
         canvas.drawText(lo, left, axisBaseline, paint);
         canvas.drawText(hi, right - paint.measureText(hi), axisBaseline, paint);
+    }
+
+    private void applyLabelStyle(Paint p) {
+        p.setTypeface(labelTypeface);
+        p.setTextSize(labelSizePx);
+        p.setLetterSpacing(labelTracking);
     }
 
     private static String formatNm(double nm) {

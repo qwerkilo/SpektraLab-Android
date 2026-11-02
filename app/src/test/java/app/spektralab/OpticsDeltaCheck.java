@@ -26,6 +26,14 @@ public final class OpticsDeltaCheck {
         require("grain defaults to 1.00", OpticsDelta.GRAIN_DEFAULT == 1.0f);
         require("halation defaults to 1.00", OpticsDelta.HALATION_DEFAULT == 1.0f);
         require("glare defaults to 3.00", OpticsDelta.GLARE_DEFAULT == 3.0f);
+        require("the exposure row uses EXPOSURE_DEFAULT",
+                OpticsDelta.Param.EXPOSURE.defaultValue == OpticsDelta.EXPOSURE_DEFAULT);
+        require("the grain row uses GRAIN_DEFAULT",
+                OpticsDelta.Param.GRAIN.defaultValue == OpticsDelta.GRAIN_DEFAULT);
+        require("the halation row uses HALATION_DEFAULT",
+                OpticsDelta.Param.HALATION.defaultValue == OpticsDelta.HALATION_DEFAULT);
+        require("the glare row uses GLARE_DEFAULT",
+                OpticsDelta.Param.GLARE.defaultValue == OpticsDelta.GLARE_DEFAULT);
     }
 
     private static void ranges() {

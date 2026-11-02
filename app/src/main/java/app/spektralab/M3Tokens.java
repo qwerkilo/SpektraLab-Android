@@ -68,29 +68,39 @@ public final class M3Tokens {
     /** Minimum contrast for large text and control boundaries. */
     public static final double LARGE_CONTRAST = 3.0;
 
+    /** M3's 70 % medium emphasis, used for a secondary line inside a control. */
+    public static final float MEDIUM_EMPHASIS_ALPHA = 0.70f;
+    /** M3's 38 % disabled content opacity. */
+    public static final float DISABLED_CONTENT_ALPHA = 0.38f;
+
     /**
      * The M3 type scale. A control asks for a role; the role carries the size,
      * line height, tracking, and weight. The family stays Inter or OPPOSans.
+     *
+     * <p>Material publishes tracking in sp; {@code TextView.setLetterSpacing}
+     * takes em. Each value here is already {@code trackingSp / sizeSp}, so the
+     * label-medium 0.5 sp token is 0.0417 em, never 0.5 em.
      */
     public enum TypeRole {
-        DISPLAY_LARGE(57f, 64f, -0.25f, 400),
+        DISPLAY_LARGE(57f, 64f, -0.004386f, 400),
         DISPLAY_MEDIUM(45f, 52f, 0f, 400),
         DISPLAY_SMALL(36f, 44f, 0f, 400),
         HEADLINE_LARGE(32f, 40f, 0f, 400),
         HEADLINE_MEDIUM(28f, 36f, 0f, 400),
         HEADLINE_SMALL(24f, 32f, 0f, 400),
         TITLE_LARGE(22f, 28f, 0f, 400),
-        TITLE_MEDIUM(16f, 24f, 0.15f, 500),
-        TITLE_SMALL(14f, 20f, 0.1f, 500),
-        BODY_LARGE(16f, 24f, 0.5f, 400),
-        BODY_MEDIUM(14f, 20f, 0.25f, 400),
-        BODY_SMALL(12f, 16f, 0.4f, 400),
-        LABEL_LARGE(14f, 20f, 0.1f, 500),
-        LABEL_MEDIUM(12f, 16f, 0.5f, 500),
-        LABEL_SMALL(11f, 16f, 0.5f, 500);
+        TITLE_MEDIUM(16f, 24f, 0.009375f, 500),
+        TITLE_SMALL(14f, 20f, 0.007143f, 500),
+        BODY_LARGE(16f, 24f, 0.03125f, 400),
+        BODY_MEDIUM(14f, 20f, 0.017857f, 400),
+        BODY_SMALL(12f, 16f, 0.033333f, 400),
+        LABEL_LARGE(14f, 20f, 0.007143f, 500),
+        LABEL_MEDIUM(12f, 16f, 0.041667f, 500),
+        LABEL_SMALL(11f, 16f, 0.045455f, 500);
 
         public final float sizeSp;
         public final float lineHeightSp;
+        /** Real em, not the sp tracking value Material lists. */
         public final float letterSpacingEm;
         public final int weight;
 

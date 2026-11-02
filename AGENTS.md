@@ -40,7 +40,7 @@ On Windows without Termux, `app/build/build-apk-windows.ps1` compiles, dexes wit
 
 ## Where the code lives
 
-- `MainActivity.java` — ~4.7k lines, programmatic `View` UI in one file. No XML layouts; theme only in `app/build/values/themes.xml`.
+- `MainActivity.java` — ~6.7k lines, programmatic `View` UI in one file. No XML layouts; the M3 theme, color roles, and type attrs live in `app/src/main/res/values/*` (`themes.xml`, `colors.xml`, `attrs.xml`), with the rail menu in `app/src/main/res/menu/console_nav.xml` and its icons in `app/src/main/res/drawable/`.
 - `SpektraLabEngine.java` — JNI facade. `prepare(libDir)` loads bundled `.so` by absolute path before the engine; there is intentionally no `static {}` loader, so a load failure keeps its cause. One native result buffer, serialized by `RENDER_LOCK`.
 - `spektralab_jni.cpp` — session, render, JPEG/TIFF/DNG export. `spektralab_raw_jni.cpp` — LibRaw decode.
 - The engine itself is not in this repo; only `patches/engine-android.patch` and `docs/tiling.md` are.
@@ -74,7 +74,10 @@ When the Termux engine toolchain is unavailable, a device build can replace `cla
 
 ## Commits
 
-Conventional commits, one concern each: `fix(native):`, `feat:`, `chore(update):`, `release:`.
+Conventional commits, one concern each: `fix(native):`, `feat:`, `chore(update):`,
+`release:`. Integration merges use `merge: <topic>` as already recorded in the
+history; merge commits are exempt from the conventional prefix because their
+subject names the joined work, not a new concern.
 
 ## Agent skills
 

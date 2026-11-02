@@ -52,6 +52,10 @@ wallpaper.
   recreation.
 - Gradle stages the ~30 MB assets and `arm64-v8a` libraries from a base APK;
   a clean checkout without that donor cannot assemble a runnable APK.
+- At the 600 dp wide breakpoint the 80 dp rail plus the 300 dp control column
+  leave a 220 dp Frame column. `ConsoleLayout.STAGE_MIN_DP` is therefore 220,
+  and `ConsoleLayoutCheck` pins that value; a 280 dp stage would require a
+  600 dp window to give up either the rail or the control minimum.
 - The migration temporarily targets SDK 34 because platform 36 and a matching
   AGP are not installed. This is a build constraint, not a product decision.
 
