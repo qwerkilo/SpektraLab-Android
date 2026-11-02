@@ -142,6 +142,6 @@ The photograph remains the primary surface. The instrument readouts support it r
 - ADR-0001 records why Console was chosen over Darkroom and Contact Sheet. Do not reopen that choice in implementation without a new ADR. See [ADR-0001](../adr/0001-instrument-console-ui.md) and [GLOSSARY.md](../../GLOSSARY.md).
 - Contact Sheet contributes the Δ column; Instrument contributes Scan inspect. Those are the only cross-direction borrowings.
 - The prototype is a throwaway primary source. Where Android type sizes, touch targets, or system insets disagree with it, Android wins.
-- GitHub Issues are disabled on the repository. Until they are enabled, this spec is the tracker record and tickets use the local-file fallback.
+- GitHub Issues are disabled on the repository. Until they are enabled, this spec is the tracker record and the tickets live under `.scratch/instrument-console/issues/`.
 - Work happens on the `feat/instrument-console` branch. `master` is not touched until the branch is verified and approved for merge.
 - Update the glossary when a UI term is resolved. Update ADR-0001 only when the decision changes, not when the implementation does.
