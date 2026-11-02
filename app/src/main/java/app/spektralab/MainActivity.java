@@ -4894,9 +4894,12 @@ public class MainActivity extends Activity {
             final int pw = Math.max(1, Math.round(sourceWidth * Math.min(1f, 1024f / Math.max(sourceWidth, sourceHeight))));
             final int ph = Math.max(1, Math.round(sourceHeight * Math.min(1f, 1024f / Math.max(sourceWidth, sourceHeight))));
             beforeBitmap = Bitmap.createScaledBitmap(sourceBitmap, pw, ph, true);
-            compare.setBefore(beforeBitmap);
-            sourceBitmap.recycle();
+            // A source already within the preview edge is returned unchanged
+            // by createScaledBitmap. Recycling it here would leave CompareView
+            // holding a recycled bitmap and crash the next draw.
+            if (beforeBitmap != sourceBitmap) sourceBitmap.recycle();
             sourceBitmap = null;
+            compare.setBefore(beforeBitmap);
             statusText.setText("Local preview");
             setStage(1, getFileName(uri));
             rememberFrame(uri);
