@@ -39,6 +39,10 @@ Look semantics, and the existing test seams stay intact.
   colours via `SpektraLabApp`, assets/libs staged from the base APK; Gradle APK
   installs and cold-starts. Both themes captured on device. `align16k` produces
   the Android 15/16 16 KB APK. Interim compile/target SDK 34.
+- **Implementation breakdown**: 02 tokens + phone shell, 03 rail, 04 film,
+  05 optics, 06 scale/edge, 07 pickers, 08 curve, 09 scan/compare, 10 audit.
+  Ticket 02 is the only frontier; 03–06 unlock after it; 07 waits on 04–06;
+  08 waits on 04; 09 waits on 02; 10 waits on everything.
 
 ## Not yet specified
 

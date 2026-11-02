@@ -172,8 +172,9 @@ specific view class, or an animation frame.
 
 ## Further Notes
 
-- Ticket 01 (Gradle + M3 foundation) is complete. Tickets 02–06 are the
-  remaining frontier.
+- Ticket 01 (Gradle + M3 foundation) is complete. Tickets 02–10 are the
+  remaining frontier: tokens + phone shell, rail, film, optics, scale/edge,
+  pickers, curve, scan/compare, and the device audit.
 - GitHub Issues are disabled; the map and tickets live under
   `.scratch/m3-console/`.
 - The migration deliberately does not change the image pipeline. If a Material
