@@ -2,7 +2,7 @@
 
 **Type:** task
 **Blocked by:** 01
-**Status:** pending
+**Status:** ready-for-agent
 
 **What to build:** The Console shell rebuilt with Material 3 components:
 `MaterialToolbar`/top app bar, `TabLayout` (secondary tabs) on phones, and

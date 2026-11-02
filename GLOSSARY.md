@@ -133,3 +133,47 @@ _Avoid_: Color constant, theme colour
 **Palette**:
 The set of Palette roles resolved for one Theme mode.
 _Avoid_: Theme, skin, colour scheme
+
+## Material 3
+
+**Material 3 (M3)**:
+The Android design system supplied by the Material Components library: color
+roles, type roles, shape, state layers, and component behaviour. It is the
+control system, not a synonym for the Palette.
+_Avoid_: Material Design, MD3 theme
+
+**M3 color role**:
+A semantic slot in the M3 scheme, such as primary, on-surface, surface-container,
+or outline. Controls ask for the role; they do not carry a hex value.
+_Avoid_: Palette role (the Palette role is the stage/spectrum exception)
+
+**Dynamic color**:
+The M3 scheme generated from the device wallpaper on Android 12+. It applies to
+controls and surfaces, never to the photographic stage or the spectral R/G/B.
+_Avoid_: Material You everywhere, adaptive palette
+
+**M3 type role**:
+A named position in the M3 type scale, such as display-small, title-medium, or
+label-small. The role selects size, weight, and line height; the family stays
+Inter or OPPOSans.
+_Avoid_: Font size, text style
+
+**Top app bar**:
+The M3 header component that owns the Console wordmark, Theme mode, and Export.
+It replaces the hand-built header row but not the Readout strip.
+_Avoid_: Header, toolbar, nav bar
+
+**Navigation rail**:
+The M3 vertical navigation component used at ≥600 dp. It carries the same four
+workspaces as the phone tabs and shares their selected state.
+_Avoid_: Sidebar, drawer, side tabs
+
+**State layer**:
+The M3 translucent overlay that expresses hover, focus, pressed, or dragged
+state without changing a control's bounds.
+_Avoid_: Ripple (a ripple is one implementation of a state layer)
+
+**M3 token**:
+A named design value (color role, type role, shape, elevation, motion) that a
+component reads instead of a hard-coded value.
+_Avoid_: Constant, style variable

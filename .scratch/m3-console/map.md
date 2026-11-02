@@ -11,8 +11,11 @@ Look semantics, and the existing test seams stay intact.
 
 - Execution is in scope for this effort: tickets may land code on
   `feat/m3-console`, not only decisions.
-- Read `GLOSSARY.md`, ADR-0001, and ADR-0003 before touching the shell.
-- The app is Java + custom Views; there is no Gradle build yet.
+- Read `GLOSSARY.md`, ADR-0001, ADR-0003, and ADR-0004 before touching the
+  shell.
+- Spec: `docs/specs/m3-console.md`.
+- The app is Java + custom Views; Gradle and Material Components are now in
+  place (ticket 01).
 - Preserve the signature capabilities (spectral curve, scan inspect, compare);
   rewrite their implementation inside M3 containers.
 - Every ticket ends with a device screenshot in both Theme modes and the
@@ -39,14 +42,8 @@ Look semantics, and the existing test seams stay intact.
 
 ## Not yet specified
 
-- Exact AGP / Material / AndroidX versions and whether platform 36 is
-  installed or the Gradle build compiles against 34 initially.
-- How the 30 MB assets and `arm64-v8a` native libraries enter a Gradle APK.
 - Whether `MainActivity` splits into fragments/ViewModels or keeps one
   composition root during the migration.
-- Dynamic-colour fallback for API 24–30 and the brand-colour seed.
-- Which M3 components replace each current control (top app bar, tabs, cards,
-  chips, sliders, sheets, snackbar).
 - Test migration: JUnit/Robolectric vs keeping the plain `*Check` classes.
 
 ## Out of scope
