@@ -94,6 +94,12 @@ public final class ScanSampleCheck {
         require("the midpoint samples the centre pixel", sample.red() == 0xCC);
         require("the midpoint keeps the centre green", sample.green() == 0x33);
         require("the midpoint keeps the centre blue", sample.blue() == 0x00);
+
+        final ScanSample nan = ScanSample.at(row, row.length, Float.NaN);
+        require("a NaN fraction falls back to the centre",
+                nan.red() == 0xCC && nan.green() == 0x33 && nan.blue() == 0x00);
+        require("the default fraction is the centre",
+                ScanSample.DEFAULT_FRACTION == 0.5f);
     }
 
     private static void singleColouredPixel() {

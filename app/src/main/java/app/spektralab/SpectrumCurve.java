@@ -196,6 +196,22 @@ public final class SpectrumCurve {
         return (value - minValue) / span;
     }
 
+    /**
+     * Where a measured wavelength lands on the plot's 0..1 horizontal axis.
+     * The axis spans this curve's own measured range, so Scan inspect and the
+     * plotted samples share one fraction. Out-of-range input clamps to an edge;
+     * a missing wavelength or an unavailable curve has no fraction. A range of
+     * zero width draws on the middle line, exactly as {@link #normalizedAt}
+     * does vertically.
+     */
+    public double fractionAtNm(double nm) {
+        if (!available() || !finite(nm)) return Double.NaN;
+        final double span = maxNm - minNm;
+        if (!(span > 0)) return 0.5;
+        final double fraction = (nm - minNm) / span;
+        return Math.max(0.0, Math.min(1.0, fraction));
+    }
+
     /** The profile's channel name, or an empty string for an unknown index. */
     public static String channelLabel(int channel) {
         switch (channel) {
