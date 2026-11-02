@@ -381,7 +381,16 @@ public class MainActivity extends Activity {
         try {
             final String name = themeMode == ThemeMode.DARK ? "AppTheme_Dark" : "AppTheme";
             final int id = getResources().getIdentifier(name, "style", getPackageName());
-            if (id != 0) setTheme(id);
+            if (id != 0) {
+                setTheme(id);
+            } else {
+                // The staged res tree may not have been refreshed yet. Fall
+                // back to the framework's own light/dark window rather than
+                // starting a dark session on a light surface.
+                setTheme(themeMode == ThemeMode.DARK
+                        ? android.R.style.Theme_Material_NoActionBar
+                        : android.R.style.Theme_Material_Light_NoActionBar);
+            }
         } catch (Throwable t) {
             DebugSink.text("theme", "launch style: " + t);
         }
