@@ -118,6 +118,13 @@ public final class SpectrumCurveCheck {
         require("a channel missing from a row is a gap",
                 ragged.runCount(1) == 1 && ragged.runStart(1, 0) == 1);
         require("the present value is plotted", close(ragged.rawAt(1, 0, 0), 3.0));
+
+        final SpectrumCurve noBlue = SpectrumCurve.of(
+                new double[]{400, 500},
+                new double[][]{{1.0, 2.0, Double.NaN}, {3.0, 4.0, Double.NaN}});
+        require("a channel with only gaps draws no line", noBlue.runCount(2) == 0);
+        require("the measured channels still draw", noBlue.runCount(0) == 1);
+        require("a gap has no value to plot", Double.isNaN(noBlue.rawAt(2, 0, 0)));
     }
 
     private static boolean close(double actual, double expected) {
