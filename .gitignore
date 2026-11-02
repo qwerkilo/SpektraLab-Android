@@ -1,4 +1,7 @@
 # build outputs
+.gradle/
+build/
+local.properties
 app/build/native/
 app/build/classes/
 app/build/dex/

@@ -1,0 +1,141 @@
+plugins {
+    id 'com.android.application'
+}
+
+def userKeystore = System.getenv('SPK_KEYSTORE')
+
+android {
+    namespace 'app.spektralab'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'app.spektralab'
+        minSdk 24
+        targetSdk 34
+        versionCode 68
+        versionName '1.3.4'
+    }
+
+    // Local builds use the user's release key when the environment provides
+    // it; CI/clean checkouts fall back to the debug key.
+    signingConfigs {
+        if (userKeystore) {
+            release {
+                storeFile file(userKeystore)
+                storePassword System.getenv('SPK_KS_PASS')
+                keyAlias System.getenv('SPK_KEY_ALIAS')
+                keyPassword System.getenv('SPK_KEY_PASS')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+        debug {
+            if (userKeystore) signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'src/main/AndroidManifest.xml'
+            java.srcDirs = ['src/main/java']
+            res.srcDirs = ['src/main/res']
+            assets.srcDirs = ['src/main/assets', "$buildDir/generated/base/assets"]
+            jniLibs.srcDirs = ["$buildDir/generated/base/jniLibs"]
+        }
+    }
+
+    packaging {
+        resources {
+            excludes += ['META-INF/LICENSE*', 'META-INF/NOTICE*', 'META-INF/*.version']
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'com.google.android.material:material:1.12.0'
+}
+
+/**
+ * The native engine and the ~30 MB stock assets live in the shipped APK, not
+ * in this checkout. Stage them into Gradle's generated source dirs so a Gradle
+ * APK is installable without the Termux script. Override with -PbaseApk=<path>.
+ */
+def baseApk = file(project.findProperty('baseApk')
+        ?: "$buildDir/SpektraLab-1.3.4-qa.apk")
+def stagedBase = "$buildDir/generated/base"
+
+tasks.register('stageBase') {
+    inputs.file(baseApk)
+    outputs.dir(stagedBase)
+    doLast {
+        if (!baseApk.isFile()) {
+            throw new GradleException("Base APK not found: ${baseApk}. "
+                    + "Build one first or pass -PbaseApk=<path>.")
+        }
+        delete stagedBase
+        copy {
+            from zipTree(baseApk)
+            include 'assets/**'
+            into "$stagedBase/assets"
+            eachFile { it.path = it.path.replaceFirst('^assets/', '') }
+        }
+        copy {
+            from zipTree(baseApk)
+            include 'lib/arm64-v8a/*.so'
+            into "$stagedBase/jniLibs/arm64-v8a"
+            eachFile { it.path = it.name }
+        }
+    }
+}
+
+preBuild.dependsOn tasks.named('stageBase')
+
+/**
+ * Android 15/16 devices with 16 KB pages reject an APK whose uncompressed
+ * libraries are only 4 KB aligned. AGP 8.2 does not add the extra zip
+ * alignment, so produce a second, installable APK with build-tools 36.
+ */
+tasks.register('align16k') {
+    dependsOn tasks.named('assembleDebug')
+    doLast {
+        def sdk = System.getenv('ANDROID_HOME') ?: System.getenv('ANDROID_SDK_ROOT')
+                ?: rootProject.file('local.properties').withInputStream {
+                    Properties p = new Properties(); p.load(it); p.getProperty('sdk.dir')
+                }
+        def tools = file("${sdk}/build-tools/36.0.0")
+        if (!tools.isDirectory()) {
+            throw new GradleException("build-tools 36.0.0 not found at ${tools}")
+        }
+        def input = file("${buildDir}/outputs/apk/debug/app-debug.apk")
+        def aligned = file("${buildDir}/outputs/apk/debug/app-debug-16k.apk")
+        def signed = file("${buildDir}/outputs/apk/debug/app-debug-16k-signed.apk")
+        exec {
+            commandLine "${tools}/zipalign.exe", '-P', '16', '-f', '4', input, aligned
+        }
+        def keystore = System.getenv('SPK_KEYSTORE')
+        if (keystore) {
+            exec {
+                commandLine 'cmd', '/c', "${tools}\\apksigner.bat", 'sign',
+                        '--ks', keystore,
+                        '--ks-pass', 'env:SPK_KS_PASS',
+                        '--key-pass', 'env:SPK_KEY_PASS',
+                        '--ks-key-alias', System.getenv('SPK_KEY_ALIAS'),
+                        '--out', signed, aligned
+            }
+            logger.lifecycle("16 KB APK: ${signed}")
+        } else {
+            logger.lifecycle("16 KB APK (unsigned): ${aligned}")
+        }
+    }
+}
