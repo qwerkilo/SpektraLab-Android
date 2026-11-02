@@ -137,6 +137,18 @@ public final class ScanSample {
         return "R " + red + "  G " + green + "  B " + blue;
     }
 
+    /** The readout's RGB line, with an explicit dash per channel when unread. */
+    public String rgbReadoutText() {
+        return available ? rgbText() : "R \u2014  G \u2014  B \u2014";
+    }
+
+    /** The readout's lambda line: the estimate and unit, or the honest dash. */
+    public String lambdaText() {
+        return "\u03bb " + (hasWavelength()
+                ? wavelengthText() + " " + WAVELENGTH_UNIT
+                : UNAVAILABLE_LABEL);
+    }
+
     /** Readout text for accessibility: numbers, or the honest unavailable state. */
     public String description() {
         if (!available) return "扫描采样不可用";
