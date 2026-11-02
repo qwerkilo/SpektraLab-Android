@@ -10,6 +10,9 @@ public final class OpticsDeltaCheck {
 
     public static void main(String[] args) {
         defaults();
+        ranges();
+        valueText();
+        defaultSeam();
         atDefault();
         signedText();
         rounding();
@@ -23,6 +26,58 @@ public final class OpticsDeltaCheck {
         require("grain defaults to 1.00", OpticsDelta.GRAIN_DEFAULT == 1.0f);
         require("halation defaults to 1.00", OpticsDelta.HALATION_DEFAULT == 1.0f);
         require("glare defaults to 3.00", OpticsDelta.GLARE_DEFAULT == 3.0f);
+    }
+
+    private static void ranges() {
+        require("exposure range is 0.25 to 4.00",
+                OpticsDelta.Param.EXPOSURE.min == 0.25f
+                        && OpticsDelta.Param.EXPOSURE.max == 4.0f);
+        require("grain range is 0.00 to 2.00",
+                OpticsDelta.Param.GRAIN.min == 0.0f
+                        && OpticsDelta.Param.GRAIN.max == 2.0f);
+        require("halation range is 0.00 to 4.00",
+                OpticsDelta.Param.HALATION.min == 0.0f
+                        && OpticsDelta.Param.HALATION.max == 4.0f);
+        require("glare range is 0.00 to 12.00",
+                OpticsDelta.Param.GLARE.min == 0.0f
+                        && OpticsDelta.Param.GLARE.max == 12.0f);
+        require("four optics parameters", OpticsDelta.Param.values().length == 4);
+        require("exposure announces EV", "EV".equals(OpticsDelta.Param.EXPOSURE.unit));
+        require("grain announces the multiplier sign",
+                "\u00d7".equals(OpticsDelta.Param.GRAIN.unit));
+        for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
+            require(param.name() + " default sits inside its range",
+                    param.defaultValue >= param.min && param.defaultValue <= param.max);
+        }
+    }
+
+    private static void valueText() {
+        require("a whole value keeps two decimals", "1.00".equals(OpticsDelta.valueText(1.0f)));
+        require("the exposure floor keeps two decimals",
+                "0.25".equals(OpticsDelta.valueText(0.25f)));
+        require("zero keeps two decimals", "0.00".equals(OpticsDelta.valueText(0.0f)));
+        require("the glare ceiling keeps two decimals",
+                "12.00".equals(OpticsDelta.valueText(12.0f)));
+    }
+
+    /** The reset seam: a value that reads as the default is already there. */
+    private static void defaultSeam() {
+        require("a default value is at the default", OpticsDelta.isDefault(1.0f, 1.0f));
+        require("rounding noise stays at the default",
+                OpticsDelta.isDefault(1.0004f, 1.0f));
+        require("a visible step leaves the default",
+                !OpticsDelta.isDefault(1.0006f, 1.0f));
+        require("negative rounding noise stays at the default",
+                OpticsDelta.isDefault(0.9996f, 1.0f));
+        require("a negative visible step leaves the default",
+                !OpticsDelta.isDefault(0.9994f, 1.0f));
+        require("a parameter answers the same question",
+                OpticsDelta.Param.GLARE.isDefault(3.0f));
+        require("a moved parameter is not at its default",
+                !OpticsDelta.Param.GLARE.isDefault(3.01f));
+        require("a parameter clamps its own range",
+                OpticsDelta.Param.EXPOSURE.clamp(9.0f) == 4.0f
+                        && OpticsDelta.Param.EXPOSURE.clamp(0.0f) == 0.25f);
     }
 
     private static void atDefault() {
