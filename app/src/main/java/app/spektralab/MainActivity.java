@@ -5514,7 +5514,7 @@ public class MainActivity extends Activity {
         // For content:// URIs, we need to copy to a temp file
         if (uri.getScheme().equals("content")) {
             try {
-                String fileName = getFileName(uri);
+                String fileName = SafeFileName.of(getFileName(uri), "import.bin");
                 java.io.File tempFile = new java.io.File(getCacheDir(), fileName);
                 try (InputStream in = getContentResolver().openInputStream(uri);
                      java.io.OutputStream out = new java.io.FileOutputStream(tempFile)) {
