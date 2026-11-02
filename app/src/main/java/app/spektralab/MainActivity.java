@@ -2906,7 +2906,9 @@ public class MainActivity extends Activity {
         reset.setOnClickListener(v -> {
             if (!opticsUnlocked) return;
             final boolean moved = Math.abs(optics.currentValue() - defaultValue) > 0.0005f;
+            apply.accept(defaultValue);
             optics.setValue(defaultValue);
+            refreshReadoutStrip();
             if (moved && uiReady && session != null) {
                 showingOriginal = false;
                 setOriginalVisual(false);
