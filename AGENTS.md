@@ -26,6 +26,8 @@ Never hand-copy `libspektrafilm_engine.so` into `app/build/apk/lib` (README stil
 
 `build-apk.sh` signs with `$HOME/SpektraLab-apk/debug.keystore` (gitignored). `app/build/apk/res` and most of `app/build/apk/assets` are local-only staging: no script creates them. `app/src/main/assets` is gitignored too (~30 MB of profiles and resources).
 
+On Windows without Termux, `app/build/build-apk-windows.ps1` compiles, dexes with the R8 jar, reuses a base APK's assets and native libraries, then align-signs. Set `SPK_KEYSTORE`, `SPK_KS_PASS`, `SPK_KEY_PASS`, `SPK_KEY_ALIAS`; pass `-BaseApk` only when the newest `*-console.apk` is not the donor.
+
 ## Upstreams
 
 - **Engine**: `JamesQiu2005/SpektraLab`, branch `assist/vulkan-engine-1.3.4` at `445e314`. The engine is out of tree; sync by reapplying `patches/engine-android.patch` to the new baseline, never by merging the desktop app.
@@ -87,7 +89,7 @@ Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents
 ## Pre-commit hook
 
 Enable once per clone: `git config core.hooksPath .githooks`.
-The hook syntax-checks staged `.sh` files with `bash -n` and staged `.py` files with `ast.parse`.
+The hook syntax-checks staged `.sh` files with `bash -n`, staged `.py` files with `ast.parse`, rejects staged text that is not valid UTF-8, and runs `git diff --cached --check`.
 It does not run the Android build.
 
 ## Git workflow

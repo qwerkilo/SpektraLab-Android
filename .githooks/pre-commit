@@ -16,7 +16,9 @@ fi
 fail=0
 sh_count=0
 py_count=0
+text_count=0
 skipped_py=0
+skipped_text=0
 
 check_sh() {
   if bash -n "$1"; then
@@ -40,20 +42,46 @@ check_py() {
   fi
 }
 
+check_text() {
+  if [[ -z $python_bin ]]; then
+    skipped_text=$((skipped_text + 1))
+    return
+  fi
+  if "$python_bin" -c 'import sys
+try:
+    open(sys.argv[1], "rb").read().decode("utf-8")
+except UnicodeDecodeError:
+    sys.exit(1)' "$1"; then
+    text_count=$((text_count + 1))
+  else
+    printf 'pre-commit: not valid UTF-8: %s\n' "$1" >&2
+    fail=1
+  fi
+}
+
 while IFS= read -r -d '' path; do
   [[ -f $path ]] || continue
   case "$path" in
-    *.sh) check_sh "$path" ;;
-    *.py) check_py "$path" ;;
+    *.sh|.githooks/*) check_sh "$path"; check_text "$path" ;;
+    *.py) check_py "$path"; check_text "$path" ;;
+    *.md|*.java|*.json|*.xml|*.yml|*.yaml|*.txt|*.ps1|*.c|*.cpp|*.h|*.hpp)
+      check_text "$path" ;;
   esac
 done < <(git diff --cached --name-only --diff-filter=ACMR -z)
 
-if ((skipped_py > 0)); then
-  printf 'pre-commit: Python not found, skipped %d file(s)\n' "$skipped_py" >&2
+if ! git diff --cached --check; then
+  printf 'pre-commit: whitespace errors in the staged diff\n' >&2
+  fail=1
 fi
 
-if ((sh_count + py_count > 0)); then
-  printf 'pre-commit: checked %d shell, %d Python file(s)\n' "$sh_count" "$py_count"
+if ((skipped_py > 0 || skipped_text > 0)); then
+  printf 'pre-commit: Python not found, skipped %d Python and %d text file(s)\n' \
+    "$skipped_py" "$skipped_text" >&2
+fi
+
+if ((sh_count + py_count + text_count > 0)); then
+  printf 'pre-commit: checked %d shell, %d Python, %d text file(s)\n' \
+    "$sh_count" "$py_count" "$text_count"
 fi
 
 exit "$fail"
