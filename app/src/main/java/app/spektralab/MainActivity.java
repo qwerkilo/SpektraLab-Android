@@ -322,11 +322,13 @@ public class MainActivity extends Activity {
     private boolean panelCollapsed = false;
     /** The film panel opens on 原图, never on a stock the user did not pick. */
     private boolean showingOriginal = true;
+    /** The shelf's brand facet; reset on a new import, not on a theme rebuild. */
+    private String brandFilter = FilmBrand.ALL;
     private int formatIndex = 0;
-    /** The film panel's own views: chips, curve, measured values, note. They
+    /** The film panel's own views: brands, chips, curve, measured values, note. They
      *  read the current Look on every refresh; no field here is a second copy
      *  of `filmStock`. */
-    private LinearLayout filmChipRow, filmMetricsRow;
+    private LinearLayout brandRow, filmChipRow, filmMetricsRow;
     private HorizontalScrollView filmChipScroll;
     private FilmCurveView filmCurve;
     private TextView filmNote;
@@ -2134,6 +2136,16 @@ public class MainActivity extends Activity {
         panel.addView(sectionHead("FILM STOCK / 胶片", this::resetFilmPanel),
                 new LinearLayout.LayoutParams(-1, dp(38)));
 
+        HorizontalScrollView brandScroll = new HorizontalScrollView(this);
+        brandScroll.setHorizontalScrollBarEnabled(false);
+        brandScroll.setClipToPadding(false);
+        brandScroll.setFillViewport(false);
+        brandRow = new LinearLayout(this);
+        brandRow.setOrientation(LinearLayout.HORIZONTAL);
+        brandRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        brandScroll.addView(brandRow, new android.widget.FrameLayout.LayoutParams(-2, -2));
+        panel.addView(brandScroll, new LinearLayout.LayoutParams(-1, dp(MIN_TOUCH_DP)));
+
         filmChipScroll = new HorizontalScrollView(this);
         filmChipScroll.setHorizontalScrollBarEnabled(false);
         filmChipScroll.setClipToPadding(false);
@@ -2205,14 +2217,35 @@ public class MainActivity extends Activity {
 
     /** Rebuild the chips, curve, measured values, and note from the Look. */
     private void refreshFilmPanel() {
+        refreshFilmPanel(false);
+    }
+
+    /** A brand change starts a new shelf; a theme rebuild keeps its position. */
+    private void refreshFilmPanel(boolean resetScroll) {
         if (filmChipRow == null) return;
-        final int keepScroll = filmChipScroll == null ? 0 : filmChipScroll.getScrollX();
+        final int keepScroll = resetScroll || filmChipScroll == null
+                ? 0 : filmChipScroll.getScrollX();
+        refreshBrandRow();
         filmChipRow.removeAllViews();
         addFilmChip("original", "原图", "ORIGINAL", showingOriginal);
+
+        // The active stock is the one the curve and the readout describe. If
+        // another brand is selected, pin it first so the shelf never hides the
+        // Look that is still in force.
+        final int active = filmStock == null || showingOriginal
+                ? -1 : filmIds.indexOf(filmStock);
+        final boolean pinnedActive = active >= 0
+                && !FilmBrand.matches(filmStock, brandFilter);
+        if (pinnedActive) {
+            addFilmChip(filmStock, shortStockName(filmLabels.get(active)),
+                    chipSubtitle(active, filmStocks.get(filmStock)), true);
+        }
         for (int i = 0; i < filmIds.size(); ++i) {
             final String id = filmIds.get(i);
-            final FilmStock stock = filmStocks.get(id);
-            addFilmChip(id, shortStockName(filmLabels.get(i)), chipSubtitle(i, stock),
+            if (!FilmBrand.matches(id, brandFilter)) continue;
+            if (pinnedActive && i == active) continue;
+            addFilmChip(id, shortStockName(filmLabels.get(i)),
+                    chipSubtitle(i, filmStocks.get(id)),
                     filmStock != null && !showingOriginal && id.equals(filmStock));
         }
         if (filmChipScroll != null) filmChipScroll.post(() -> filmChipScroll.scrollTo(keepScroll, 0));
@@ -2230,6 +2263,35 @@ public class MainActivity extends Activity {
         syncScanAvailability();
     }
 
+    /** The brand facet: counts come from the catalogue, empty brands stay out. */
+    private void refreshBrandRow() {
+        if (brandRow == null) return;
+        brandRow.removeAllViews();
+        for (String id : FilmBrand.ORDER) {
+            final int count = FilmBrand.count(filmIds, id);
+            if (count == 0 && !FilmBrand.ALL.equals(id)) continue;
+            final boolean active = id.equals(brandFilter);
+            TextView tab = label(FilmBrand.label(id) + " " + count, 8.5f,
+                    palette.color(active ? Palette.Role.ACCENT : Palette.Role.MUTED_INK),
+                    FilmBrand.ALL.equals(id) ? tfHan : tfBody);
+            tab.setGravity(android.view.Gravity.CENTER);
+            tab.setSingleLine(true);
+            tab.setPadding(dp(2), 0, dp(18), 0);
+            tab.setMinWidth(dp(MIN_TOUCH_DP));
+            if (active) tab.setPaintFlags(tab.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+            tab.setFocusable(true);
+            tab.setClickable(true);
+            tab.setContentDescription(FilmBrand.label(id) + "，" + count + " 支胶片"
+                    + (active ? "，已选中" : "，双击筛选"));
+            tab.setOnClickListener(v -> {
+                if (id.equals(brandFilter)) return;
+                brandFilter = id;
+                refreshFilmPanel(true);
+            });
+            brandRow.addView(tab, new LinearLayout.LayoutParams(-2, dp(MIN_TOUCH_DP)));
+        }
+    }
+
     /** The small line under a chip: the measured type and speed, or the stock's role. */
     private String chipSubtitle(int index, FilmStock stock) {
         if (stock != null) {
@@ -2239,7 +2301,7 @@ public class MainActivity extends Activity {
             if (type != null) return type.toUpperCase(java.util.Locale.US);
         }
         if (index >= 0 && index < filmTypes.size()
-                && "positive".equals(filmTypes.get(index))) return "REVERSAL";
+                && "positive".equals(filmTypes.get(index))) return "REVERSAL · SCAN";
         return "FILM";
     }
 
@@ -2301,15 +2363,23 @@ public class MainActivity extends Activity {
     private void pickFilmChip(String id) {
         final int index = filmIds.indexOf(id);
         if (index < 0) return;
-        if (index < filmTypes.size() && "positive".equals(filmTypes.get(index))) {
-            showInAppToast("反转片（幻灯）不能印到相纸上——本版只支持负片");
-            return;
-        }
         if (id.equals(filmStock) && !showingOriginal) return;
         filmStock = id;
         showingOriginal = false;
         refreshFilmPanel();
         onStockChanged();
+    }
+
+    /**
+     * A reversal/slide is developed and scanned directly; the engine's
+     * `scan_film` replaces the paper stage. That is why the paper row is not
+     * what makes it printable, and why the old refusal was a UI limit rather
+     * than an engine one.
+     */
+    private boolean isPositiveFilm(String id) {
+        final int index = id == null ? -1 : filmIds.indexOf(id);
+        return index >= 0 && index < filmTypes.size()
+                && "positive".equals(filmTypes.get(index));
     }
 
     /** Measured values only: a field the profile does not ship stays absent. */
@@ -2368,6 +2438,11 @@ public class MainActivity extends Activity {
             return "CATALOGUE RECORD MISSING FOR " + filmStock.toUpperCase(java.util.Locale.US);
         }
         final String description = stock.info.get("description");
+        if (isPositiveFilm(filmStock)) {
+            final String scan = "REVERSAL · DIRECT SCAN · PAPER NOT USED";
+            return description != null && !description.isEmpty()
+                    ? scan + " · " + description : scan;
+        }
         if (description != null && !description.isEmpty()) return description;
         final java.util.List<String> parts = new java.util.ArrayList<>();
         final String target = stock.info.get("target_print");
@@ -3071,6 +3146,7 @@ public class MainActivity extends Activity {
         // 原图 is the reset: no stock, no render, the imported frame as it was.
         filmStock = null;
         printStock = "kodak_portra_endura";
+        brandFilter = FilmBrand.ALL;
         showingOriginal = false;
         refreshFilmPanel();
         refreshPaperLabel();
@@ -4942,6 +5018,7 @@ public class MainActivity extends Activity {
             // chosen; the first render happens when the user picks a stock.
             showingOriginal = true;
             lastRenderedBitmap = null;
+            if (!reopeningFrame) brandFilter = FilmBrand.ALL;
             setOriginalVisual(true);
             refreshFilmPanel();
             if (filmStock != null) {
@@ -5212,6 +5289,7 @@ public class MainActivity extends Activity {
                         if (session == null) return;
                         showingOriginal = true;
                         lastRenderedBitmap = null;
+                        if (!reopeningFrame) brandFilter = FilmBrand.ALL;
                         setOriginalVisual(true);
                         refreshFilmPanel();
                         if (filmStock != null) {
@@ -5747,7 +5825,7 @@ public class MainActivity extends Activity {
                     + " render=" + rendering + " long=" + longEdge);
         } catch (Throwable ignored) { }
         session.setParams(String.format(java.util.Locale.US,
-            "{\"film_stock\":\"%s\",\"print_stock\":\"%s\","
+            "{\"film_stock\":\"%s\",\"print_stock\":\"%s\",\"scan_film\":%s,"
             // The file's own colour space and transfer function. A camera
             // JPEG is sRGB *already encoded*: read as ProPhoto linear (the
             // engine default, which is right for a decoded RAW) its mid-tones
@@ -5762,6 +5840,7 @@ public class MainActivity extends Activity {
             + "\"overscan_active\":%s,\"overscan_format\":\"%s\",\"overscan_edge_text\":\"%s\","
             + "\"date_imprint_active\":%s,\"date_imprint_text\":\"%s\",\"date_imprint_style\":\"lcd\"}",
             stock, printStock,
+            isPositiveFilm(stock) ? "true" : "false",
             isRawFile ? "ProPhoto RGB" : "sRGB",
             isRawFile ? "false" : "true",
             isRawFile ? "true" : "false",
