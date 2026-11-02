@@ -3092,6 +3092,7 @@ public class MainActivity extends AppCompatActivity {
         });
         dialog.show();
         final BottomSheetBehavior<android.widget.FrameLayout> behavior = dialog.getBehavior();
+        behavior.setFitToContents(true);
         behavior.setSkipCollapsed(true);
         behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
         openSheet = dialog;
