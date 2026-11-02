@@ -1969,7 +1969,13 @@ public class MainActivity extends Activity {
             if (support != null) parts.add(support.toUpperCase(java.util.Locale.US));
             if (stage != null) parts.add(stage.toUpperCase(java.util.Locale.US));
         }
-        return parts.isEmpty() ? "NO STOCK NOTES SHIPPED." : String.join(" · ", parts);
+        if (parts.isEmpty()) return "NO STOCK NOTES SHIPPED.";
+        final StringBuilder note = new StringBuilder();
+        for (String part : parts) {
+            if (note.length() > 0) note.append(" · ");
+            note.append(part);
+        }
+        return note.toString();
     }
 
     private String curveDescription(FilmStock stock) {
