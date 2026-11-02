@@ -2,7 +2,14 @@
 
 **Type:** task
 **Blocked by:** 01 (Gradle + M3 foundation)
-**Status:** ready-for-agent
+**Status:** completed
+
+**Resolution:** M3 roles/type/shape/state tokens and the phone shell landed;
+`checkJvm` reports 7,489 checks, `ManifestPolicy` 26/26, `align16k` builds and
+signs. Both themes and the in-place theme switch were captured on
+`10.110.67.69:35443` by the implementer (same Frame, Look, Optics tab, and Scan
+state). During the merge gate the device went offline, so the merged APK was
+not reinstalled; the JVM/manifest/APK gates are green.
 
 **What to build:** The phone Console becomes a Material 3 application. The
 control system gets its M3 color roles, type roles, shape, and state layers;
