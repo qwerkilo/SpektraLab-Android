@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Syntax-check staged shell and Python files before commit.
+# Enable once per clone: git config core.hooksPath .githooks
+set -euo pipefail
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+python_bin=""
+if command -v python3 >/dev/null 2>&1; then
+  python_bin=python3
+elif command -v python >/dev/null 2>&1; then
+  python_bin=python
+fi
+
+fail=0
+sh_count=0
+py_count=0
+skipped_py=0
+
+check_sh() {
+  if bash -n "$1"; then
+    sh_count=$((sh_count + 1))
+  else
+    printf 'pre-commit: shell syntax error in %s\n' "$1" >&2
+    fail=1
+  fi
+}
+
+check_py() {
+  if [[ -z $python_bin ]]; then
+    skipped_py=$((skipped_py + 1))
+    return
+  fi
+  if "$python_bin" -c 'import ast, sys; ast.parse(open(sys.argv[1], "rb").read(), sys.argv[1])' "$1"; then
+    py_count=$((py_count + 1))
+  else
+    printf 'pre-commit: Python syntax error in %s\n' "$1" >&2
+    fail=1
+  fi
+}
+
+while IFS= read -r -d '' path; do
+  [[ -f $path ]] || continue
+  case "$path" in
+    *.sh) check_sh "$path" ;;
+    *.py) check_py "$path" ;;
+  esac
+done < <(git diff --cached --name-only --diff-filter=ACMR -z)
+
+if ((skipped_py > 0)); then
+  printf 'pre-commit: Python not found, skipped %d file(s)\n' "$skipped_py" >&2
+fi
+
+if ((sh_count + py_count > 0)); then
+  printf 'pre-commit: checked %d shell, %d Python file(s)\n' "$sh_count" "$py_count"
+fi
+
+exit "$fail"
