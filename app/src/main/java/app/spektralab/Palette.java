@@ -31,6 +31,12 @@ public final class Palette {
         ACCENT,
         /** A quiet accent fill for selected backgrounds. */
         ACCENT_SOFT,
+        /** The spectral plot's red channel. */
+        SPECTRUM_RED,
+        /** The spectral plot's green channel. */
+        SPECTRUM_GREEN,
+        /** The spectral plot's blue channel. */
+        SPECTRUM_BLUE,
         /** Text or glyphs on an accent fill. */
         ON_ACCENT,
         /** The photograph's surround. */
@@ -110,6 +116,9 @@ public final class Palette {
         p.put(Role.LINE, 0xFF82827A);
         p.put(Role.ACCENT, 0xFF1C2AA5);              // ink blue
         p.put(Role.ACCENT_SOFT, 0xFFDCE1F4);
+        p.put(Role.SPECTRUM_RED, 0xFFA93226);
+        p.put(Role.SPECTRUM_GREEN, 0xFF2E6B3A);
+        p.put(Role.SPECTRUM_BLUE, 0xFF24479A);
         p.put(Role.ON_ACCENT, 0xFFF1F1EE);
         p.put(Role.STAGE, 0xFF172174);               // deep blue surround
         p.put(Role.STAGE_INK, 0xFFF1F1EE);
@@ -141,6 +150,9 @@ public final class Palette {
         p.put(Role.LINE, 0xFF6A7068);
         p.put(Role.ACCENT, 0xFF9CCB86);              // phosphor green
         p.put(Role.ACCENT_SOFT, 0xFF223A28);
+        p.put(Role.SPECTRUM_RED, 0xFFE08A7A);
+        p.put(Role.SPECTRUM_GREEN, 0xFF9BD3A4);
+        p.put(Role.SPECTRUM_BLUE, 0xFF9BB8EE);
         p.put(Role.ON_ACCENT, 0xFF0E120F);
         p.put(Role.STAGE, 0xFF070A08);
         p.put(Role.STAGE_INK, 0xFFE3ECE0);

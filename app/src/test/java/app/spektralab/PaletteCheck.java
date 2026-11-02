@@ -18,6 +18,8 @@ public final class PaletteCheck {
         bodyText(Palette.dark(), "dark");
         largeTextAndControls(Palette.light(), "light");
         largeTextAndControls(Palette.dark(), "dark");
+        spectrumLines(Palette.light(), "light");
+        spectrumLines(Palette.dark(), "dark");
         distinctModes(Palette.light(), Palette.dark());
         System.out.println("PaletteCheck: " + checks + " checks passed");
     }
@@ -69,6 +71,20 @@ public final class PaletteCheck {
                 Palette.Role.BACKGROUND, 3.0);
         atLeast(palette, mode + " stage ink as large text", Palette.Role.STAGE_INK,
                 Palette.Role.STAGE, 3.0);
+    }
+
+    private static void spectrumLines(Palette palette, String mode) {
+        Palette.Role[] lines = {
+                Palette.Role.SPECTRUM_RED,
+                Palette.Role.SPECTRUM_GREEN,
+                Palette.Role.SPECTRUM_BLUE,
+        };
+        for (Palette.Role line : lines) {
+            atLeast(palette, mode + " " + line + " on surface", line,
+                    Palette.Role.SURFACE_ELEVATED, 3.0);
+            atLeast(palette, mode + " " + line + " on page", line,
+                    Palette.Role.BACKGROUND, 3.0);
+        }
     }
 
     private static void distinctModes(Palette light, Palette dark) {

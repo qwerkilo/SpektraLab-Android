@@ -71,10 +71,11 @@ public class MainActivity extends Activity {
     private final List<String> filmIds = new ArrayList<>(), filmLabels = new ArrayList<>();
     private final List<String> filmTypes = new ArrayList<>();
     private final List<String> printIds = new ArrayList<>(), printLabels = new ArrayList<>();
-    /** The spectral arrays a stock ships, when the catalogue carries them.
-     *  An absent entry is the only truthful "unavailable"; it is never filled
+    /** The catalogue's film records, keyed by stock id: the shipped spectral
+     *  series, its declared source, and the real scalar `info` fields. An
+     *  absent record is the only truthful "unavailable"; it is never filled
      *  with a placeholder or a curve. */
-    private final java.util.Map<String, SpectrumSamples> filmSpectra = new java.util.HashMap<>();
+    private final java.util.Map<String, FilmStock> filmStocks = new java.util.HashMap<>();
     /** null until the user picks a film: a fresh launch must not look like
      *  a Portra 400 session, and must not render one behind their back. */
     private String filmStock = null;
@@ -213,6 +214,8 @@ public class MainActivity extends Activity {
         }
         rebuildFormatCards();
     }
+    private LinearLayout controls, panelHolder, formatCardStrip;
+    private HorizontalScrollView formatScroll;
 
     /** The Gate the Scale/Edge readout is showing, or the honest empty state. */
     private void updateEdgeValue() {
@@ -241,9 +244,6 @@ public class MainActivity extends Activity {
         }
         return bestId;
     }
-
-    private LinearLayout controls, panelHolder, filmCardStrip, brandRow, formatCardStrip;
-    private HorizontalScrollView filmScroll, formatScroll;
     /**
      * One photograph this session has opened, kept so the strip under the
      * canvas can bring it back without a trip through the picker.
@@ -276,6 +276,22 @@ public class MainActivity extends Activity {
             this.uri = uri; this.raw = raw; this.name = name;
         }
     }
+    /** One catalogue film record, in the form the panel reads. */
+    private static final class FilmStock {
+        final SpectrumSamples samples;
+        final SpectrumCurve curve;
+        /** "LOG SENSITIVITY", "DENSITY", or "" when nothing was shipped. */
+        final String seriesLabel;
+        final java.util.Map<String, String> info;
+
+        FilmStock(SpectrumSamples samples, SpectrumCurve curve, String seriesLabel,
+                  java.util.Map<String, String> info) {
+            this.samples = samples;
+            this.curve = curve;
+            this.seriesLabel = seriesLabel;
+            this.info = info;
+        }
+    }
     private final java.util.List<Frame> frames = new java.util.ArrayList<>();
     private LinearLayout sourceBar, sourceRow, thumbStrip;
     /** The folded strip: a short stack of prints in the canvas's lower-left. */
@@ -291,43 +307,24 @@ public class MainActivity extends Activity {
     private ToolGlyph originalGlyph;
     private int activeTabIndex = 0;
     private boolean panelCollapsed = false;
-    /** The shelf opens on 原图, never on a stock the user did not pick. */
+    /** The film panel opens on 原图, never on a stock the user did not pick. */
     private boolean showingOriginal = true;
-    private String brandFilter = "all";
-    private final List<View> filmCards = new ArrayList<>();
-    /** Real previews, per stock, from that stock's own render. A card never
-     *  pretends to be a look the engine has not produced for this frame. */
-    private final java.util.Map<String, Bitmap> filmThumbs = new java.util.HashMap<>();
-    /** Each card's picture slot, so a finished thumbnail is swapped into one
-     *  card instead of rebuilding the strip (a rebuild reset the scroll). */
-    private final java.util.Map<String, android.widget.FrameLayout> filmCardImages = new java.util.HashMap<>();
-    /** One background pass over the catalogue, low resolution, one stock at a
-     *  time. The session has a single native result buffer, so this and a
-     *  user render share RENDER_LOCK. */
-    private volatile boolean prefetchRunning = false;
-    private Thread prefetchThread = null;
-    private int prefetchGeneration = 0;
-    /** `film_stock` / `print_stock` the engine's session is actually holding,
-     *  as a signature string. The catalogue queue borrows this one session to
-     *  draw its cards and puts a film back when a card is done -- but "done"
-     *  can land after the UI has already picked another stock, and a card that
-     *  started while no film was chosen puts nothing back at all. So "what the
-     *  UI selected" and "what the session carries" drift apart, and a render
-     *  that trusts the session repaints the previous film while the edge text
-     *  (a Java string) still follows the tap: exactly the reported "换了胶片
-     *  颜色没变、相框名字却变了". Every render now re-asserts this signature
-     *  under `renderMutex`. Guarded by that lock. */
+    private int formatIndex = 0;
+    /** The film panel's own views: chips, curve, measured values, note. They
+     *  read the current Look on every refresh; no field here is a second copy
+     *  of `filmStock`. */
+    private LinearLayout filmChipRow, filmMetricsRow;
+    private HorizontalScrollView filmChipScroll;
+    private FilmCurveView filmCurve;
+    private TextView filmNote;
     /** One render at a time, whole sequence -- the engine's lock only covers a
-     *  single call, so a queued 512 px pass could otherwise swap parameters
+     *  single call, so a queued render could otherwise swap parameters
      *  between the user's renderBegin and its copyArgbRange. */
     private final Object renderMutex = new Object();
     /** A stock change that arrived while a render held the session. Folded into
      *  one follow-up render when the current one lands. */
     private volatile boolean pendingRender = false;
     private static final int PREVIEW_LONG_EDGE = 2048;
-    /** The engine refuses `preview_long_edge` below 800 (params.cpp), so the
-     *  catalogue pass uses exactly that floor: the smallest legal frame. */
-    private static final int PREFETCH_LONG_EDGE = 800;
     private final List<View> formatCards = new ArrayList<>();
     private static final int HEADER_HEIGHT_DP = 49;
     private static final int READOUT_HEIGHT_DP = 52;
@@ -342,8 +339,6 @@ public class MainActivity extends Activity {
     private static final String PROMO_SEEN_CODE = "qq_group_seen_code";
     private static final String PROMO_MUTED = "qq_group_muted";
 
-    private static final String[] BRAND_IDS = {"all", "kodak", "fujifilm", "ilford", "cinestill"};
-    private static final String[] BRAND_NAMES = {"全部", "KODAK", "FUJIFILM", "ILFORD", "CINESTILL"};
     private static final String[] TAB_NAMES = {"胶片", "光学", "尺度", "边框"};
     private static final String[] TAB_ENGLISH = {"FILM", "OPTICS", "SCALE", "EDGE"};
     private final View[] tabCells = new View[4];
@@ -531,7 +526,7 @@ public class MainActivity extends Activity {
         setOpticsUnlocked(s.opticsUnlocked);
         scanFraction = s.scanFraction;
         scanVisible = s.scanVisible;
-        updateFilmSelection();
+        refreshFilmPanel();
     }
 
     /** A zero system animation scale means non-essential motion is off. */
@@ -710,6 +705,151 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * The film panel's Spectrum: the selected stock's shipped series across its
+     * measured wavelengths. Three channels, one point per real sample. A gap
+     * ends the line; nothing is interpolated, and no missing sample is drawn at
+     * zero. A stock without samples says so and carries no line at all.
+     */
+    private static class FilmCurveView extends View {
+        private final android.graphics.Paint paint =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Path path = new android.graphics.Path();
+        private final int surfaceColor, lineColor, mutedColor;
+        private final int[] seriesColors;
+        private final float density;
+        private SpectrumCurve curve = SpectrumCurve.unavailable();
+        private String seriesLabel = "";
+        private String emptyLabel = SpectrumCurve.UNAVAILABLE_LABEL;
+
+        FilmCurveView(android.content.Context context, Palette palette) {
+            super(context);
+            density = getResources().getDisplayMetrics().density;
+            surfaceColor = palette.color(Palette.Role.SURFACE_ELEVATED);
+            lineColor = palette.color(Palette.Role.LINE);
+            mutedColor = palette.color(Palette.Role.MUTED_INK);
+            seriesColors = new int[]{
+                    palette.color(Palette.Role.SPECTRUM_RED),
+                    palette.color(Palette.Role.SPECTRUM_GREEN),
+                    palette.color(Palette.Role.SPECTRUM_BLUE),
+            };
+        }
+
+        private float dp(float v) {
+            return v * density;
+        }
+
+        void setCurve(SpectrumCurve curve, String seriesLabel, String emptyLabel) {
+            this.curve = curve == null ? SpectrumCurve.unavailable() : curve;
+            this.seriesLabel = seriesLabel == null ? "" : seriesLabel;
+            this.emptyLabel = emptyLabel == null ? SpectrumCurve.UNAVAILABLE_LABEL : emptyLabel;
+            invalidate();
+        }
+
+        @Override protected void onDraw(android.graphics.Canvas canvas) {
+            final float w = getWidth(), h = getHeight();
+            final float pad = dp(8);
+            paint.setStyle(android.graphics.Paint.Style.FILL);
+            paint.setColor(surfaceColor);
+            canvas.drawRoundRect(new android.graphics.RectF(0, 0, w, h), dp(2), dp(2), paint);
+
+            paint.setTypeface(android.graphics.Typeface.create("sans-serif", Typeface.NORMAL));
+            paint.setTextSize(dp(5.5f));
+            paint.setLetterSpacing(0.06f);
+            paint.setColor(mutedColor);
+
+            final boolean available = curve.available();
+            final String caption = available
+                    ? seriesLabel + " \u00b7 " + curve.sampleCount() + " SMP"
+                    : "SPECTRUM";
+            canvas.drawText(caption, pad, dp(9.5f), paint);
+
+            if (available) {
+                float legendRight = w - pad;
+                for (int channel = curve.channelCount() - 1; channel >= 0; --channel) {
+                    final String label = SpectrumCurve.channelLabel(channel);
+                    final float labelWidth = paint.measureText(label);
+                    paint.setColor(seriesColors[channel]);
+                    canvas.drawText(label, legendRight - labelWidth, dp(9.5f), paint);
+                    legendRight -= labelWidth + dp(6);
+                }
+            }
+
+            final float top = dp(16);
+            final float bottom = h - dp(12);
+            final float left = pad;
+            final float right = w - pad;
+
+            paint.setLetterSpacing(0);
+            paint.setStyle(android.graphics.Paint.Style.STROKE);
+            paint.setStrokeWidth(Math.max(1f, density * 0.5f));
+            paint.setColor(lineColor);
+            paint.setAlpha(64);
+            for (int i = 0; i <= 3; ++i) {
+                final float y = top + (bottom - top) * i / 3f;
+                canvas.drawLine(left, y, right, y, paint);
+            }
+            paint.setAlpha(255);
+
+            if (!available) {
+                paint.setStyle(android.graphics.Paint.Style.FILL);
+                paint.setColor(mutedColor);
+                paint.setTextSize(dp(6.5f));
+                paint.setLetterSpacing(0.06f);
+                final float textWidth = paint.measureText(emptyLabel);
+                canvas.drawText(emptyLabel, Math.max(pad, (w - textWidth) * 0.5f),
+                        (top + bottom) * 0.5f + dp(2), paint);
+                return;
+            }
+
+            final double minNm = curve.minNm();
+            double spanNm = curve.maxNm() - minNm;
+            if (!(spanNm > 0)) spanNm = 1;
+            paint.setStrokeWidth(dp(1.1f));
+            paint.setStrokeCap(android.graphics.Paint.Cap.ROUND);
+            paint.setStrokeJoin(android.graphics.Paint.Join.ROUND);
+
+            for (int channel = 0; channel < curve.channelCount(); ++channel) {
+                paint.setColor(seriesColors[channel]);
+                final int runs = curve.runCount(channel);
+                for (int run = 0; run < runs; ++run) {
+                    final int length = curve.runLength(channel, run);
+                    path.reset();
+                    float lastX = left, lastY = bottom;
+                    for (int point = 0; point < length; ++point) {
+                        final float x = left + (float) ((curve.nmAt(channel, run, point) - minNm)
+                                / spanNm) * (right - left);
+                        lastX = x;
+                        lastY = bottom - (float) curve.normalizedAt(channel, run, point)
+                                * (bottom - top);
+                        if (point == 0) path.moveTo(x, lastY);
+                        else path.lineTo(x, lastY);
+                    }
+                    if (length == 1) {
+                        paint.setStyle(android.graphics.Paint.Style.FILL);
+                        canvas.drawCircle(lastX, lastY, dp(1.4f), paint);
+                        paint.setStyle(android.graphics.Paint.Style.STROKE);
+                    } else {
+                        canvas.drawPath(path, paint);
+                    }
+                }
+            }
+
+            paint.setStyle(android.graphics.Paint.Style.FILL);
+            paint.setColor(mutedColor);
+            paint.setTextSize(dp(5f));
+            paint.setLetterSpacing(0.04f);
+            final String lo = formatNm(curve.minNm());
+            final String hi = formatNm(curve.maxNm()) + " nm";
+            canvas.drawText(lo, left, h - dp(2), paint);
+            canvas.drawText(hi, right - paint.measureText(hi), h - dp(2), paint);
+        }
+
+        private static String formatNm(double nm) {
+            return String.format(java.util.Locale.US, "%.0f", nm);
+        }
+    }
+
     private void buildUi() {
         if (tfBody == null) loadUiFonts();
         applyWindowPalette();
@@ -832,14 +972,13 @@ public class MainActivity extends Activity {
         controls.addView(panelHolder, new LinearLayout.LayoutParams(-1, dp(PANEL_HEIGHT_DP)));
         app.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
 
-        // A theme rebuild must not re-read the catalogue while the background
-        // shelf queue is iterating it. Only the first build loads it; later
-        // builds restyle the cards from the lists already in memory.
+        // A theme rebuild must not re-read the catalogue while a render may be
+        // running. Only the first build loads it; later builds restyle the
+        // panel from the records already in memory.
         if (filmIds.isEmpty()) {
             loadStockCatalog();
         } else {
-            rebuildBrandRow();
-            rebuildFilmCards();
+            refreshFilmPanel();
             refreshPaperLabel();
         }
         refreshEdgeFormats();
@@ -1088,8 +1227,9 @@ public class MainActivity extends Activity {
         readoutFilm.setText(stockLabel(filmStock, filmIds, filmLabels));
         readoutPaper.setText(stockLabel(printStock, printIds, printLabels));
 
-        SpectrumSamples spectrum = filmStock == null ? null : filmSpectra.get(filmStock);
-        if (spectrum == null) spectrum = SpectrumSamples.unavailable();
+        final FilmStock stock = currentFilmStock();
+        final SpectrumSamples spectrum = stock == null
+                ? SpectrumSamples.unavailable() : stock.samples;
         readoutSpectrumValue.setText(spectrum.valueText());
         readoutSpectrumUnit.setText(spectrum.unitText());
         readoutSpectrumDetail.setText(spectrum.detailText());
@@ -1240,9 +1380,9 @@ public class MainActivity extends Activity {
     /** Solid paper shelf outside the canvas: ＋, one chip per photograph opened
      *  this session, and a way to fold the whole row away.
      *
-     *  <p>There is no 原图 switch here. The film shelf already opens on 原图 and
-     *  that card is the same toggle; two controls for one state, four dp apart,
-     *  read as two different things.
+     *  <p>There is no Original switch here. The film panel's first chip is the
+     *  same toggle; two controls for one state, four dp apart, read as two
+     *  different things.
      */
     private View buildSourceBar() {
         LinearLayout bar = new LinearLayout(this);
@@ -1377,6 +1517,7 @@ public class MainActivity extends Activity {
         if (formatFootValue != null) {
             formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
         }
+        refreshFilmPanel();
         refreshPaperLabel();
     }
 
@@ -1589,38 +1730,43 @@ public class MainActivity extends Activity {
     private View buildFilmPanel() {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(sectionHead("FILM & PAPER / 胶片与相纸", this::resetFilmPanel),
+        panel.addView(sectionHead("FILM STOCK / 胶片", this::resetFilmPanel),
                 new LinearLayout.LayoutParams(-1, dp(38)));
 
-        HorizontalScrollView brandScroll = new HorizontalScrollView(this);
-        brandScroll.setHorizontalScrollBarEnabled(false);
-        brandScroll.setFillViewport(false);
-        brandRow = new LinearLayout(this);
-        brandRow.setOrientation(LinearLayout.HORIZONTAL);
-        brandRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        brandScroll.addView(brandRow, new android.widget.FrameLayout.LayoutParams(-2, dp(38)));
-        panel.addView(brandScroll, new LinearLayout.LayoutParams(-1, dp(38)));
+        filmChipScroll = new HorizontalScrollView(this);
+        filmChipScroll.setHorizontalScrollBarEnabled(false);
+        filmChipScroll.setClipToPadding(false);
+        filmChipScroll.setFillViewport(false);
+        filmChipRow = new LinearLayout(this);
+        filmChipRow.setOrientation(LinearLayout.HORIZONTAL);
+        filmChipRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        filmChipScroll.addView(filmChipRow, new android.widget.FrameLayout.LayoutParams(-2, -1));
+        panel.addView(filmChipScroll, new LinearLayout.LayoutParams(-1, dp(48)));
 
-        filmScroll = new HorizontalScrollView(this);
-        filmScroll.setHorizontalScrollBarEnabled(false);
-        filmScroll.setClipToPadding(false);
-        filmScroll.setFillViewport(false);
-        filmCardStrip = new LinearLayout(this);
-        filmCardStrip.setOrientation(LinearLayout.HORIZONTAL);
-        filmCardStrip.setGravity(android.view.Gravity.TOP);
-        filmCardStrip.setPadding(0, dp(9), 0, dp(8));
-        filmScroll.addView(filmCardStrip, new android.widget.FrameLayout.LayoutParams(-2, -1));
-        panel.addView(filmScroll, new LinearLayout.LayoutParams(-1, dp(111)));
+        filmCurve = new FilmCurveView(this, palette);
+        panel.addView(filmCurve, new LinearLayout.LayoutParams(-1, dp(66)));
+
+        filmMetricsRow = new LinearLayout(this);
+        filmMetricsRow.setOrientation(LinearLayout.HORIZONTAL);
+        filmMetricsRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        panel.addView(filmMetricsRow, new LinearLayout.LayoutParams(-1, dp(30)));
+
+        filmNote = label("", 6.5f, palette.color(Palette.Role.MUTED_INK), tfBody);
+        filmNote.setSingleLine(true);
+        filmNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        filmNote.setLetterSpacing(0.04f);
+        panel.addView(filmNote, new LinearLayout.LayoutParams(-1, dp(20)));
 
         LinearLayout paperRow = new LinearLayout(this);
         paperRow.setOrientation(LinearLayout.HORIZONTAL);
         paperRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        paperRow.addView(label("相纸 / 拷贝片", 9, palette.color(Palette.Role.MUTED_INK), tfHan));
+        paperRow.addView(label("相纸 / 拷贝片", 8.5f,
+                palette.color(Palette.Role.MUTED_INK), tfHan));
         LinearLayout paperChoice = new LinearLayout(this);
         paperChoice.setOrientation(LinearLayout.HORIZONTAL);
         paperChoice.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
         paperChoice.setOnClickListener(v -> showPaperPicker());
-        paperValue = label("Kodak Portra Endura", 10, palette.color(Palette.Role.INK), tfHan);
+        paperValue = label("Kodak Portra Endura", 9.5f, palette.color(Palette.Role.INK), tfHan);
         paperValue.setSingleLine(true);
         paperValue.setEllipsize(android.text.TextUtils.TruncateAt.END);
         paperValue.setGravity(android.view.Gravity.END);
@@ -1629,52 +1775,9 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams paperArrowLp = new LinearLayout.LayoutParams(-2, -2);
         paperArrowLp.leftMargin = dp(7);
         paperChoice.addView(paperArrow, paperArrowLp);
-        paperRow.addView(paperChoice, new LinearLayout.LayoutParams(0, dp(35), 1f));
-        panel.addView(paperRow, new LinearLayout.LayoutParams(-1, dp(35)));
+        paperRow.addView(paperChoice, new LinearLayout.LayoutParams(0, dp(30), 1f));
+        panel.addView(paperRow, new LinearLayout.LayoutParams(-1, dp(30)));
         return panel;
-    }
-
-    private String brandOf(String id) {
-        if (id == null) return "other";
-        if (id.startsWith("kodak")) return "kodak";
-        if (id.startsWith("fujifilm")) return "fujifilm";
-        if (id.startsWith("ilford")) return "ilford";
-        if (id.startsWith("cinestill")) return "cinestill";
-        return "other";
-    }
-
-    private int brandCount(String brand) {
-        int n = 0;
-        for (String id : filmIds) if ("all".equals(brand) || brand.equals(brandOf(id))) n++;
-        return n;
-    }
-
-    private void rebuildBrandRow() {
-        if (brandRow == null) return;
-        brandRow.removeAllViews();
-        for (int i = 0; i < BRAND_IDS.length; ++i) {
-            final String id = BRAND_IDS[i];
-            final int count = brandCount(id);
-            if (count == 0) continue;
-            TextView tab = label(BRAND_NAMES[i] + " " + count,
-                    8.5f, palette.color(id.equals(brandFilter)
-                            ? Palette.Role.ACCENT : Palette.Role.MUTED_INK),
-                    "all".equals(id) ? tfHan : tfBody);
-            tab.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            tab.setPadding(0, 0, dp(20), 0);
-            if (id.equals(brandFilter)) {
-                tab.setPaintFlags(tab.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
-            }
-            tab.setOnClickListener(v -> {
-                brandFilter = id;
-                rebuildBrandRow();
-                rebuildFilmCards();
-                // A new shelf's cards are the ones now on screen: let the queue
-                // take them first instead of finishing a brand nobody is looking at.
-                if (!prefetchRunning) startPrefetch();
-            });
-            brandRow.addView(tab, new LinearLayout.LayoutParams(-2, dp(38)));
-        }
     }
 
     private String shortStockName(String label) {
@@ -1683,161 +1786,206 @@ public class MainActivity extends Activity {
         return cut > 0 ? label.substring(0, cut) : label;
     }
 
-    /** The card's own caption. `反转` is kept: a slide is in the shelf, and the
-     *  tap has to explain why it cannot go on paper. */
-    private String cardCaption(int index) {
-        if (index < 0 || index >= filmLabels.size()) return "";
-        final String base = shortStockName(filmLabels.get(index));
-        final boolean positive = index < filmTypes.size() && "positive".equals(filmTypes.get(index));
-        return positive ? base + " · 反转" : base;
-    }
-
+    /** A card's border: the shared selected/unselected treatment. */
     private android.graphics.drawable.GradientDrawable cardBorder(boolean active) {
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable();
         bg.setColor(palette.color(Palette.Role.SURFACE));
         bg.setStroke(dp(1), palette.color(active ? Palette.Role.ACCENT : Palette.Role.LINE));
         return bg;
     }
 
-    private void rebuildFilmCards() {
-        if (filmCardStrip == null) return;
-        final int keepScroll = filmScroll == null ? 0 : filmScroll.getScrollX();
-        filmCardStrip.removeAllViews();
-        filmCards.clear();
-        filmCardImages.clear();
-        addFilmCard("original", "原图", -1);
+    /** A film record currently on the strip, or null when none is chosen. */
+    private FilmStock currentFilmStock() {
+        return filmStock == null ? null : filmStocks.get(filmStock);
+    }
+
+    /** Rebuild the chips, curve, measured values, and note from the Look. */
+    private void refreshFilmPanel() {
+        if (filmChipRow == null) return;
+        final int keepScroll = filmChipScroll == null ? 0 : filmChipScroll.getScrollX();
+        filmChipRow.removeAllViews();
+        addFilmChip("original", "原图", "ORIGINAL", showingOriginal);
         for (int i = 0; i < filmIds.size(); ++i) {
             final String id = filmIds.get(i);
-            if (!"all".equals(brandFilter) && !brandFilter.equals(brandOf(id))) continue;
-            addFilmCard(id, cardCaption(i), i);
+            final FilmStock stock = filmStocks.get(id);
+            addFilmChip(id, shortStockName(filmLabels.get(i)), chipSubtitle(i, stock),
+                    filmStock != null && !showingOriginal && id.equals(filmStock));
         }
-        updateFilmSelection();
-        // Rebuilding is a deliberate act (import, brand switch): restore where
-        // the user was looking rather than snapping back to the first card.
-        if (filmScroll != null) filmScroll.post(() -> filmScroll.scrollTo(keepScroll, 0));
-        try {
-            DebugSink.text("film-shelf", "films=" + filmIds.size() + " cards=" + filmCards.size()
-                    + " brand=" + brandFilter + " thumbs=" + filmThumbs.size());
-        } catch (Throwable ignored) { }
-    }
+        if (filmChipScroll != null) filmChipScroll.post(() -> filmChipScroll.scrollTo(keepScroll, 0));
 
-    private void addFilmCard(final String id, String text, final int index) {
-        final boolean original = "original".equals(id);
-        boolean active = original ? showingOriginal
-                : (filmStock != null && !showingOriginal && id.equals(filmStock));
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setTag(id);
-        card.setBackground(cardBorder(active));
-        card.setPadding(dp(1), dp(1), dp(1), dp(1));
-
-        android.widget.FrameLayout imageBox = new android.widget.FrameLayout(this);
-        imageBox.setBackgroundColor(palette.color(original
-                ? Palette.Role.SURFACE_ELEVATED : Palette.Role.SURFACE));
-        filmCardImages.put(id, imageBox);
-        if (original || beforeBitmap == null) {
-            TextView mark = label(original ? "—" : text, original ? 22 : 8,
-                    palette.color(Palette.Role.MUTED_INK), original ? tfDisplay : tfHan);
-            mark.setMaxLines(2);
-            mark.setGravity(android.view.Gravity.CENTER);
-            imageBox.addView(mark, new android.widget.FrameLayout.LayoutParams(-1, -1));
-        } else {
-            Bitmap preview = filmThumbs.get(id);
-            if (preview == null && filmStock != null && !showingOriginal && id.equals(filmStock)) {
-                preview = lastRenderedBitmap;
-            }
-            final boolean unrendered = preview == null;
-            ImageView thumb = new ImageView(this);
-            thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            thumb.setImageBitmap(unrendered ? beforeBitmap : preview);
-            if (unrendered) {
-                // Not this film's picture yet: the source, held back so the
-                // difference between "source" and "rendered" stays visible.
-                thumb.setAlpha(0.55f);
-            }
-            imageBox.addView(thumb, new android.widget.FrameLayout.LayoutParams(-1, -1));
-        }
-        card.addView(imageBox, new LinearLayout.LayoutParams(-1, dp(67)));
-
-        TextView name = label(text, 7.5f, palette.color(active
-                ? Palette.Role.ACCENT : Palette.Role.INK), tfHan);
-        name.setMaxLines(2);
-        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        name.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
-        name.setPadding(dp(6), dp(4), dp(5), dp(2));
-        name.setGravity(android.view.Gravity.TOP);
-        card.addView(name, new LinearLayout.LayoutParams(-1, dp(27)));
-
-        card.setClickable(true);
-        card.setOnClickListener(v -> pickFilmCard(id, index));
-        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(dp(86), dp(94));
-        cardLp.rightMargin = dp(9);
-        filmCardStrip.addView(card, cardLp);
-        filmCards.add(card);
-    }
-
-    /** A finished thumbnail goes into its own card. Deliberately *not* a
-     *  rebuild: `removeAllViews` clamps the shelf's scroll back to zero, so a
-     *  queue that filled a card every second yanked the strip out from under
-     *  whoever was scrolling through it. */
-    private void updateCardThumb(String id) {
-        final android.widget.FrameLayout box = filmCardImages.get(id);
-        final Bitmap thumb = filmThumbs.get(id);
-        if (box == null || thumb == null) return;
-        ImageView img = new ImageView(this);
-        img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        img.setImageBitmap(thumb);
-        box.removeAllViews();
-        box.addView(img, new android.widget.FrameLayout.LayoutParams(-1, -1));
-    }
-
-    private void cacheFilmThumb(String stock, Bitmap rendered) {
-        if (stock == null || rendered == null) return;
-        try {
-            final int w = Math.max(1, dp(86));
-            final int h = Math.max(1, Math.round(w * rendered.getHeight() / (float) rendered.getWidth()));
-            filmThumbs.put(stock, Bitmap.createScaledBitmap(rendered, w, h, true));
-        } catch (Throwable ignored) { }
-    }
-
-    private void updateFilmSelection() { updateFilmSelection(false); }
-
-    private void updateFilmSelection(boolean scrollToCurrent) {
-        View target = null;
-        for (View card : filmCards) {
-            Object tag = card.getTag();
-            String id = tag == null ? "" : tag.toString();
-            boolean active = "original".equals(id) ? showingOriginal
-                    : (filmStock != null && !showingOriginal && id.equals(filmStock));
-            card.setBackground(cardBorder(active));
-            android.view.ViewGroup group = (android.view.ViewGroup) card;
-            if (group.getChildCount() > 1) {
-                ((TextView) group.getChildAt(1)).setTextColor(palette.color(active
-                        ? Palette.Role.ACCENT : Palette.Role.INK));
-            }
-            if (active) target = card;
-        }
-        if (scrollToCurrent && target != null && filmScroll != null) {
-            final View view = target;
-            filmScroll.post(() -> filmScroll.smoothScrollTo(Math.max(0, view.getLeft() - dp(8)), 0));
-        }
+        final FilmStock stock = currentFilmStock();
+        filmCurve.setCurve(stock == null ? SpectrumCurve.unavailable() : stock.curve,
+                stock == null ? "" : stock.seriesLabel,
+                filmStock == null ? "NO FILM STOCK SELECTED" : SpectrumCurve.UNAVAILABLE_LABEL);
+        filmCurve.setContentDescription(curveDescription(stock));
+        refreshFilmMetrics(stock);
+        filmNote.setText(filmNoteText(stock));
         refreshReadoutStrip();
     }
 
-    private void pickFilmCard(String id, int index) {
-        if ("original".equals(id)) {
-            toggleOriginal();
-            return;
+    /** The small line under a chip: the measured type and speed, or the stock's role. */
+    private String chipSubtitle(int index, FilmStock stock) {
+        if (stock != null) {
+            final String iso = stock.info.get("iso");
+            if (iso != null) return "ISO " + iso;
+            final String type = stock.info.get("type");
+            if (type != null) return type.toUpperCase(java.util.Locale.US);
         }
-        if (index >= 0 && index < filmTypes.size() && "positive".equals(filmTypes.get(index))) {
+        if (index >= 0 && index < filmTypes.size()
+                && "positive".equals(filmTypes.get(index))) return "REVERSAL";
+        return "FILM";
+    }
+
+    private void addFilmChip(final String id, String title, String subtitle, boolean active) {
+        LinearLayout chip = new LinearLayout(this);
+        chip.setOrientation(LinearLayout.VERTICAL);
+        chip.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        chip.setPadding(dp(8), dp(3), dp(8), dp(3));
+
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable();
+        bg.setColor(palette.color(active
+                ? Palette.Role.ACCENT_SOFT : Palette.Role.SURFACE_ELEVATED));
+        bg.setCornerRadius(dp(2));
+        bg.setStroke(dp(active ? 2 : 1),
+                palette.color(active ? Palette.Role.ACCENT : Palette.Role.LINE));
+        chip.setBackground(bg);
+
+        TextView name = label(title, 8, palette.color(active
+                ? Palette.Role.ACCENT : Palette.Role.INK), tfHan);
+        name.setSingleLine(true);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        chip.addView(name, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView kind = label(subtitle, 5.5f,
+                palette.color(Palette.Role.MUTED_INK), tfBody);
+        kind.setSingleLine(true);
+        kind.setLetterSpacing(0.08f);
+        kind.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-1, -2);
+        kindLp.topMargin = dp(2);
+        chip.addView(kind, kindLp);
+
+        chip.setClickable(true);
+        chip.setFocusable(true);
+        chip.setSelected(active);
+        chip.setContentDescription(title + (subtitle.isEmpty() ? "" : "，" + subtitle)
+                + (active ? "，已选中，双击切换" : ""));
+        chip.setOnClickListener(v -> {
+            if ("original".equals(id)) toggleOriginal();
+            else pickFilmChip(id);
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(92), dp(46));
+        lp.rightMargin = dp(6);
+        filmChipRow.addView(chip, lp);
+    }
+
+    /** A stock chip is a Look choice: same path as any other stock change. */
+    private void pickFilmChip(String id) {
+        final int index = filmIds.indexOf(id);
+        if (index < 0) return;
+        if (index < filmTypes.size() && "positive".equals(filmTypes.get(index))) {
             showInAppToast("反转片（幻灯）不能印到相纸上——本版只支持负片");
             return;
         }
-        if (index < 0 || index >= filmIds.size()) return;
-        filmStock = filmIds.get(index);
+        if (id.equals(filmStock) && !showingOriginal) return;
+        filmStock = id;
         showingOriginal = false;
-        updateFilmSelection();
+        refreshFilmPanel();
         onStockChanged();
+    }
+
+    /** Measured values only: a field the profile does not ship stays absent. */
+    private void refreshFilmMetrics(FilmStock stock) {
+        if (filmMetricsRow == null) return;
+        filmMetricsRow.removeAllViews();
+        if (stock == null) {
+            final String label = filmStock == null ? "—" : shortStockName(
+                    stockLabel(filmStock, filmIds, filmLabels));
+            addMetricCell("FILM", label);
+            return;
+        }
+        final java.util.List<String[]> rows = new java.util.ArrayList<>();
+        addMetric(rows, stock, "type", "TYPE");
+        addMetric(rows, stock, "iso", "ISO");
+        addMetric(rows, stock, "balance", "BALANCE");
+        addMetric(rows, stock, "use", "USE");
+        addMetric(rows, stock, "antihalation", "ANTIHALATION");
+        addMetric(rows, stock, "channel_model", "MODEL");
+        addMetric(rows, stock, "support", "SUPPORT");
+        addMetric(rows, stock, "stage", "STAGE");
+        final int count = Math.min(4, rows.size());
+        for (int i = 0; i < count; ++i) {
+            addMetricCell(rows.get(i)[0], rows.get(i)[1]);
+        }
+    }
+
+    private void addMetric(java.util.List<String[]> rows, FilmStock stock,
+                           String key, String caption) {
+        final String value = stock.info.get(key);
+        if (value == null || value.isEmpty()) return;
+        rows.add(new String[]{caption, value.toUpperCase(java.util.Locale.US)});
+    }
+
+    private void addMetricCell(String caption, String value) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setPadding(dp(1), dp(2), dp(6), dp(1));
+        TextView head = label(caption, 5.5f,
+                palette.color(Palette.Role.MUTED_INK), tfBody);
+        head.setLetterSpacing(0.08f);
+        head.setSingleLine(true);
+        head.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        cell.addView(head, new LinearLayout.LayoutParams(-1, -2));
+        TextView text = label(value, 8.5f, palette.color(Palette.Role.INK), tfHan);
+        text.setSingleLine(true);
+        text.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        cell.addView(text, new LinearLayout.LayoutParams(-1, -2));
+        filmMetricsRow.addView(cell, new LinearLayout.LayoutParams(0, -1, 1f));
+    }
+
+    /** A short factual line from the profile; a missing field is not invented. */
+    private String filmNoteText(FilmStock stock) {
+        if (filmStock == null) return "SELECT A STOCK TO SEE ITS MEASURED RESPONSE.";
+        if (stock == null) {
+            return "CATALOGUE RECORD MISSING FOR " + filmStock.toUpperCase(java.util.Locale.US);
+        }
+        final String description = stock.info.get("description");
+        if (description != null && !description.isEmpty()) return description;
+        final java.util.List<String> parts = new java.util.ArrayList<>();
+        final String target = stock.info.get("target_print");
+        if (target != null && !target.isEmpty()) {
+            parts.add("TARGET " + stockLabel(target, printIds, printLabels)
+                    .toUpperCase(java.util.Locale.US));
+        }
+        final String antihalation = stock.info.get("antihalation");
+        if (antihalation != null && !antihalation.isEmpty()) {
+            parts.add("ANTIHALATION " + antihalation.toUpperCase(java.util.Locale.US));
+        }
+        if (parts.isEmpty()) {
+            final String support = stock.info.get("support");
+            final String stage = stock.info.get("stage");
+            if (support != null) parts.add(support.toUpperCase(java.util.Locale.US));
+            if (stage != null) parts.add(stage.toUpperCase(java.util.Locale.US));
+        }
+        if (parts.isEmpty()) return "NO STOCK NOTES SHIPPED.";
+        final StringBuilder note = new StringBuilder();
+        for (String part : parts) {
+            if (note.length() > 0) note.append(" · ");
+            note.append(part);
+        }
+        return note.toString();
+    }
+
+    private String curveDescription(FilmStock stock) {
+        if (filmStock == null) return "光谱：未选择胶片";
+        if (stock == null || !stock.curve.available()) {
+            return "光谱：所选胶片没有随附采样，曲线不可用";
+        }
+        return "光谱：" + stock.seriesLabel + "，" + stock.curve.sampleCount()
+                + " 个采样，" + Math.round(stock.curve.minNm()) + " 至 "
+                + Math.round(stock.curve.maxNm()) + " 纳米";
     }
 
     private void refreshPaperLabel() {
@@ -2468,10 +2616,8 @@ public class MainActivity extends Activity {
         // 原图 is the reset: no stock, no render, the imported frame as it was.
         filmStock = null;
         printStock = "kodak_portra_endura";
-        brandFilter = "all";
         showingOriginal = false;
-        rebuildBrandRow();
-        rebuildFilmCards();
+        refreshFilmPanel();
         refreshPaperLabel();
         onStockChanged();
     }
@@ -2528,7 +2674,7 @@ public class MainActivity extends Activity {
             compare.setVisibility(View.VISIBLE);
             statusText.setText("ORIGINAL · 未渲染");
             setOriginalVisual(true);
-            updateFilmSelection();
+            refreshFilmPanel();
             return;
         }
         setOriginalVisual(false);
@@ -2538,7 +2684,7 @@ public class MainActivity extends Activity {
             emptyState.setVisibility(View.GONE);
             rawState.setVisibility(View.GONE);
             statusText.setText("LIVE");
-            updateFilmSelection();
+            refreshFilmPanel();
         } else if (session != null && uiReady) {
             renderImage();
         }
@@ -2640,144 +2786,6 @@ public class MainActivity extends Activity {
             showingOriginal = false;
             setOriginalVisual(false);
             renderImage();
-        }
-    }
-
-    /**
-     * Render the catalogue once, small, in the background, so the shelf shows
-     * what each film does to *this* frame instead of a grey placeholder.
-     *
-     * <p>800 px on the long edge, the engine's own floor for a preview: a card
-     * is 86 by 67 dp and cannot show more detail than that anyway. The queue
-     * yields the moment the user picks a film, because a real preview at full
-     * preview size matters more than a complete shelf.
-     */
-    private void startPrefetch() {
-        stopPrefetch();
-        if (session == null || beforeBitmap == null || filmIds.isEmpty()) return;
-        // Everything still missing. An empty list is the common case on the
-        // second import of the same frame, and starting a thread for it would
-        // only race the user's first render.
-        // Visible brand first, then the rest: the user is looking at one shelf.
-        // Positives are skipped -- the shelf refuses them against paper, so a
-        // render of one would be a picture nobody can choose.
-        final java.util.List<String> pending = new java.util.ArrayList<>();
-        final java.util.List<String> rest = new java.util.ArrayList<>();
-        for (int i = 0; i < filmIds.size(); ++i) {
-            final String id = filmIds.get(i);
-            if (filmThumbs.containsKey(id)) continue;
-            if (i < filmTypes.size() && "positive".equals(filmTypes.get(i))) continue;
-            if ("all".equals(brandFilter) || brandFilter.equals(brandOf(id))) pending.add(id);
-            else rest.add(id);
-        }
-        pending.addAll(rest);
-        if (pending.isEmpty()) return;
-
-        final int generation = ++prefetchGeneration;
-        prefetchRunning = true;
-        prefetchThread = new Thread(() -> {
-            try {
-                // The queue renders the `live` tier, whose long edge is the
-                // session's `io.preview_long_edge`. `preview` is a fixed 3400 px
-                // in the engine, which is why the cards used to crawl: each one
-                // was a near-export-sized print. Set the edge once for the whole
-                // pass -- changing it per card drops the tier's cached image and
-                // costs more than the smaller render saves.
-                setPrefetchEdge(PREFETCH_LONG_EDGE);
-                for (String id : pending) {
-                    if (generation != prefetchGeneration || !prefetchRunning) return;
-                    if (filmThumbs.containsKey(id)) continue;
-                    final long t0 = System.currentTimeMillis();
-                    final Bitmap thumb = renderStockThumbnail(id);
-                    final long ms = System.currentTimeMillis() - t0;
-                    if (thumb == null) continue;
-                    try { DebugSink.text("prefetch-timing", id + " " + ms + " ms"); } catch (Throwable ignored) { }
-                    runOnUiThread(() -> {
-                        if (generation != prefetchGeneration) return;
-                        filmThumbs.put(id, thumb);
-                        updateCardThumb(id);
-                    });
-                }
-            } finally {
-                // A queue from a previous frame can outlive the import that
-                // replaced it. Knocking `prefetchRunning` down and resetting
-                // the edge here would stop the *live* queue mid-shelf, and the
-                // cards after that point would simply never fill.
-                if (generation == prefetchGeneration) {
-                    setPrefetchEdge(PREVIEW_LONG_EDGE);
-                    prefetchRunning = false;
-                }
-                try {
-                    DebugSink.text("prefetch", "done gen=" + generation + "/" + prefetchGeneration
-                            + " thumbs=" + filmThumbs.size());
-                } catch (Throwable ignored) { }
-            }
-        }, "film-prefetch");
-        prefetchThread.setPriority(Thread.MIN_PRIORITY);
-        prefetchThread.start();
-    }
-
-    private void setPrefetchEdge(int longEdge) {
-        final SpektraLabEngine.Session s = session;
-        if (s == null) return;
-        synchronized (renderMutex) {
-            try {
-                s.setParams(String.format(java.util.Locale.US,
-                        "{\"preview_long_edge\":%d}", longEdge));
-            } catch (Throwable ignored) { }
-        }
-    }
-
-    private void stopPrefetch() {
-        prefetchGeneration++;
-        prefetchRunning = false;
-    }
-
-    /** One stock, one small render at the shelf's own size.
-     *
-     *  The session is left sitting on whichever film this card asked for; the
-     *  next render or export states its own film in its own delta, so there is
-     *  no bookkeeping here to fall out of step. */
-    private Bitmap renderStockThumbnail(String stock) {
-        final SpektraLabEngine.Session s = session;
-        if (s == null) return null;
-        synchronized (renderMutex) {
-            try {
-                if (s != session) return null;          // the frame was replaced while we waited
-                // **The whole parameter set, not just film+paper.** A delta
-                // that carries `film_stock` is a stock change, and the engine
-                // answers a stock change by rebuilding the parameter tree --
-                // every field the delta leaves out falls back to its default.
-                // This card used to send only the two names, so its exposure,
-                // grain, halation, glare, format and rebate text were all the
-                // defaults while a tapped render carried the user's. That is
-                // the "some films look nothing like themselves" report: the
-                // shelf and the canvas were developing two different recipes.
-                applyParams(stock, PREFETCH_LONG_EDGE);
-                // `live` honours preview_long_edge (800 here); `preview` is a
-                // fixed 3400 px and made every card an export-sized print.
-                final int[] dims = s.renderBegin("live");
-                final int w = dims[0], h = dims[1];
-                if (w <= 0 || h <= 0) return null;
-                final int[] pixels = new int[w * h];
-                final int copied = s.copyArgbRange(pixels, 0, h);
-                if (copied != w * h) return null;
-                Bitmap full = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-                full.setPixels(pixels, 0, w, 0, 0, w, h);
-                final int tw = Math.max(1, dp(86));
-                final int th = Math.max(1, Math.round(tw * h / (float) w));
-                Bitmap small = Bitmap.createScaledBitmap(full, tw, th, true);
-                if (small != full) full.recycle();
-                return small;
-            } catch (Throwable t) {
-                try { DebugSink.text("prefetch", "render " + stock + ": " + t); } catch (Throwable ignored) { }
-                return null;
-            } finally {
-                // Nothing is put back. The card left its own film on the
-                // session; the next render or export states the user's film in
-                // its own delta, so there is nothing here to keep in step.
-                try { s.renderEnd(); } catch (Throwable ignored) { }
-            }
         }
     }
 
@@ -3643,34 +3651,42 @@ public class MainActivity extends Activity {
         filmTypes.clear();
         printIds.clear();
         printLabels.clear();
-        filmSpectra.clear();
+        filmStocks.clear();
         try (InputStream in = getAssets().open("resources/stock_catalog.json")) {
-            byte[] buf = new byte[in.available()];
-            int off = 0, n;
-            while (off < buf.length && (n = in.read(buf, off, buf.length - off)) > 0) off += n;
-            org.json.JSONObject root = new org.json.JSONObject(new String(buf, java.nio.charset.StandardCharsets.UTF_8));
+            final org.json.JSONObject root = new org.json.JSONObject(
+                    new String(readFully(in), java.nio.charset.StandardCharsets.UTF_8));
             final org.json.JSONArray films = root.optJSONArray("films");
             readStocks(films, filmIds, filmLabels, filmTypes);
             readStocks(root.optJSONArray("prints"), printIds, printLabels, null);
-            readFilmSpectra(films);
+            readFilmStocks(films);
         } catch (Throwable t) {
             android.util.Log.w("SpektraLab", "stock catalog: " + t);
         }
         if (filmIds.isEmpty()) { filmIds.add("kodak_portra_400"); filmLabels.add("Kodak Portra 400"); }
         if (printIds.isEmpty()) { printIds.add("kodak_portra_endura"); printLabels.add("Kodak Portra Endura"); }
 
-        rebuildBrandRow();
-        rebuildFilmCards();
+        refreshFilmPanel();
         refreshPaperLabel();
     }
 
+    /** Read an asset to its end. The catalogue now carries spectral arrays, so
+     *  its size is no longer something `available()` can be trusted to predict. */
+    private static byte[] readFully(InputStream in) throws java.io.IOException {
+        final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        final byte[] chunk = new byte[16 * 1024];
+        int n;
+        while ((n = in.read(chunk)) > 0) out.write(chunk, 0, n);
+        return out.toByteArray();
+    }
+
     /**
-     * Read the optional spectral arrays from each stock record. The generator
-     * may nest them under {@code spectral} or {@code data}, or place them on
-     * the record itself. Missing arrays stay missing: the Readout strip shows
-     * the explicit unavailable state rather than a fabricated series.
+     * Read each film record: the baked spectral arrays (record-level, or the
+     * older {@code spectral}/{@code data} nesting), the declared source, and
+     * the real scalar info fields. Missing arrays stay missing: the panel and
+     * the Readout strip show the explicit unavailable state rather than a
+     * fabricated series.
      */
-    private void readFilmSpectra(org.json.JSONArray films) {
+    private void readFilmStocks(org.json.JSONArray films) {
         if (films == null) return;
         for (int i = 0; i < films.length(); ++i) {
             final org.json.JSONObject o = films.optJSONObject(i);
@@ -3680,12 +3696,49 @@ public class MainActivity extends Activity {
             org.json.JSONObject data = o.optJSONObject("spectral");
             if (data == null) data = o.optJSONObject("data");
             if (data == null) data = o;
-            org.json.JSONArray series = data.optJSONArray("log_sensitivity");
-            if (series == null) series = data.optJSONArray("channel_density");
-            filmSpectra.put(id, SpectrumSamples.of(
-                    jsonDoubles(data.optJSONArray("wavelengths")),
-                    jsonRows(series)));
+            final String declared = o.optString("spectral_source",
+                    data.optString("spectral_source", ""));
+            final org.json.JSONArray log = data.optJSONArray("log_sensitivity");
+            final org.json.JSONArray density = data.optJSONArray("channel_density");
+            final org.json.JSONArray series;
+            final String source;
+            if ("channel_density".equals(declared) && density != null) {
+                series = density;
+                source = "channel_density";
+            } else if (log != null) {
+                series = log;
+                source = "log_sensitivity";
+            } else {
+                series = density;
+                source = "channel_density";
+            }
+            final double[] wavelengths = jsonDoubles(data.optJSONArray("wavelengths"));
+            final double[][] rows = jsonRows(series);
+            final SpectrumCurve curve = SpectrumCurve.of(wavelengths, rows);
+            final String seriesLabel = !curve.available() ? ""
+                    : "channel_density".equals(source) ? "DENSITY" : "LOG SENSITIVITY";
+            final org.json.JSONObject info = o.optJSONObject("info");
+            filmStocks.put(id, new FilmStock(SpectrumSamples.of(wavelengths, rows),
+                    curve, seriesLabel, readStockInfo(info == null ? o : info)));
         }
+    }
+
+    /** Every scalar field the record carries, so the panel can show real values. */
+    private static java.util.Map<String, String> readStockInfo(org.json.JSONObject o) {
+        final java.util.Map<String, String> info = new java.util.LinkedHashMap<>();
+        final java.util.Iterator<String> keys = o.keys();
+        while (keys.hasNext()) {
+            final String key = keys.next();
+            if ("id".equals(key) || "name".equals(key) || "spectral_source".equals(key)) continue;
+            final Object value = o.opt(key);
+            if (value instanceof String) {
+                final String text = ((String) value).trim();
+                if (!text.isEmpty()) info.put(key, text);
+            } else if (value instanceof Number || value instanceof Boolean) {
+                info.put(key, String.valueOf(value));
+            }
+        }
+        return info;
     }
 
     /** One row per wavelength; absent or non-numeric values become NaN gaps. */
@@ -3702,7 +3755,10 @@ public class MainActivity extends Activity {
     private static double[][] jsonRows(org.json.JSONArray array) {
         if (array == null || array.length() == 0) return null;
         if (array.optJSONArray(0) == null) {
-            return new double[][]{jsonDoubles(array)};
+            final double[] flat = jsonDoubles(array);
+            final double[][] rows = new double[flat.length][];
+            for (int i = 0; i < rows.length; ++i) rows[i] = new double[]{flat[i]};
+            return rows;
         }
         final double[][] rows = new double[array.length()][];
         for (int i = 0; i < rows.length; ++i) {
@@ -3915,25 +3971,13 @@ public class MainActivity extends Activity {
             }
             importBudgetAccepted = false;
 
-            // Retire the shelf queue *before* the session it is holding goes
-            // away. Its generation is the only thing that makes a card which
-            // is already rendering drop its bitmap instead of filing the old
-            // photograph's picture under this photograph's films: without this
-            // bump the queue wrote last frame's thumbnails into `filmThumbs`,
-            // every card then looked right in the map (`containsKey`), and the
-            // new queue skipped them forever -- cards showing the previous
-            // photo until each one was tapped.
-            stopPrefetch();
             // Free the previous frame before decoding: a 20 MP pick wants a
             // ~200 MB direct buffer and the old session still holds its planes
             // (this OOM was 241 MB with 201 MB left in the heap).
             //
-            // **Under the render lock.** `stopPrefetch` only bumps a generation
-            // -- it does not wait for the thread, which may be inside
-            // `renderBegin` on this very session. Closing it from under the GPU
-            // is the SIGSEGV this device logs as `vkCmdCopyBuffer` against a
-            // destroyed buffer, and it is what tapping an earlier thumbnail
-            // while the shelf was still drawing looked like.
+            // **Under the render lock.** Closing a session out from under a
+            // render is the SIGSEGV this device logs as `vkCmdCopyBuffer`
+            // against a destroyed buffer.
             synchronized (renderMutex) {
                 if (session != null) { session.close(); session = null; }
             }
@@ -3942,7 +3986,6 @@ public class MainActivity extends Activity {
             setStage(0, null);
             sourceBitmap = null;
             sourcePixels = null;
-            filmThumbs.clear();
             // The canvas is not a control. `setOriginalVisual` only paints the
             // 原图 button; what CompareView holds is `after` (the last render)
             // and it survives a new session. That was the whole "I changed the
@@ -4034,7 +4077,7 @@ public class MainActivity extends Activity {
             statusText.setText("Local preview");
             setStage(1, getFileName(uri));
             rememberFrame(uri);
-            rebuildFilmCards();
+            refreshFilmPanel();
             setStep(1);
             
             // Create engine and session
@@ -4050,16 +4093,15 @@ public class MainActivity extends Activity {
             showingOriginal = true;
             lastRenderedBitmap = null;
             setOriginalVisual(true);
-            rebuildFilmCards();
+            refreshFilmPanel();
             if (filmStock != null) {
                 // A chip came back with a look: develop it again rather than
                 // making the user re-pick a film that was never unpicked.
                 showingOriginal = false;
-                updateFilmSelection();
+                refreshFilmPanel();
                 renderImage();
             } else {
                 statusText.setText("未渲染 · 选择胶片开始");
-                startPrefetch();
             }
         } catch (Throwable t) {
             lastImportError = describeImportFailure(t);
@@ -4184,19 +4226,14 @@ public class MainActivity extends Activity {
             }
             
             statusText.setText("Decoding RAW…");
-            // **The same three things the JPEG path does, for the same three
-            // reasons** — and this path had none of them, which is why a RAW
-            // import kept the previous photograph everywhere except the little
-            // source thumbnail:
-            //   · stopPrefetch() retires the shelf queue, whose generation is
-            //     what stops last frame's cards being filed under this frame;
+            // **The same two things the JPEG path does, for the same reasons**
+            // — and this path had none of them, which is why a RAW import kept
+            // the previous photograph everywhere except the little source
+            // thumbnail:
             //   · compare.clear() drops `CompareView.after`, the previous
             //     render, which nothing else ever clears;
-            //   · filmThumbs.clear() is the shelf's own cache, keyed by film
-            //     id with no frame identity in the key.
-            stopPrefetch();
+            //   · the last render and the optics lock are reset below.
             if (compare != null) compare.clear();
-            filmThumbs.clear();
             lastRenderedBitmap = null;
             setOpticsUnlocked(false);
             dateText = null;
@@ -4210,10 +4247,8 @@ public class MainActivity extends Activity {
                         engine = SpektraLabEngine.create(resourcesDir, vkLogFile().getAbsolutePath());
                         uploadCapabilities();
                     }
-                    // Under the render lock: the shelf queue can still be
-                    // inside `renderBegin` when this thread gets here, and
-                    // closing a session out from under it is a native crash,
-                    // not an exception.
+                    // Under the render lock: closing a session out from under
+                    // a render is a native crash, not an exception.
                     synchronized (renderMutex) {
                         if (session != null) { session.close(); session = null; }
                     }
@@ -4221,7 +4256,7 @@ public class MainActivity extends Activity {
                     // `film_stock` names a profile file: "" and "null" both make
                     // `load_profile` fail ("bad stock name"), so an unchosen film
                     // omits the key and the engine keeps its own default. The UI
-                    // still shows 原图 and renders nothing until a card is tapped.
+                    // still shows 原图 and renders nothing until a chip is picked.
                     final String filmField = filmStock == null ? ""
                             : String.format("\"film_stock\":\"%s\",", filmStock);
                     String params = String.format(
@@ -4307,7 +4342,7 @@ public class MainActivity extends Activity {
                             compare.setBefore(preview);
                             setStage(1, getFileName(uri));
                             rememberFrame(uri);
-                            rebuildFilmCards();
+                            refreshFilmPanel();
                             setStep(1);
                             statusText.setText("Raw preview");
                         });
@@ -4328,14 +4363,13 @@ public class MainActivity extends Activity {
                         showingOriginal = true;
                         lastRenderedBitmap = null;
                         setOriginalVisual(true);
-                        rebuildFilmCards();
+                        refreshFilmPanel();
                         if (filmStock != null) {
                             showingOriginal = false;
-                            updateFilmSelection();
+                            refreshFilmPanel();
                             renderImage();
                         } else {
                             statusText.setText("未渲染 · 选择胶片开始");
-                            startPrefetch();
                         }
                     });
 
@@ -4806,12 +4840,12 @@ public class MainActivity extends Activity {
             return;
         }
         // No `applySessionParams()` here any more: it wrote the engine from the
-        // UI thread, which both raced the catalogue queue and could park the UI
-        // behind a long render's lock. `renderImage` applies the stock under the
-        // same lock it renders under -- one writer, one order.
+        // UI thread, which could park the UI behind a long render's lock.
+        // `renderImage` applies the stock under the same lock it renders
+        // under -- one writer, one order.
         showingOriginal = false;
         setOriginalVisual(false);
-        updateFilmSelection();
+        refreshFilmPanel();
         renderImage();
     }
 
@@ -4843,8 +4877,8 @@ public class MainActivity extends Activity {
      *
      * <p>This is the one thing that has to be true before `renderBegin`: the
      * session carries the stock the user is looking at. It used to be kept by
-     * a Java-side `sessionSignature` -- a field written by the catalogue
-     * queue and by the UI thread, compared against the engine's *assumed*
+     * a Java-side `sessionSignature` -- a field written by the render thread
+     * and by the UI thread, compared against the engine's *assumed*
      * state. One write out of order and the signature claimed a stock the
      * session never got, so every film rendered the same picture while the
      * rebate text (which the app draws from its own field) kept changing.
@@ -4876,9 +4910,9 @@ public class MainActivity extends Activity {
         ));
     }
 
-    /** Same set, at whatever long edge the caller is rendering. The catalogue
-     *  pass uses a small one so a whole shelf of films is affordable; a look
-     *  the user is about to export still goes out at the preview size. */
+    /** Same set, at whatever long edge the caller is rendering. A small edge
+     *  is for a cheap pass; a look that is about to be exported goes out at the
+     *  preview size. */
     private void applyParams(int longEdge) {
         if (session == null) return;
         final String stock = filmStock;
@@ -4947,7 +4981,6 @@ public class MainActivity extends Activity {
             showInAppToast("先在下方选一张胶片");
             return;
         }
-        stopPrefetch();
         if (rendering) {
             // One native result buffer for the whole process: two renders would
             // interleave on it and hand back another frame's dimensions.
@@ -4971,10 +5004,8 @@ public class MainActivity extends Activity {
             try {
                 synchronized (renderMutex) {
                 if (session == null) throw new RuntimeException("session closed before render");
-                // The queue stops here, but a card it started before still
-                // finishes and can put a stock back onto this session. Take the
-                // film the user picked, under the same lock the render runs
-                // under, so the picture and the edge text cannot disagree.
+                // Take the film the user picked, under the same lock the render
+                // runs under, so the picture and the edge text cannot disagree.
                 applyParams(renderedStock, PREVIEW_LONG_EDGE);
                 int[] dims = session.renderBegin("live");
                 int w = dims[0], h = dims[1];
@@ -5030,15 +5061,9 @@ public class MainActivity extends Activity {
                     setStage(1, null);
                     setStep(2);
                     lastRenderedBitmap = bmp;
-                    cacheFilmThumb(renderedStock, bmp);
-                    updateCardThumb(renderedStock);
-                    updateFilmSelection();
-                    // A user render stops the queue so it can own the GPU. Put
-                    // it back afterwards, or the rest of the shelf never fills.
-                    startPrefetch();
                     setOpticsUnlocked(true);
                     setOriginalVisual(false);
-                    updateFilmSelection();
+                    refreshFilmPanel();
                     final int[] bands = blackBands(bmp);
                     statusText.setText("Preview ready " + fw + "×" + fh);
                     try {
@@ -5219,11 +5244,8 @@ public class MainActivity extends Activity {
             showInAppToast("先选一张胶片，再导出");
             return;
         }
-        // The shelf queue prints 800 px cards through this same session, and a
-        // card that lands between "start export" and the first strip swaps
-        // film_stock under the full-size render. That -- not the params delta --
-        // is what used to come back as a flat grey.
-        stopPrefetch();
+        // The preview and the export share one session; the render lock below
+        // keeps a later stock change out of the full-size pass.
         new Thread(() -> {
             java.io.File tmp = new java.io.File(getCacheDir(), "export_" + System.currentTimeMillis() + ext);
             try {
@@ -5471,11 +5493,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        stopPrefetch();
         // Session *and* engine go down under the same lock the render runs
-        // under: a shelf card that is mid-`renderBegin` is holding device
-        // buffers owned by this engine, and tearing it down outside the lock
-        // is the same destroyed-buffer SIGSEGV one layer up.
+        // under: a render that is mid-`renderBegin` is holding device buffers
+        // owned by this engine, and tearing it down outside the lock is the
+        // same destroyed-buffer SIGSEGV one layer up.
         synchronized (renderMutex) {
             if (session != null) { session.close(); session = null; }
             if (engine != null) { engine.close(); engine = null; }
