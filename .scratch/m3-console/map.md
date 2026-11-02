@@ -34,7 +34,8 @@ Look semantics, and the existing test seams stay intact.
 - **First ticket**: Gradle + Material 1.12 + DayNight/DynamicColors theme.
 - **Foundation landed**: Gradle 8.7/AGP 8.2.2, Material 1.12, AppCompat, dynamic
   colours via `SpektraLabApp`, assets/libs staged from the base APK; Gradle APK
-  installs and cold-starts. Interim compile/target SDK 34.
+  installs and cold-starts. Both themes captured on device. `align16k` produces
+  the Android 15/16 16 KB APK. Interim compile/target SDK 34.
 
 ## Not yet specified
 

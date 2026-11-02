@@ -30,7 +30,7 @@ On Windows without Termux, `app/build/build-apk-windows.ps1` compiles, dexes wit
 
 ## Gradle / Material 3
 
-`./gradlew assembleDebug` is the primary build for the M3 migration. It uses the installed JDK 17 via `gradle.properties`, compiles against SDK 34, and stages `assets/` plus `arm64-v8a` libraries from `app/build/SpektraLab-1.3.4-qa.apk` (override with `-PbaseApk=<path>`). Set the same `SPK_*` variables to sign with the release key; without them Gradle uses its debug key and the APK will not update an installed release build. The legacy scripts remain the fallback for the pre-M3 tree.
+`./gradlew assembleDebug` is the primary build for the M3 migration. It uses the installed JDK 17 via `gradle.properties`, compiles against SDK 34, and stages `assets/` plus `arm64-v8a` libraries from `app/build/SpektraLab-1.3.4-qa.apk` (override with `-PbaseApk=<path>`). Set the same `SPK_*` variables to sign with the release key; without them Gradle uses its debug key and the APK will not update an installed release build. For Android 15/16 devices with 16 KB pages, run `./gradlew align16k` (needs build-tools 36) and install `app/build/outputs/apk/debug/app-debug-16k-signed.apk`; the plain debug APK is only 4 KB zip-aligned. The legacy scripts remain the fallback for the pre-M3 tree.
 
 ## Upstreams
 

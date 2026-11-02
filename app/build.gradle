@@ -100,3 +100,42 @@ tasks.register('stageBase') {
 }
 
 preBuild.dependsOn tasks.named('stageBase')
+
+/**
+ * Android 15/16 devices with 16 KB pages reject an APK whose uncompressed
+ * libraries are only 4 KB aligned. AGP 8.2 does not add the extra zip
+ * alignment, so produce a second, installable APK with build-tools 36.
+ */
+tasks.register('align16k') {
+    dependsOn tasks.named('assembleDebug')
+    doLast {
+        def sdk = System.getenv('ANDROID_HOME') ?: System.getenv('ANDROID_SDK_ROOT')
+                ?: rootProject.file('local.properties').withInputStream {
+                    Properties p = new Properties(); p.load(it); p.getProperty('sdk.dir')
+                }
+        def tools = file("${sdk}/build-tools/36.0.0")
+        if (!tools.isDirectory()) {
+            throw new GradleException("build-tools 36.0.0 not found at ${tools}")
+        }
+        def input = file("${buildDir}/outputs/apk/debug/app-debug.apk")
+        def aligned = file("${buildDir}/outputs/apk/debug/app-debug-16k.apk")
+        def signed = file("${buildDir}/outputs/apk/debug/app-debug-16k-signed.apk")
+        exec {
+            commandLine "${tools}/zipalign.exe", '-P', '16', '-f', '4', input, aligned
+        }
+        def keystore = System.getenv('SPK_KEYSTORE')
+        if (keystore) {
+            exec {
+                commandLine 'cmd', '/c', "${tools}\\apksigner.bat", 'sign',
+                        '--ks', keystore,
+                        '--ks-pass', 'env:SPK_KS_PASS',
+                        '--key-pass', 'env:SPK_KEY_PASS',
+                        '--ks-key-alias', System.getenv('SPK_KEY_ALIAS'),
+                        '--out', signed, aligned
+            }
+            logger.lifecycle("16 KB APK: ${signed}")
+        } else {
+            logger.lifecycle("16 KB APK (unsigned): ${aligned}")
+        }
+    }
+}
