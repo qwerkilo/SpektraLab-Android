@@ -2,22 +2,26 @@
 <resources>
     <!--
       Launch-only mirrors of Palette: the window is painted before the first
-      Java frame, so these four colours must match Palette.Role.BACKGROUND and
+      Java frame, so these colours match Palette.Role.BACKGROUND and
       Palette.Role.SYSTEM_BAR_* for each Theme mode. Views never read them.
+      The M3 parents are the foundation for the component migration; the
+      custom Console still paints from Palette until the token ticket lands.
     -->
-    <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="AppTheme" parent="Theme.Material3.Light.NoActionBar">
         <item name="android:windowBackground">#FFF1F1EE</item>
-        <item name="android:statusBarColor">#FF172174</item>
+        <item name="android:statusBarColor">#FF121614</item>
         <item name="android:navigationBarColor">#FFF1F1EE</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:forceDarkAllowed">false</item>
     </style>
 
-    <style name="AppTheme.Dark" parent="android:Theme.Material.NoActionBar">
+    <style name="AppTheme.Dark" parent="Theme.Material3.Dark.NoActionBar">
         <item name="android:windowBackground">#FF0E120F</item>
         <item name="android:statusBarColor">#FF070A08</item>
         <item name="android:navigationBarColor">#FF0E120F</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:forceDarkAllowed">false</item>
     </style>
 </resources>
