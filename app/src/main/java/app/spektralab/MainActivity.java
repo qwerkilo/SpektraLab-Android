@@ -359,8 +359,13 @@ public class MainActivity extends AppCompatActivity {
     private ChipGroup brandRow;
     private LinearLayout filmChipRow, filmMetricsRow;
     private HorizontalScrollView filmChipScroll;
-    private FilmCurveView filmCurve;
+    private SpectrumCurveView filmCurve;
     private MaterialCardView filmCurveCard;
+    /** The last curve this composition has already revealed; a rebuild must
+     *  not replay it. The curve object is stable per stock, so identity is
+     *  enough and the check never mistakes a render-state refresh for a new
+     *  curve. */
+    private SpectrumCurve revealedCurve = SpectrumCurve.unavailable();
     private TextView filmNote;
     /** One render at a time, whole sequence -- the engine's lock only covers a
      *  single call, so a queued render could otherwise swap parameters
@@ -391,6 +396,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int FILM_CARD_GAP_DP = 8;
     /** The curve's M3 surface; 76 dp keeps the panel's fixed 304 dp budget. */
     private static final int FILM_CURVE_HEIGHT_DP = 76;
+    /** The plotter reveal for a genuinely new curve, unless motion is reduced. */
+    private static final int FILM_CURVE_REVEAL_MS = 520;
     /** Wait this long after a keyboard or TalkBack change before one render. */
     private static final int OPTICS_COMMIT_DELAY_MS = 180;
     /** 反馈群：the one place a user can reach a human. Shown once per build. */
@@ -937,245 +944,6 @@ public class MainActivity extends AppCompatActivity {
             canvas.drawText(String.valueOf(SpectrumSamples.RAIL_MAX_NM), x,
                     h - pad + dp(2), paint);
             paint.clearShadowLayer();
-        }
-    }
-
-    /**
-     * The film panel's Spectrum: the selected stock's shipped series across its
-     * measured wavelengths. Three channels, one point per real sample. A gap
-     * ends the line; nothing is interpolated, and no missing sample is drawn at
-     * zero. A stock without samples says so and carries no line at all.
-     */
-    private static class FilmCurveView extends View {
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final android.graphics.Path path = new android.graphics.Path();
-        private final int lineColor, mutedColor, scanColor;
-        private final int[] seriesColors;
-        private final float density;
-        /** The plot's labels and legend use one M3 type role, not ad-hoc sp. */
-        private final Typeface labelTypeface;
-        private final float labelSizePx;
-        private final float labelTracking;
-        private SpectrumCurve curve = SpectrumCurve.unavailable();
-        private String seriesLabel = "";
-        private String emptyLabel = SpectrumCurve.UNAVAILABLE_LABEL;
-        private boolean scanMarkVisible;
-        private float scanMarkFraction = ScanSample.DEFAULT_FRACTION;
-        private android.animation.ValueAnimator revealAnimator;
-        private float reveal = 1f;
-
-        FilmCurveView(android.content.Context context, Palette palette, Typeface labelTypeface) {
-            super(context);
-            density = getResources().getDisplayMetrics().density;
-            lineColor = MaterialColors.getColor(context,
-                    com.google.android.material.R.attr.colorOutlineVariant,
-                    palette.color(Palette.Role.LINE));
-            mutedColor = MaterialColors.getColor(context,
-                    com.google.android.material.R.attr.colorOnSurfaceVariant,
-                    palette.color(Palette.Role.MUTED_INK));
-            scanColor = MaterialColors.getColor(context,
-                    com.google.android.material.R.attr.colorPrimary,
-                    palette.color(Palette.Role.ACCENT));
-            seriesColors = new int[]{
-                    palette.color(Palette.Role.SPECTRUM_RED),
-                    palette.color(Palette.Role.SPECTRUM_GREEN),
-                    palette.color(Palette.Role.SPECTRUM_BLUE),
-            };
-            this.labelTypeface = labelTypeface == null ? Typeface.DEFAULT : labelTypeface;
-            this.labelSizePx = android.util.TypedValue.applyDimension(
-                    android.util.TypedValue.COMPLEX_UNIT_SP,
-                    M3Tokens.TypeRole.LABEL_SMALL.sizeSp,
-                    getResources().getDisplayMetrics());
-            this.labelTracking = M3Tokens.TypeRole.LABEL_SMALL.letterSpacingEm;
-        }
-
-        private float dp(float v) {
-            return v * density;
-        }
-
-        void setCurve(SpectrumCurve curve, String seriesLabel, String emptyLabel,
-                      int durationMs) {
-            final SpectrumCurve next = curve == null ? SpectrumCurve.unavailable() : curve;
-            final boolean same = next == this.curve;
-            final boolean animate = durationMs > 0 && next.available() && !same;
-            this.curve = next;
-            this.seriesLabel = seriesLabel == null ? "" : seriesLabel;
-            this.emptyLabel = emptyLabel == null ? SpectrumCurve.UNAVAILABLE_LABEL : emptyLabel;
-            // A render-state refresh re-sends the same curve. Let the reveal
-            // finish instead of snapping it to the end on the second call.
-            if (same && revealAnimator != null && revealAnimator.isRunning()) {
-                invalidate();
-                return;
-            }
-            if (revealAnimator != null) {
-                revealAnimator.cancel();
-                revealAnimator = null;
-            }
-            if (animate) {
-                reveal = 0f;
-                revealAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f);
-                revealAnimator.setDuration(durationMs);
-                revealAnimator.setInterpolator(
-                        new android.view.animation.DecelerateInterpolator());
-                revealAnimator.addUpdateListener(a -> {
-                    reveal = (float) a.getAnimatedValue();
-                    invalidate();
-                });
-                revealAnimator.start();
-            } else {
-                reveal = 1f;
-            }
-            invalidate();
-        }
-
-        @Override protected void onDetachedFromWindow() {
-            if (revealAnimator != null) revealAnimator.cancel();
-            super.onDetachedFromWindow();
-        }
-
-        /** Scan inspect's fraction on the same axis as the wavelength series. */
-        void setScanMark(boolean visible, float fraction) {
-            final float next = Float.isNaN(fraction) ? ScanSample.DEFAULT_FRACTION : fraction;
-            final float clamped = Math.max(0f, Math.min(1f, next));
-            if (scanMarkVisible == visible && Math.abs(scanMarkFraction - clamped) < 1e-5f) return;
-            scanMarkVisible = visible;
-            scanMarkFraction = clamped;
-            invalidate();
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            final float w = getWidth(), h = getHeight();
-            final float pad = dp(8);
-            // The MaterialCardView behind this view owns the surface, its
-            // radius, and its ripple; the plot draws only its own ink.
-            paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setTypeface(labelTypeface);
-            paint.setTextSize(labelSizePx);
-            paint.setLetterSpacing(labelTracking);
-            paint.setColor(mutedColor);
-
-            final boolean available = curve.available();
-            final String caption = available
-                    ? seriesLabel + " \u00b7 " + curve.sampleCount() + " SMP"
-                    : "SPECTRUM";
-            final float captionBaseline = pad + labelSizePx;
-            canvas.drawText(caption, pad, captionBaseline, paint);
-
-            if (available) {
-                float legendRight = w - pad;
-                for (int channel = curve.channelCount() - 1; channel >= 0; --channel) {
-                    final String label = SpectrumCurve.channelLabel(channel);
-                    final float labelWidth = paint.measureText(label);
-                    paint.setColor(seriesColors[channel]);
-                    canvas.drawText(label, legendRight - labelWidth, captionBaseline, paint);
-                    legendRight -= labelWidth + dp(6);
-                }
-            }
-
-            final float top = captionBaseline + dp(6);
-            final float bottom = h - labelSizePx - dp(6);
-            final float left = pad;
-            final float right = w - pad;
-
-            paint.setLetterSpacing(0);
-            paint.setStyle(android.graphics.Paint.Style.STROKE);
-            paint.setStrokeWidth(Math.max(1f, density * 0.5f));
-            paint.setColor(lineColor);
-            paint.setAlpha(64);
-            for (int i = 0; i <= 3; ++i) {
-                final float y = top + (bottom - top) * i / 3f;
-                canvas.drawLine(left, y, right, y, paint);
-            }
-            paint.setAlpha(255);
-
-            if (!available) {
-                paint.setStyle(android.graphics.Paint.Style.FILL);
-                paint.setColor(mutedColor);
-                paint.setTypeface(labelTypeface);
-                paint.setTextSize(labelSizePx);
-                paint.setLetterSpacing(labelTracking);
-                final float textWidth = paint.measureText(emptyLabel);
-                canvas.drawText(emptyLabel, Math.max(pad, (w - textWidth) * 0.5f),
-                        (top + bottom) * 0.5f + labelSizePx * 0.35f, paint);
-                return;
-            }
-
-            final double minNm = curve.minNm();
-            double spanNm = curve.maxNm() - minNm;
-            if (!(spanNm > 0)) spanNm = 1;
-            paint.setStrokeWidth(dp(1.1f));
-            paint.setStrokeCap(android.graphics.Paint.Cap.ROUND);
-            paint.setStrokeJoin(android.graphics.Paint.Join.ROUND);
-
-            canvas.save();
-            canvas.clipRect(left, top, left + (right - left) * reveal, bottom + dp(2));
-            for (int channel = 0; channel < curve.channelCount(); ++channel) {
-                paint.setColor(seriesColors[channel]);
-                final int runs = curve.runCount(channel);
-                for (int run = 0; run < runs; ++run) {
-                    final int length = curve.runLength(channel, run);
-                    path.reset();
-                    float lastX = left, lastY = bottom;
-                    for (int point = 0; point < length; ++point) {
-                        final float x = left + (float) ((curve.nmAt(channel, run, point) - minNm)
-                                / spanNm) * (right - left);
-                        lastX = x;
-                        lastY = bottom - (float) curve.normalizedAt(channel, run, point)
-                                * (bottom - top);
-                        if (point == 0) path.moveTo(x, lastY);
-                        else path.lineTo(x, lastY);
-                    }
-                    if (length == 1) {
-                        paint.setStyle(android.graphics.Paint.Style.FILL);
-                        canvas.drawCircle(lastX, lastY, dp(1.4f), paint);
-                        paint.setStyle(android.graphics.Paint.Style.STROKE);
-                    } else {
-                        canvas.drawPath(path, paint);
-                    }
-                }
-            }
-            canvas.restore();
-
-            // A plotter head while the trace is being revealed. It disappears
-            // at rest, so the finished curve carries no extra chrome.
-            if (reveal < 1f) {
-                final float head = left + reveal * (right - left);
-                paint.setStyle(android.graphics.Paint.Style.STROKE);
-                paint.setStrokeWidth(Math.max(1f, density * 0.5f));
-                paint.setColor(scanColor);
-                paint.setAlpha(90);
-                canvas.drawLine(head, top - dp(2), head, bottom + dp(2), paint);
-                paint.setAlpha(255);
-            }
-
-            // Scan inspect's position, on the same fraction axis as the curve.
-            if (scanMarkVisible) {
-                final float x = left + scanMarkFraction * (right - left);
-                paint.setStyle(android.graphics.Paint.Style.STROKE);
-                paint.setStrokeWidth(Math.max(1f, density));
-                paint.setColor(scanColor);
-                paint.setAlpha(210);
-                canvas.drawLine(x, top - dp(2), x, bottom + dp(2), paint);
-                paint.setStyle(android.graphics.Paint.Style.FILL);
-                canvas.drawCircle(x, top - dp(2), dp(1.6f), paint);
-                paint.setAlpha(255);
-            }
-
-            paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setColor(mutedColor);
-            paint.setTypeface(labelTypeface);
-            paint.setTextSize(labelSizePx);
-            paint.setLetterSpacing(labelTracking);
-            final String lo = formatNm(curve.minNm());
-            final String hi = formatNm(curve.maxNm()) + " nm";
-            final float xLabelBaseline = h - dp(4);
-            canvas.drawText(lo, left, xLabelBaseline, paint);
-            canvas.drawText(hi, right - paint.measureText(hi), xLabelBaseline, paint);
-        }
-
-        private static String formatNm(double nm) {
-            return String.format(java.util.Locale.US, "%.0f", nm);
         }
     }
 
@@ -2429,7 +2197,7 @@ public class MainActivity extends AppCompatActivity {
         filmCurveCard.setStrokeColor(m3Role(
                 com.google.android.material.R.attr.colorOutlineVariant,
                 Palette.Role.LINE));
-        filmCurve = new FilmCurveView(this, palette, tfBody);
+        filmCurve = new SpectrumCurveView(this, palette, tfBody);
         filmCurveCard.addView(filmCurve, new android.widget.FrameLayout.LayoutParams(-1, -1));
         panel.addView(filmCurveCard, new LinearLayout.LayoutParams(-1, dp(FILM_CURVE_HEIGHT_DP)));
 
@@ -2506,10 +2274,17 @@ public class MainActivity extends AppCompatActivity {
         if (filmChipScroll != null) filmChipScroll.post(() -> filmChipScroll.scrollTo(keepScroll, 0));
 
         final FilmStock stock = currentFilmStock();
-        filmCurve.setCurve(stock == null ? SpectrumCurve.unavailable() : stock.curve,
+        final SpectrumCurve nextCurve =
+                stock == null ? SpectrumCurve.unavailable() : stock.curve;
+        // A new curve reveals once. A render-state refresh re-sends the same
+        // object, and a theme rebuild finds it already revealed, so neither
+        // replays the plotter. Reduced motion shortens the reveal to zero.
+        final boolean revealNow = nextCurve.available() && nextCurve != revealedCurve;
+        filmCurve.setCurve(nextCurve,
                 stock == null ? "" : stock.seriesLabel,
                 filmStock == null ? "NO FILM STOCK SELECTED" : SpectrumCurve.UNAVAILABLE_LABEL,
-                motionDuration(520));
+                revealNow ? motionDuration(FILM_CURVE_REVEAL_MS) : 0);
+        if (revealNow) revealedCurve = nextCurve;
         filmCurve.setContentDescription(curveDescription(stock));
         refreshFilmMetrics(stock);
         filmNote.setText(filmNoteText(stock));
