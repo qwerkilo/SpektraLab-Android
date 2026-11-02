@@ -49,6 +49,10 @@ Never hand-copy `libspektrafilm_engine.so` into `app/build/apk/lib` (README stil
 - **Identity split**: `announce.sh`, `UpdateCheck`, and README target `SAINTTaiYi/SpektraLab-Android`; this checkout's `origin` is `qwerkilo/SpektraLab-Android`. Pushing here does not update the channel users read. Confirm the target before announcing.
 - Default branch `master`; jsDelivr and raw.githubusercontent both read `@master`.
 
+## CodeGraph
+
+This checkout has a `.codegraph/` index. Prefer `codegraph explore "<symbols or question>"` (or the MCP `codegraph_explore`) over a grep/read loop for code questions. The database is local and gitignored; on a fresh clone run `codegraph init -y`. The `post-commit` and `post-merge` hooks run `codegraph sync --quiet` when the CLI is installed.
+
 ## Verify
 
 No test suite. Build, `adb install -r`, then watch logcat tags `SpektraLabJNI` and `SpektraLabRAW`. On the device, `DebugSink` POSTs diagnostics to `127.0.0.1:8770` (Termux-side sink). Driver telemetry goes to `report.workshop.skin`.
