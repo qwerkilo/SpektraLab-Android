@@ -104,7 +104,7 @@ final class UpdateCheck {
     /** The app owns its messages: never show the Android system Toast. */
     private static void toast(Activity activity, String message) {
         if (activity instanceof MainActivity) {
-            ((MainActivity) activity).showInAppToast(message);
+            ((MainActivity) activity).showSnackbar(message);
         }
     }
 
