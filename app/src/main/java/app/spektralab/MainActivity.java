@@ -85,8 +85,12 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Before super.onCreate: the window is built from this style, so a
+        // dark session never starts on a light launch surface.
+        applyLaunchTheme();
         super.onCreate(savedInstanceState);
         installCrashLogger();
+        applyWindowPalette();
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
             android.util.Log.e("SpektraLab", "Uncaught exception in " + t.getName(), e);
             try {
@@ -130,14 +134,22 @@ public class MainActivity extends Activity {
     //     page says 4; params.cpp refuses anything over 2) and exposure starts
     //     at 0.25 (below it the print is black and the schema's floor is 0.05).
     // ---------------------------------------------------------------------
-    private static final int UI_BLUE       = 0xFF1C2AA5;   // --blue
-    private static final int UI_BLUE_LIGHT = 0xFF3B4BC0;   // --blue-light
-    private static final int UI_PAPER      = 0xFFF1F1EE;   // --paper
-    private static final int UI_GROUND     = 0xFFE3E3E0;   // --ground
-    private static final int UI_INK        = 0xFF171717;   // --ink
-    private static final int UI_MUTED      = 0xFF777772;   // --muted
-    private static final int UI_LINE       = 0xFFCECEC8;   // --line
-    private static final int UI_STAGE      = 0xFF172174;   // .preview-image
+    /**
+     * Theme mode is read before the view tree is built, so the first frame is
+     * already the stored design. It is presentation state only: never a Look,
+     * a Frame, or an engine parameter.
+     */
+    private static final String THEME_PREFS = "theme";
+    private ThemeMode themeMode = ThemeMode.LIGHT;
+    private Palette palette = Palette.light();
+    /** Which stage surface is showing, captured so a theme rebuild can restore it. */
+    private int stageMode = 0;
+    /**
+     * Scan inspect is presentation-only. A later ticket draws the line; these
+     * two fields already survive a theme rebuild so its position is not lost.
+     */
+    private float scanFraction = 0.5f;
+    private boolean scanVisible = false;
 
     private Typeface tfDisplay;      // Inter 300 — numbers and the wordmark
     private Typeface tfBody;         // Inter 400 — Latin labels
@@ -329,7 +341,8 @@ public class MainActivity extends Activity {
     private final Runnable hideUiToast = () -> {
         if (inAppToast == null) return;
         inAppToast.animate().cancel();
-        inAppToast.animate().alpha(0f).translationY(dp(6)).setDuration(160)
+        inAppToast.animate().alpha(0f).translationY(dp(6))
+                .setDuration(reducedMotion() ? 0 : 160)
                 .withEndAction(() -> { if (inAppToast != null) inAppToast.setVisibility(View.GONE); }).start();
     };
     private final View[] panels = new View[4];
@@ -351,30 +364,166 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** The canvas owns the top edge now: white status icons on Rhine blue. */
-    private void lightSystemBars() {
+    /**
+     * Resolve the stored Theme mode before the Activity window is built.
+     * {@code AppTheme_Dark} exists in res/values/themes.xml as the launch-only
+     * mirror of the dark palette; a missing style falls back to the manifest
+     * theme instead of crashing.
+     */
+    private void applyLaunchTheme() {
+        try {
+            themeMode = ThemeMode.fromStored(getSharedPreferences(THEME_PREFS, MODE_PRIVATE)
+                    .getString(ThemeMode.PREF_KEY, null));
+        } catch (Throwable t) {
+            themeMode = ThemeMode.LIGHT;
+        }
+        palette = themeMode.palette();
+        try {
+            final String name = themeMode == ThemeMode.DARK ? "AppTheme_Dark" : "AppTheme";
+            final int id = getResources().getIdentifier(name, "style", getPackageName());
+            if (id != 0) {
+                setTheme(id);
+            } else {
+                // The staged res tree may not have been refreshed yet. Fall
+                // back to the framework's own light/dark window rather than
+                // starting a dark session on a light surface.
+                setTheme(themeMode == ThemeMode.DARK
+                        ? android.R.style.Theme_Material_NoActionBar
+                        : android.R.style.Theme_Material_Light_NoActionBar);
+            }
+        } catch (Throwable t) {
+            DebugSink.text("theme", "launch style: " + t);
+        }
+    }
+
+    /** The window behind the first frame, so the launch never flashes paper in dark. */
+    private void applyWindowPalette() {
+        try {
+            getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
+                    palette.color(Palette.Role.BACKGROUND)));
+        } catch (Throwable t) {
+            DebugSink.text("theme", "window: " + t);
+        }
+    }
+
+    /** System bars and their icon polarity follow the active palette. */
+    private void applySystemBars() {
         try {
             getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-            getWindow().setStatusBarColor(UI_STAGE);
-            getWindow().setNavigationBarColor(UI_PAPER);
+            getWindow().setStatusBarColor(palette.color(Palette.Role.SYSTEM_BAR_STAGE));
+            getWindow().setNavigationBarColor(palette.color(Palette.Role.SYSTEM_BAR_BACKGROUND));
+            // The stage is dark in both designs, so status icons stay light.
+            // Only the navigation bar turns over: dark glyphs on paper.
+            final boolean lightNavigation = !palette.isDark();
             if (android.os.Build.VERSION.SDK_INT >= 30) {
                 android.view.WindowInsetsController c = getWindow().getInsetsController();
                 if (c != null) {
-                    // The blue canvas is behind the status bar; only the paper
-                    // navigation bar keeps dark glyphs.
-                    int on = android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
-                    int off = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS;
-                    c.setSystemBarsAppearance(on, on | off);
+                    final int light = android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                    c.setSystemBarsAppearance(lightNavigation ? light : 0, light
+                            | android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS);
                 }
-            } else {
-                int flags = 0;
-                if (android.os.Build.VERSION.SDK_INT >= 26) {
-                    flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-                }
-                getWindow().getDecorView().setSystemUiVisibility(flags);
+            } else if (android.os.Build.VERSION.SDK_INT >= 26) {
+                getWindow().getDecorView().setSystemUiVisibility(
+                        lightNavigation ? View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR : 0);
             }
         } catch (Throwable t) {
             DebugSink.text("bars", String.valueOf(t));
+        }
+    }
+
+    /** Write the next Theme mode, then rebuild through the same composition root. */
+    private void toggleTheme() {
+        final ThemeMode next = themeMode.toggled();
+        themeMode = next;
+        palette = next.palette();
+        try {
+            getSharedPreferences(THEME_PREFS, MODE_PRIVATE).edit()
+                    .putString(ThemeMode.PREF_KEY, next.storedValue()).apply();
+        } catch (Throwable t) {
+            DebugSink.text("theme", "save: " + t);
+        }
+        rebuildForTheme();
+    }
+
+    /**
+     * Rebuild the view tree in place. Activity recreation is deliberately
+     * avoided: it would drop the native session, the loaded Frame, and its Look.
+     * This path must never call a render.
+     */
+    private void rebuildForTheme() {
+        if (isFinishing()) return;
+        final UiState state = captureUiState();
+        inAppToast = null;
+        buildUi();
+        restoreUiState(state);
+    }
+
+    /** Presentation that the rebuild has to put back by hand. */
+    private static final class UiState {
+        int stageMode;
+        int activeTab;
+        boolean panelCollapsed, opticsUnlocked, showingOriginal;
+        boolean busy, progress, exportProgress, shareVisible;
+        String fileName, rawNameText, status;
+        float scanFraction;
+        boolean scanVisible;
+    }
+
+    private UiState captureUiState() {
+        final UiState s = new UiState();
+        s.stageMode = stageMode;
+        s.activeTab = activeTabIndex;
+        s.panelCollapsed = panelCollapsed;
+        s.opticsUnlocked = opticsUnlocked;
+        s.showingOriginal = showingOriginal;
+        s.busy = busyLabel != null && busyLabel.getVisibility() == View.VISIBLE;
+        s.progress = progressBar != null && progressBar.getVisibility() == View.VISIBLE;
+        s.exportProgress = exportProgressBar != null && exportProgressBar.getVisibility() == View.VISIBLE;
+        s.shareVisible = sharePill != null && sharePill.getVisibility() == View.VISIBLE;
+        s.fileName = fileLabel == null ? null : String.valueOf(fileLabel.getText());
+        s.rawNameText = rawName == null ? null : String.valueOf(rawName.getText());
+        s.status = statusText == null ? null : String.valueOf(statusText.getText());
+        s.scanFraction = scanFraction;
+        s.scanVisible = scanVisible;
+        return s;
+    }
+
+    private void restoreUiState(UiState s) {
+        if (s == null) return;
+        setStage(s.stageMode, null);
+        if (compare != null) {
+            compare.setBefore(beforeBitmap);
+            compare.setAfter(s.showingOriginal ? null : lastRenderedBitmap);
+        }
+        if (s.fileName != null && fileLabel != null) fileLabel.setText(s.fileName);
+        if (s.rawNameText != null && rawName != null) rawName.setText(s.rawNameText);
+        if (s.status != null && statusText != null) statusText.setText(s.status);
+        showingOriginal = s.showingOriginal;
+        setOriginalVisual(showingOriginal);
+        if (busyLabel != null) busyLabel.setVisibility(s.busy ? View.VISIBLE : View.GONE);
+        if (progressBar != null) progressBar.setVisibility(s.progress ? View.VISIBLE : View.GONE);
+        if (exportProgressBar != null) {
+            exportProgressBar.setVisibility(s.exportProgress ? View.VISIBLE : View.GONE);
+        }
+        if (sharePill != null) sharePill.setVisibility(s.shareVisible ? View.VISIBLE : View.GONE);
+        if (formatFootValue != null) {
+            formatFootValue.setText(String.format(java.util.Locale.US, "%.0f mm", filmFormatMm));
+        }
+        setTab(s.activeTab);
+        setPanelCollapsed(s.panelCollapsed);
+        setOpticsUnlocked(s.opticsUnlocked);
+        scanFraction = s.scanFraction;
+        scanVisible = s.scanVisible;
+        updateFilmSelection();
+    }
+
+    /** A zero system animation scale means non-essential motion is off. */
+    private boolean reducedMotion() {
+        try {
+            return android.provider.Settings.Global.getFloat(getContentResolver(),
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f;
+        } catch (Throwable t) {
+            return false;
         }
     }
 
@@ -463,23 +612,27 @@ public class MainActivity extends Activity {
             }
             v.setPadding(left, top, right, bottom);
             // Android 15 paints edge-to-edge and ignores setStatusBarColor.
-            // The inset is part of this view's background, so the blue has to
-            // live there as well, while the navigation area stays paper.
-            v.setBackground(new EdgeBackdrop(top));
+            // The inset is part of this view's background, so the stage and
+            // page colours have to live there as well.
+            v.setBackground(new EdgeBackdrop(palette, top));
             return insets;
         });
     }
 
     private static class EdgeBackdrop extends android.graphics.drawable.Drawable {
-        private final int top;
+        private final int top, background, stage;
         private final android.graphics.Paint paint = new android.graphics.Paint();
-        EdgeBackdrop(int top) { this.top = top; }
+        EdgeBackdrop(Palette palette, int top) {
+            this.top = top;
+            this.background = palette.color(Palette.Role.BACKGROUND);
+            this.stage = palette.color(Palette.Role.STAGE);
+        }
         @Override public void draw(android.graphics.Canvas canvas) {
             final android.graphics.Rect b = getBounds();
-            paint.setColor(UI_PAPER);
+            paint.setColor(background);
             canvas.drawRect(b, paint);
             if (top > 0) {
-                paint.setColor(UI_STAGE);
+                paint.setColor(stage);
                 canvas.drawRect(b.left, b.top, b.right, b.top + top, paint);
             }
         }
@@ -489,27 +642,28 @@ public class MainActivity extends Activity {
     }
 
     private void buildUi() {
-        loadUiFonts();
-        lightSystemBars();
+        if (tfBody == null) loadUiFonts();
+        applyWindowPalette();
+        applySystemBars();
 
         final android.widget.FrameLayout root = new android.widget.FrameLayout(this);
-        root.setBackgroundColor(UI_PAPER);
+        root.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
         applySystemInsets(root);
         setContentView(root);
         uiRoot = root;
 
         LinearLayout app = new LinearLayout(this);
         app.setOrientation(LinearLayout.VERTICAL);
-        app.setBackgroundColor(UI_PAPER);
+        app.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
         root.addView(app, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
         // The photograph is the page. The brand and Export float over it, the
         // source strip sits below it, and the tool panels sit below that.
         android.widget.FrameLayout stage = new android.widget.FrameLayout(this);
-        stage.setBackgroundColor(UI_STAGE);
+        stage.setBackgroundColor(palette.color(Palette.Role.STAGE));
         stage.setClipChildren(false);
 
-        compare = new CompareView(this);
+        compare = new CompareView(this, palette);
         compare.setVisibility(View.GONE);
         stage.addView(compare, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
@@ -524,11 +678,11 @@ public class MainActivity extends Activity {
         LinearLayout load = new LinearLayout(this);
         load.setOrientation(LinearLayout.HORIZONTAL);
         load.setGravity(android.view.Gravity.CENTER);
-        load.setBackgroundColor(UI_PAPER);
+        load.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
         load.setPadding(dp(18), 0, dp(18), 0);
         load.setOnClickListener(v -> showImportMenu());
-        load.addView(label("选择照片", 9, UI_BLUE, tfHan));
-        ArrowView loadArrow = new ArrowView(this, UI_BLUE);
+        load.addView(label("选择照片", 9, palette.color(Palette.Role.ACCENT), tfHan));
+        ArrowView loadArrow = new ArrowView(this, palette.color(Palette.Role.ACCENT));
         LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(14), dp(14));
         arrowLp.leftMargin = dp(8);
         load.addView(loadArrow, arrowLp);
@@ -541,10 +695,10 @@ public class MainActivity extends Activity {
         raw.setGravity(android.view.Gravity.CENTER);
         raw.setPadding(dp(24), dp(16), dp(24), dp(16));
         raw.setVisibility(View.GONE);
-        TextView rawTitle = label("RAW LOADED", 34, UI_PAPER, tfDisplay);
+        TextView rawTitle = label("RAW LOADED", 34, palette.color(Palette.Role.STAGE_INK), tfDisplay);
         rawTitle.setLetterSpacing(-0.055f);
         raw.addView(rawTitle);
-        rawName = label("", 9, UI_PAPER, tfHan);
+        rawName = label("", 9, palette.color(Palette.Role.STAGE_INK), tfHan);
         rawName.setAlpha(0.7f);
         rawName.setLineSpacing(dp(4), 1f);
         rawName.setGravity(android.view.Gravity.CENTER);
@@ -554,10 +708,10 @@ public class MainActivity extends Activity {
         stage.addView(raw, new android.widget.FrameLayout.LayoutParams(-1, -1));
         rawState = raw;
 
-        busyLabel = label("RENDERING", 18, UI_PAPER, tfDisplay);
+        busyLabel = label("RENDERING", 18, palette.color(Palette.Role.STAGE_INK), tfDisplay);
         busyLabel.setLetterSpacing(0.14f);
         busyLabel.setGravity(android.view.Gravity.CENTER);
-        busyLabel.setBackgroundColor(0xE6172174);
+        busyLabel.setBackgroundColor(palette.color(Palette.Role.STAGE_BUSY));
         busyLabel.setVisibility(View.GONE);
         stage.addView(busyLabel, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
@@ -574,12 +728,14 @@ public class MainActivity extends Activity {
         android.widget.FrameLayout jobs = new android.widget.FrameLayout(this);
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setIndeterminate(true);
-        progressBar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(UI_PAPER));
+        progressBar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(
+                palette.color(Palette.Role.STAGE_INK)));
         progressBar.setVisibility(View.GONE);
         jobs.addView(progressBar, new android.widget.FrameLayout.LayoutParams(-1, -1));
         exportProgressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         exportProgressBar.setIndeterminate(true);
-        exportProgressBar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(UI_PAPER));
+        exportProgressBar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(
+                palette.color(Palette.Role.STAGE_INK)));
         exportProgressBar.setVisibility(View.GONE);
         jobs.addView(exportProgressBar, new android.widget.FrameLayout.LayoutParams(-1, -1));
         stage.addView(jobs, new android.widget.FrameLayout.LayoutParams(-1, dp(2), android.view.Gravity.BOTTOM));
@@ -589,7 +745,7 @@ public class MainActivity extends Activity {
 
         controls = new LinearLayout(this);
         controls.setOrientation(LinearLayout.VERTICAL);
-        controls.setBackgroundColor(UI_PAPER);
+        controls.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
 
         panelHolder = new LinearLayout(this);
         panelHolder.setOrientation(LinearLayout.VERTICAL);
@@ -604,7 +760,16 @@ public class MainActivity extends Activity {
         controls.addView(buildTabs(), new LinearLayout.LayoutParams(-1, dp(58)));
         app.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
 
-        loadStockCatalog();
+        // A theme rebuild must not re-read the catalogue while the background
+        // shelf queue is iterating it. Only the first build loads it; later
+        // builds restyle the cards from the lists already in memory.
+        if (filmIds.isEmpty()) {
+            loadStockCatalog();
+        } else {
+            rebuildBrandRow();
+            rebuildFilmCards();
+            refreshPaperLabel();
+        }
         refreshEdgeFormats();
         setTab(0);
         setPanelCollapsed(false);
@@ -636,14 +801,14 @@ public class MainActivity extends Activity {
         }
         if (uiRoot == null) return;
         if (inAppToast == null) {
-            inAppToast = label(String.valueOf(message), 10, UI_PAPER, tfHan);
+            inAppToast = label(String.valueOf(message), 10, palette.color(Palette.Role.ON_OVERLAY), tfHan);
             inAppToast.setMaxWidth(Math.round(getResources().getConfiguration().screenWidthDp
                     * 0.82f * getResources().getDisplayMetrics().density));
             inAppToast.setGravity(android.view.Gravity.CENTER);
             inAppToast.setMaxLines(4);
             inAppToast.setEllipsize(android.text.TextUtils.TruncateAt.END);
             inAppToast.setPadding(dp(14), dp(10), dp(14), dp(10));
-            inAppToast.setBackgroundColor(UI_INK);
+            inAppToast.setBackgroundColor(palette.color(Palette.Role.OVERLAY));
             inAppToast.setElevation(dp(6));
             android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
                     -2, -2, android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
@@ -655,20 +820,24 @@ public class MainActivity extends Activity {
         inAppToast.setVisibility(View.VISIBLE);
         inAppToast.setAlpha(0f);
         inAppToast.setTranslationY(dp(8));
-        inAppToast.animate().alpha(1f).translationY(0f).setDuration(150).start();
+        inAppToast.animate().alpha(1f).translationY(0f)
+                .setDuration(reducedMotion() ? 0 : 150).start();
         inAppToast.removeCallbacks(hideUiToast);
         inAppToast.postDelayed(hideUiToast, 2200);
     }
 
-    /** Brand and export are painted over the photograph, not stacked above it. */
+    /** Brand, Theme toggle, and export are painted over the photograph. */
     private void addCanvasChrome(android.widget.FrameLayout stage) {
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(android.view.Gravity.TOP);
-        top.setPadding(dp(16), dp(12), dp(16), dp(8));
+        top.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        top.setPadding(dp(16), dp(8), dp(16), dp(8));
         top.setBackground(new android.graphics.drawable.GradientDrawable(
                 android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0xC9070C23, 0x66070C23, 0x00070C23}));
+                new int[]{
+                        palette.color(Palette.Role.STAGE_SCRIM_TOP),
+                        palette.color(Palette.Role.STAGE_SCRIM_MID),
+                        palette.color(Palette.Role.STAGE_SCRIM_END)}));
         top.setClickable(false);
 
         LinearLayout brand = new LinearLayout(this);
@@ -677,12 +846,13 @@ public class MainActivity extends Activity {
         LinearLayout wordRow = new LinearLayout(this);
         wordRow.setOrientation(LinearLayout.HORIZONTAL);
         wordRow.setGravity(android.view.Gravity.TOP);
-        TextView word = label("SpektraLab", 18, UI_PAPER, tfDisplay);
+        TextView word = label("SpektraLab", 18, palette.color(Palette.Role.STAGE_INK), tfDisplay);
         word.setLetterSpacing(-0.045f);
         word.setSingleLine(true);
         word.setOnLongClickListener(v -> { showAbout(); return true; });
         wordRow.addView(word);
-        TextView version = label("v" + UpdateCheck.versionName(this), 6.5f, UI_PAPER, tfBody);
+        TextView version = label("v" + UpdateCheck.versionName(this), 6.5f,
+                palette.color(Palette.Role.STAGE_INK), tfBody);
         version.setAlpha(0.7f);
         LinearLayout.LayoutParams versionLp = new LinearLayout.LayoutParams(-2, -2);
         versionLp.leftMargin = dp(4);
@@ -691,10 +861,31 @@ public class MainActivity extends Activity {
         brand.addView(wordRow);
         top.addView(brand, new LinearLayout.LayoutParams(0, -2, 1f));
 
-        sharePill = label("分享", 10, UI_BLUE, tfHan);
+        // Theme lives in the header, beside Export. It shows the active mode
+        // and names the action for accessibility services.
+        final boolean dark = themeMode == ThemeMode.DARK;
+        TextView theme = label(dark ? "暗" : "亮", 10,
+                palette.color(Palette.Role.INK), tfHan);
+        theme.setGravity(android.view.Gravity.CENTER);
+        android.graphics.drawable.GradientDrawable themeBg =
+                new android.graphics.drawable.GradientDrawable();
+        themeBg.setColor(palette.color(Palette.Role.SURFACE_ELEVATED));
+        themeBg.setStroke(Math.max(1, dp(1)), palette.color(Palette.Role.LINE));
+        theme.setBackground(themeBg);
+        theme.setContentDescription(dark
+                ? "当前深色主题，点击切换到浅色"
+                : "当前浅色主题，点击切换到深色");
+        theme.setFocusable(true);
+        theme.setClickable(true);
+        theme.setOnClickListener(v -> toggleTheme());
+        LinearLayout.LayoutParams themeLp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        themeLp.rightMargin = dp(6);
+        top.addView(theme, themeLp);
+
+        sharePill = label("分享", 10, palette.color(Palette.Role.ACCENT), tfHan);
         sharePill.setGravity(android.view.Gravity.CENTER);
         android.graphics.drawable.GradientDrawable shareBg = new android.graphics.drawable.GradientDrawable();
-        shareBg.setColor(UI_PAPER);
+        shareBg.setColor(palette.color(Palette.Role.SURFACE_ELEVATED));
         shareBg.setAlpha(220);
         sharePill.setBackground(shareBg);
         sharePill.setPadding(dp(13), 0, dp(13), 0);
@@ -704,10 +895,10 @@ public class MainActivity extends Activity {
         shareLp.rightMargin = dp(6);
         top.addView(sharePill, shareLp);
 
-        TextView export = label("导出", 10, UI_BLUE, tfHan);
+        TextView export = label("导出", 10, palette.color(Palette.Role.ACCENT), tfHan);
         export.setGravity(android.view.Gravity.CENTER);
         android.graphics.drawable.GradientDrawable exportBg = new android.graphics.drawable.GradientDrawable();
-        exportBg.setColor(UI_PAPER);
+        exportBg.setColor(palette.color(Palette.Role.SURFACE_ELEVATED));
         export.setBackground(exportBg);
         export.setPadding(dp(15), 0, dp(15), 0);
         export.setOnClickListener(v -> showExportDialog());
@@ -724,19 +915,19 @@ public class MainActivity extends Activity {
         foot.setPadding(dp(16), 0, dp(16), 0);
         foot.setClickable(false);
 
-        fileLabel = label("未选择照片", 7, UI_PAPER, tfHan);
+        fileLabel = label("未选择照片", 7, palette.color(Palette.Role.STAGE_INK), tfHan);
         fileLabel.setAlpha(0.76f);
         fileLabel.setSingleLine(true);
         fileLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        fileLabel.setShadowLayer(dp(2), 0, dp(1), 0x99000000);
+        fileLabel.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
         foot.addView(fileLabel, new LinearLayout.LayoutParams(0, -2, 1f));
 
-        statusText = label("等待导入", 7, UI_PAPER, tfHan);
+        statusText = label("等待导入", 7, palette.color(Palette.Role.STAGE_INK), tfHan);
         statusText.setSingleLine(true);
         statusText.setEllipsize(android.text.TextUtils.TruncateAt.END);
         statusText.setGravity(android.view.Gravity.END);
         statusText.setAlpha(0.72f);
-        statusText.setShadowLayer(dp(2), 0, dp(1), 0x99000000);
+        statusText.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
         statusText.setMaxWidth(Math.round(getResources().getConfiguration().screenWidthDp
                 * 0.60f * getResources().getDisplayMetrics().density));
         LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(-2, -2);
@@ -759,7 +950,7 @@ public class MainActivity extends Activity {
     private View buildSourceBar() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.VERTICAL);
-        bar.setBackgroundColor(UI_PAPER);
+        bar.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
         sourceBar = bar;
 
         LinearLayout row = new LinearLayout(this);
@@ -768,7 +959,7 @@ public class MainActivity extends Activity {
         row.setPadding(dp(10), 0, dp(4), 0);
         sourceRow = row;
 
-        TextView add = label("\uff0b", 17, UI_BLUE, tfDisplay);
+        TextView add = label("\uff0b", 17, palette.color(Palette.Role.ACCENT), tfDisplay);
         add.setGravity(android.view.Gravity.CENTER);
         add.setOnClickListener(v -> showImportMenu());
         row.addView(add, new LinearLayout.LayoutParams(dp(40), dp(48)));
@@ -784,7 +975,7 @@ public class MainActivity extends Activity {
         thumbScroll.addView(thumbStrip, new android.widget.FrameLayout.LayoutParams(-2, -1));
         row.addView(thumbScroll, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
-        TextView fold = label("\u2039", 15, UI_MUTED, tfHan);
+        TextView fold = label("\u2039", 15, palette.color(Palette.Role.MUTED_INK), tfHan);
         fold.setGravity(android.view.Gravity.CENTER);
         fold.setOnClickListener(v -> setShelfCollapsed(true));
         row.addView(fold, new LinearLayout.LayoutParams(dp(28), dp(48)));
@@ -804,9 +995,10 @@ public class MainActivity extends Activity {
         for (int i = 2; i >= 1; --i) {
             View edge = new View(this);
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-            bg.setColor(i == 2 ? 0xFFD9D9D3 : 0xFFECECE7);
+            bg.setColor(palette.color(i == 2
+                    ? Palette.Role.SURFACE_SUNKEN : Palette.Role.SURFACE_ELEVATED));
             bg.setCornerRadius(dp(7));
-            bg.setStroke(Math.max(1, dp(1)), UI_LINE);
+            bg.setStroke(Math.max(1, dp(1)), palette.color(Palette.Role.LINE));
             edge.setBackground(bg);
             android.widget.FrameLayout.LayoutParams lp =
                     new android.widget.FrameLayout.LayoutParams(card, card);
@@ -825,10 +1017,10 @@ public class MainActivity extends Activity {
         });
         handle.addView(shelfHandleImage, new android.widget.FrameLayout.LayoutParams(card, card));
 
-        TextView chevron = label("\u203a", 14, UI_PAPER, tfDisplay);
+        TextView chevron = label("\u203a", 14, palette.color(Palette.Role.STAGE_INK), tfDisplay);
         chevron.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
         chevron.setPadding(0, 0, dp(5), 0);
-        chevron.setShadowLayer(dp(2), 0, 0, 0xCC000000);
+        chevron.setShadowLayer(dp(2), 0, 0, palette.color(Palette.Role.STAGE_SHADOW));
         handle.addView(chevron, new android.widget.FrameLayout.LayoutParams(card, card));
 
         handle.setOnClickListener(v -> setShelfCollapsed(false));
@@ -987,8 +1179,9 @@ public class MainActivity extends Activity {
             final boolean active = index == currentFrame;
             android.widget.FrameLayout box = new android.widget.FrameLayout(this);
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-            bg.setColor(UI_GROUND);
-            bg.setStroke(dp(active ? 2 : 1), active ? UI_BLUE : UI_LINE);
+            bg.setColor(palette.color(Palette.Role.SURFACE));
+            bg.setStroke(dp(active ? 2 : 1),
+                    palette.color(active ? Palette.Role.ACCENT : Palette.Role.LINE));
             box.setBackground(bg);
             box.setPadding(dp(2), dp(2), dp(2), dp(2));
             ImageView img = new ImageView(this);
@@ -1061,20 +1254,24 @@ public class MainActivity extends Activity {
     private void setOriginalVisual(boolean on) {
         if (originalAction == null) return;
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setColor(on ? UI_BLUE : UI_PAPER);
+        bg.setColor(palette.color(on ? Palette.Role.ACCENT : Palette.Role.SURFACE_ELEVATED));
         originalAction.setBackground(bg);
-        if (originalGlyph != null) originalGlyph.setColor(on ? UI_PAPER : UI_BLUE);
-        if (originalLabel != null) originalLabel.setTextColor(on ? UI_PAPER : UI_BLUE);
+        if (originalGlyph != null) {
+            originalGlyph.setColor(palette.color(on ? Palette.Role.ON_ACCENT : Palette.Role.ACCENT));
+        }
+        if (originalLabel != null) {
+            originalLabel.setTextColor(palette.color(on ? Palette.Role.ON_ACCENT : Palette.Role.ACCENT));
+        }
     }
 
     private View sectionHead(String title, Runnable reset) {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView titleView = mixedLabel(title, 8.5f, UI_INK);
+        TextView titleView = mixedLabel(title, 8.5f, palette.color(Palette.Role.INK));
         titleView.setLetterSpacing(0.06f);
         head.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView resetView = label("重置当前页", 8.5f, UI_MUTED, tfHan);
+        TextView resetView = label("重置当前页", 8.5f, palette.color(Palette.Role.MUTED_INK), tfHan);
         resetView.setPaintFlags(resetView.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         resetView.setPadding(dp(8), dp(10), 0, dp(10));
         resetView.setOnClickListener(v -> reset.run());
@@ -1111,17 +1308,17 @@ public class MainActivity extends Activity {
         LinearLayout paperRow = new LinearLayout(this);
         paperRow.setOrientation(LinearLayout.HORIZONTAL);
         paperRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        paperRow.addView(label("相纸 / 拷贝片", 9, UI_MUTED, tfHan));
+        paperRow.addView(label("相纸 / 拷贝片", 9, palette.color(Palette.Role.MUTED_INK), tfHan));
         LinearLayout paperChoice = new LinearLayout(this);
         paperChoice.setOrientation(LinearLayout.HORIZONTAL);
         paperChoice.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
         paperChoice.setOnClickListener(v -> showPaperPicker());
-        paperValue = label("Kodak Portra Endura", 10, UI_INK, tfHan);
+        paperValue = label("Kodak Portra Endura", 10, palette.color(Palette.Role.INK), tfHan);
         paperValue.setSingleLine(true);
         paperValue.setEllipsize(android.text.TextUtils.TruncateAt.END);
         paperValue.setGravity(android.view.Gravity.END);
         paperChoice.addView(paperValue, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView paperArrow = label("↓", 10, UI_BLUE, tfBody);
+        TextView paperArrow = label("↓", 10, palette.color(Palette.Role.ACCENT), tfBody);
         LinearLayout.LayoutParams paperArrowLp = new LinearLayout.LayoutParams(-2, -2);
         paperArrowLp.leftMargin = dp(7);
         paperChoice.addView(paperArrow, paperArrowLp);
@@ -1153,7 +1350,8 @@ public class MainActivity extends Activity {
             final int count = brandCount(id);
             if (count == 0) continue;
             TextView tab = label(BRAND_NAMES[i] + " " + count,
-                    8.5f, id.equals(brandFilter) ? UI_BLUE : UI_MUTED,
+                    8.5f, palette.color(id.equals(brandFilter)
+                            ? Palette.Role.ACCENT : Palette.Role.MUTED_INK),
                     "all".equals(id) ? tfHan : tfBody);
             tab.setGravity(android.view.Gravity.CENTER_VERTICAL);
             tab.setPadding(0, 0, dp(20), 0);
@@ -1189,8 +1387,8 @@ public class MainActivity extends Activity {
 
     private android.graphics.drawable.GradientDrawable cardBorder(boolean active) {
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setColor(UI_GROUND);
-        bg.setStroke(dp(1), active ? UI_BLUE : UI_LINE);
+        bg.setColor(palette.color(Palette.Role.SURFACE));
+        bg.setStroke(dp(1), palette.color(active ? Palette.Role.ACCENT : Palette.Role.LINE));
         return bg;
     }
 
@@ -1227,11 +1425,12 @@ public class MainActivity extends Activity {
         card.setPadding(dp(1), dp(1), dp(1), dp(1));
 
         android.widget.FrameLayout imageBox = new android.widget.FrameLayout(this);
-        imageBox.setBackgroundColor(original ? UI_PAPER : UI_GROUND);
+        imageBox.setBackgroundColor(palette.color(original
+                ? Palette.Role.SURFACE_ELEVATED : Palette.Role.SURFACE));
         filmCardImages.put(id, imageBox);
         if (original || beforeBitmap == null) {
             TextView mark = label(original ? "—" : text, original ? 22 : 8,
-                    UI_MUTED, original ? tfDisplay : tfHan);
+                    palette.color(Palette.Role.MUTED_INK), original ? tfDisplay : tfHan);
             mark.setMaxLines(2);
             mark.setGravity(android.view.Gravity.CENTER);
             imageBox.addView(mark, new android.widget.FrameLayout.LayoutParams(-1, -1));
@@ -1253,10 +1452,11 @@ public class MainActivity extends Activity {
         }
         card.addView(imageBox, new LinearLayout.LayoutParams(-1, dp(67)));
 
-        TextView name = label(text, 7.5f, active ? UI_BLUE : UI_INK, tfHan);
+        TextView name = label(text, 7.5f, palette.color(active
+                ? Palette.Role.ACCENT : Palette.Role.INK), tfHan);
         name.setMaxLines(2);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        name.setBackgroundColor(UI_PAPER);
+        name.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
         name.setPadding(dp(6), dp(4), dp(5), dp(2));
         name.setGravity(android.view.Gravity.TOP);
         card.addView(name, new LinearLayout.LayoutParams(-1, dp(27)));
@@ -1305,7 +1505,8 @@ public class MainActivity extends Activity {
             card.setBackground(cardBorder(active));
             android.view.ViewGroup group = (android.view.ViewGroup) card;
             if (group.getChildCount() > 1) {
-                ((TextView) group.getChildAt(1)).setTextColor(active ? UI_BLUE : UI_INK);
+                ((TextView) group.getChildAt(1)).setTextColor(palette.color(active
+                        ? Palette.Role.ACCENT : Palette.Role.INK));
             }
             if (active) target = card;
         }
@@ -1389,9 +1590,9 @@ public class MainActivity extends Activity {
         LinearLayout foot = new LinearLayout(this);
         foot.setOrientation(LinearLayout.HORIZONTAL);
         foot.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        foot.addView(label("颗粒 / 光晕尺度 · 不裁切构图", 8.5f, UI_MUTED, tfHan),
+        foot.addView(label("颗粒 / 光晕尺度 · 不裁切构图", 8.5f, palette.color(Palette.Role.MUTED_INK), tfHan),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        formatFootValue = label("36 mm", 9, UI_BLUE, tfBody);
+        formatFootValue = label("36 mm", 9, palette.color(Palette.Role.ACCENT), tfBody);
         foot.addView(formatFootValue);
         panel.addView(foot, new LinearLayout.LayoutParams(-1, dp(28)));
         panel.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
@@ -1420,34 +1621,37 @@ public class MainActivity extends Activity {
             valueRow.setOrientation(LinearLayout.HORIZONTAL);
             valueRow.setGravity(android.view.Gravity.BOTTOM);
             TextView value = label(String.format(java.util.Locale.US, "%.0f", FORMAT_MM[i]),
-                    23, active ? UI_BLUE : UI_MUTED, tfDisplay);
+                    23, palette.color(active ? Palette.Role.ACCENT : Palette.Role.MUTED_INK), tfDisplay);
             value.setLetterSpacing(-0.05f);
             valueRow.addView(value);
-            TextView unit = label("mm", 8, active ? UI_BLUE : UI_MUTED, tfBody);
+            TextView unit = label("mm", 8,
+                    palette.color(active ? Palette.Role.ACCENT : Palette.Role.MUTED_INK), tfBody);
             LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
             unitLp.leftMargin = dp(2);
             unitLp.bottomMargin = dp(2);
             valueRow.addView(unit, unitLp);
             top.addView(valueRow);
 
-            TextView kind = label(i == 2 || i >= 7 ? "宽幅" : "常规", 7, UI_MUTED, tfHan);
+            TextView kind = label(i == 2 || i >= 7 ? "宽幅" : "常规", 7,
+                    palette.color(Palette.Role.MUTED_INK), tfHan);
             LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-2, -2);
             kindLp.topMargin = dp(4);
             top.addView(kind, kindLp);
             card.addView(top, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
-            TextView name = label(FORMAT_NAMES[i], 8.5f, active ? UI_BLUE : UI_INK, tfHan);
+            TextView name = label(FORMAT_NAMES[i], 8.5f, palette.color(active
+                    ? Palette.Role.ACCENT : Palette.Role.INK), tfHan);
             name.setSingleLine(true);
             name.setEllipsize(android.text.TextUtils.TruncateAt.END);
             name.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            name.setBackgroundColor(UI_PAPER);
+            name.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
             name.setPadding(dp(8), 0, dp(7), 0);
             card.addView(name, new android.widget.FrameLayout.LayoutParams(
                     -1, dp(34), android.view.Gravity.BOTTOM));
 
             if (active) {
                 View mark = new View(this);
-                mark.setBackgroundColor(UI_BLUE);
+                mark.setBackgroundColor(palette.color(Palette.Role.ACCENT));
                 android.widget.FrameLayout.LayoutParams markLp = new android.widget.FrameLayout.LayoutParams(
                         dp(6), dp(6), android.view.Gravity.TOP | android.view.Gravity.END);
                 markLp.topMargin = dp(4);
@@ -1498,7 +1702,8 @@ public class MainActivity extends Activity {
         panel.addView(sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
                 new LinearLayout.LayoutParams(-1, dp(38)));
 
-        overscanMark = new Square(this, UI_BLUE, 0x66171717);
+        overscanMark = new Square(this, palette.color(Palette.Role.ACCENT),
+                palette.color(Palette.Role.MARK_OFF));
         View edgeRow = toggleRow("片边（胶片边缘）", overscanMark, overscanOn, on -> {
             if (on && edgeIds.isEmpty()) {
                 overscanMark.setLit(false);
@@ -1513,22 +1718,23 @@ public class MainActivity extends Activity {
         LinearLayout edgeChoiceRow = new LinearLayout(this);
         edgeChoiceRow.setOrientation(LinearLayout.HORIZONTAL);
         edgeChoiceRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        edgeChoiceRow.addView(label("片门格式", 9, UI_MUTED, tfHan));
+        edgeChoiceRow.addView(label("片门格式", 9, palette.color(Palette.Role.MUTED_INK), tfHan));
         LinearLayout edgeButton = new LinearLayout(this);
         edgeButton.setOrientation(LinearLayout.HORIZONTAL);
         edgeButton.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
         edgeButton.setOnClickListener(v -> showEdgePicker());
-        edgeValue = label("135 全画幅", 10, UI_INK, tfHan);
+        edgeValue = label("135 全画幅", 10, palette.color(Palette.Role.INK), tfHan);
         edgeValue.setGravity(android.view.Gravity.END);
         edgeButton.addView(edgeValue, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView edgeArrow = label("↓", 10, UI_BLUE, tfBody);
+        TextView edgeArrow = label("↓", 10, palette.color(Palette.Role.ACCENT), tfBody);
         LinearLayout.LayoutParams edgeArrowLp = new LinearLayout.LayoutParams(-2, -2);
         edgeArrowLp.leftMargin = dp(7);
         edgeButton.addView(edgeArrow, edgeArrowLp);
         edgeChoiceRow.addView(edgeButton, new LinearLayout.LayoutParams(0, dp(52), 1f));
         panel.addView(edgeChoiceRow, new LinearLayout.LayoutParams(-1, dp(52)));
 
-        dateMark = new Square(this, UI_BLUE, 0x66171717);
+        dateMark = new Square(this, palette.color(Palette.Role.ACCENT),
+                palette.color(Palette.Role.MARK_OFF));
         View dateRow = toggleRow("日期水印", dateMark, dateOn, on -> {
             dateOn = on;
             if (dateOn && dateText == null) dateText = imprintDate();
@@ -1536,7 +1742,8 @@ public class MainActivity extends Activity {
         });
         panel.addView(dateRow, new LinearLayout.LayoutParams(-1, dp(52)));
 
-        TextView note = label("片边按照片长宽比匹配可用片门", 8, UI_MUTED, tfHan);
+        TextView note = label("片边按照片长宽比匹配可用片门", 8,
+                palette.color(Palette.Role.MUTED_INK), tfHan);
         LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
         noteLp.topMargin = dp(12);
         panel.addView(note, noteLp);
@@ -1565,16 +1772,16 @@ public class MainActivity extends Activity {
     private View buildTabs() {
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
-        tabs.setBackgroundColor(UI_PAPER);
+        tabs.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
         final String[] names = {"胶片", "光学", "尺度", "边框"};
         for (int i = 0; i < names.length; ++i) {
             final int index = i;
             android.widget.FrameLayout cell = new android.widget.FrameLayout(this);
-            TextView name = label(names[i], 12, UI_MUTED, tfHan);
+            TextView name = label(names[i], 12, palette.color(Palette.Role.MUTED_INK), tfHan);
             name.setGravity(android.view.Gravity.CENTER);
             cell.addView(name, new android.widget.FrameLayout.LayoutParams(-1, -1));
             View bar = new View(this);
-            bar.setBackgroundColor(UI_BLUE);
+            bar.setBackgroundColor(palette.color(Palette.Role.ACCENT));
             bar.setVisibility(View.INVISIBLE);
             cell.addView(bar, new android.widget.FrameLayout.LayoutParams(
                     dp(26), dp(3), android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL));
@@ -1614,17 +1821,17 @@ public class MainActivity extends Activity {
         final android.app.Dialog dialog = new android.app.Dialog(this);
         LinearLayout sheet = new LinearLayout(this);
         sheet.setOrientation(LinearLayout.VERTICAL);
-        sheet.setBackgroundColor(UI_PAPER);
+        sheet.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
         View cap = new View(this);
-        cap.setBackgroundColor(UI_BLUE);
+        cap.setBackgroundColor(palette.color(Palette.Role.ACCENT));
         sheet.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
 
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         head.setPadding(dp(16), 0, dp(16), 0);
-        head.addView(label(title, 12, UI_INK, tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView close = label("关闭", 9, UI_MUTED, tfHan);
+        head.addView(label(title, 12, palette.color(Palette.Role.INK), tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView close = label("关闭", 9, palette.color(Palette.Role.MUTED_INK), tfHan);
         close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         close.setPadding(dp(12), dp(14), 0, dp(14));
         close.setOnClickListener(v -> dialog.dismiss());
@@ -1632,13 +1839,13 @@ public class MainActivity extends Activity {
         sheet.addView(head, new LinearLayout.LayoutParams(-1, dp(54)));
 
         if (note != null && !note.isEmpty()) {
-            TextView noteView = label(note, 8.5f, UI_MUTED, tfHan);
+            TextView noteView = label(note, 8.5f, palette.color(Palette.Role.MUTED_INK), tfHan);
             noteView.setPadding(dp(16), 0, dp(16), dp(12));
             sheet.addView(noteView);
         }
         for (int i = 0; i < items.length; ++i) {
             final int index = i;
-            TextView row = label(items[i], 11, UI_INK, tfHan);
+            TextView row = label(items[i], 11, palette.color(Palette.Role.INK), tfHan);
             row.setGravity(android.view.Gravity.CENTER_VERTICAL);
             row.setPadding(dp(16), 0, dp(16), 0);
             row.setOnClickListener(v -> {
@@ -1651,7 +1858,8 @@ public class MainActivity extends Activity {
         dialog.setCanceledOnTouchOutside(true);
         dialog.show();
         if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
+            dialog.getWindow().setBackgroundDrawable(
+                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
             dialog.getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                     android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
             dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);
@@ -1682,18 +1890,18 @@ public class MainActivity extends Activity {
         final android.app.Dialog dialog = new android.app.Dialog(this);
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundColor(UI_PAPER);
+        card.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
         View cap = new View(this);
-        cap.setBackgroundColor(UI_BLUE);
+        cap.setBackgroundColor(palette.color(Palette.Role.ACCENT));
         card.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
 
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         head.setPadding(dp(16), 0, dp(16), 0);
-        head.addView(mixedLabel("FEEDBACK / 反馈与交流", 8, UI_BLUE),
+        head.addView(mixedLabel("FEEDBACK / 反馈与交流", 8, palette.color(Palette.Role.ACCENT)),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView close = label("关闭", 9, UI_MUTED, tfHan);
+        TextView close = label("关闭", 9, palette.color(Palette.Role.MUTED_INK), tfHan);
         close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         close.setPadding(dp(12), dp(14), 0, dp(14));
         close.setOnClickListener(v -> dialog.dismiss());
@@ -1703,21 +1911,23 @@ public class MainActivity extends Activity {
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(dp(16), 0, dp(16), 4);
-        TextView title = label("遇到问题，或者想聊冲印？", 17, UI_INK, tfHan);
+        TextView title = label("遇到问题，或者想聊冲印？", 17, palette.color(Palette.Role.INK), tfHan);
         body.addView(title);
         TextView copyText = label("渲染报错、导出异常、想要某支胶片，直接发在群里。"
-                + "问题能复现的话，把「复制错误信息」的内容一起贴上。", 10, UI_MUTED, tfHan);
+                + "问题能复现的话，把「复制错误信息」的内容一起贴上。", 10,
+                palette.color(Palette.Role.MUTED_INK), tfHan);
         copyText.setLineSpacing(dp(4), 1f);
         LinearLayout.LayoutParams copyTextLp = new LinearLayout.LayoutParams(-1, -2);
         copyTextLp.topMargin = dp(9);
         body.addView(copyText, copyTextLp);
 
-        TextView number = label(QQ_GROUP, 27, UI_BLUE, tfDisplay);
+        TextView number = label(QQ_GROUP, 27, palette.color(Palette.Role.ACCENT), tfDisplay);
         number.setLetterSpacing(-0.02f);
         LinearLayout.LayoutParams numberLp = new LinearLayout.LayoutParams(-1, -2);
         numberLp.topMargin = dp(16);
         body.addView(number, numberLp);
-        TextView hint = label("QQ 群号，点下面按钮复制后搜索加入", 9, UI_MUTED, tfHan);
+        TextView hint = label("QQ 群号，点下面按钮复制后搜索加入", 9,
+                palette.color(Palette.Role.MUTED_INK), tfHan);
         LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(-1, -2);
         hintLp.topMargin = dp(5);
         body.addView(hint, hintLp);
@@ -1727,21 +1937,21 @@ public class MainActivity extends Activity {
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setPadding(dp(16), dp(16), dp(16), dp(16));
 
-        TextView open = label("打开 QQ", 10, UI_BLUE, tfHan);
+        TextView open = label("打开 QQ", 10, palette.color(Palette.Role.ACCENT), tfHan);
         open.setGravity(android.view.Gravity.CENTER);
         android.graphics.drawable.GradientDrawable openBg = new android.graphics.drawable.GradientDrawable();
-        openBg.setColor(UI_PAPER);
-        openBg.setStroke(dp(1), UI_BLUE);
+        openBg.setColor(palette.color(Palette.Role.SURFACE_ELEVATED));
+        openBg.setStroke(dp(1), palette.color(Palette.Role.ACCENT));
         open.setBackground(openBg);
         open.setOnClickListener(v -> openQqGroup());
         LinearLayout.LayoutParams openLp = new LinearLayout.LayoutParams(0, dp(42), 1f);
         openLp.rightMargin = dp(8);
         actions.addView(open, openLp);
 
-        TextView copy = label("复制群号", 10, UI_PAPER, tfHan);
+        TextView copy = label("复制群号", 10, palette.color(Palette.Role.ON_ACCENT), tfHan);
         copy.setGravity(android.view.Gravity.CENTER);
         android.graphics.drawable.GradientDrawable copyBg = new android.graphics.drawable.GradientDrawable();
-        copyBg.setColor(UI_BLUE);
+        copyBg.setColor(palette.color(Palette.Role.ACCENT));
         copy.setBackground(copyBg);
         copy.setOnClickListener(v -> {
             if (copyToClipboard("SpektraLab 反馈群", QQ_GROUP)) {
@@ -1759,7 +1969,7 @@ public class MainActivity extends Activity {
         card.addView(actions, new LinearLayout.LayoutParams(-1, -2));
 
         if (auto) {
-            TextView mute = label("不再自动弹出", 8.5f, UI_MUTED, tfHan);
+            TextView mute = label("不再自动弹出", 8.5f, palette.color(Palette.Role.MUTED_INK), tfHan);
             mute.setGravity(android.view.Gravity.CENTER);
             mute.setPaintFlags(mute.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
             mute.setPadding(0, 0, 0, dp(14));
@@ -1775,7 +1985,8 @@ public class MainActivity extends Activity {
         dialog.setCanceledOnTouchOutside(true);
         dialog.show();
         if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
+            dialog.getWindow().setBackgroundDrawable(
+                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
             int width = Math.min(dp(358), getResources().getDisplayMetrics().widthPixels - dp(32));
             dialog.getWindow().setLayout(width, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
             dialog.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
@@ -1821,17 +2032,17 @@ public class MainActivity extends Activity {
         final android.app.Dialog dialog = new android.app.Dialog(this);
         LinearLayout sheet = new LinearLayout(this);
         sheet.setOrientation(LinearLayout.VERTICAL);
-        sheet.setBackgroundColor(UI_PAPER);
+        sheet.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
         View cap = new View(this);
-        cap.setBackgroundColor(UI_BLUE);
+        cap.setBackgroundColor(palette.color(Palette.Role.ACCENT));
         sheet.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
 
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         head.setPadding(dp(16), 0, dp(16), 0);
-        head.addView(label(title, 12, UI_INK, tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView close = label("关闭", 9, UI_MUTED, tfHan);
+        head.addView(label(title, 12, palette.color(Palette.Role.INK), tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView close = label("关闭", 9, palette.color(Palette.Role.MUTED_INK), tfHan);
         close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         close.setPadding(dp(12), dp(14), 0, dp(14));
         close.setOnClickListener(v -> dialog.dismiss());
@@ -1847,15 +2058,18 @@ public class MainActivity extends Activity {
             row.setGravity(android.view.Gravity.CENTER_VERTICAL);
             row.setPadding(dp(16), 0, dp(16), 0);
             boolean active = name.equals(selected);
-            TextView text = label(name, 11, active ? UI_BLUE : UI_INK, tfHan);
+            TextView text = label(name, 11, palette.color(active
+                    ? Palette.Role.ACCENT : Palette.Role.INK), tfHan);
             text.setMaxLines(1);
             text.setEllipsize(android.text.TextUtils.TruncateAt.END);
             row.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
             View dot = new View(this);
             android.graphics.drawable.GradientDrawable dotBg = new android.graphics.drawable.GradientDrawable();
             dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-            dotBg.setColor(active ? UI_BLUE : 0x00000000);
-            dotBg.setStroke(dp(1), active ? UI_BLUE : UI_MUTED);
+            dotBg.setColor(active ? palette.color(Palette.Role.ACCENT)
+                    : android.graphics.Color.TRANSPARENT);
+            dotBg.setStroke(dp(1), palette.color(active
+                    ? Palette.Role.ACCENT : Palette.Role.MUTED_INK));
             dot.setBackground(dotBg);
             row.addView(dot, new LinearLayout.LayoutParams(dp(13), dp(13)));
             row.setClickable(true);
@@ -1873,7 +2087,8 @@ public class MainActivity extends Activity {
         dialog.setCanceledOnTouchOutside(true);
         dialog.show();
         if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
+            dialog.getWindow().setBackgroundDrawable(
+                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
             dialog.getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                     android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
             dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);
@@ -2255,7 +2470,7 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        row.addView(label(labelText, 8, UI_INK, tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
+        row.addView(label(labelText, 8, palette.color(Palette.Role.INK), tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
         mark.setLit(initial);
         row.addView(mark, new LinearLayout.LayoutParams(dp(12), dp(12)));
         final boolean[] state = {initial};
@@ -2277,8 +2492,9 @@ public class MainActivity extends Activity {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        head.addView(label(name, 8, UI_INK, tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-        final TextView value = label(String.format(java.util.Locale.US, "%.2f", initial), 8, UI_BLUE, tfBody);
+        head.addView(label(name, 8, palette.color(Palette.Role.INK), tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
+        final TextView value = label(String.format(java.util.Locale.US, "%.2f", initial), 8,
+                palette.color(Palette.Role.ACCENT), tfBody);
         head.addView(value);
         LinearLayout.LayoutParams headLp = new LinearLayout.LayoutParams(-1, -2);
         headLp.bottomMargin = dp(2);
@@ -2324,10 +2540,10 @@ public class MainActivity extends Activity {
         final int inset = (dp(10) - thickness) / 2;
         android.graphics.drawable.ShapeDrawable back = new android.graphics.drawable.ShapeDrawable(
                 new android.graphics.drawable.shapes.RectShape());
-        back.getPaint().setColor(UI_LINE);
+        back.getPaint().setColor(palette.color(Palette.Role.LINE));
         android.graphics.drawable.ShapeDrawable fill = new android.graphics.drawable.ShapeDrawable(
                 new android.graphics.drawable.shapes.RectShape());
-        fill.getPaint().setColor(UI_BLUE);
+        fill.getPaint().setColor(palette.color(Palette.Role.ACCENT));
         android.graphics.drawable.ClipDrawable clip = new android.graphics.drawable.ClipDrawable(
                 fill, android.view.Gravity.LEFT, android.graphics.drawable.ClipDrawable.HORIZONTAL);
         android.graphics.drawable.LayerDrawable layers = new android.graphics.drawable.LayerDrawable(
@@ -2342,7 +2558,7 @@ public class MainActivity extends Activity {
 
         android.graphics.drawable.ShapeDrawable thumb = new android.graphics.drawable.ShapeDrawable(
                 new android.graphics.drawable.shapes.RectShape());
-        thumb.getPaint().setColor(UI_BLUE);
+        thumb.getPaint().setColor(palette.color(Palette.Role.ACCENT));
         thumb.setIntrinsicWidth(dp(9));
         thumb.setIntrinsicHeight(dp(9));
         bar.setThumb(thumb);
@@ -2362,7 +2578,8 @@ public class MainActivity extends Activity {
         for (int i = 0; i < panels.length; ++i) {
             panels[i].setVisibility(i == active ? View.VISIBLE : View.GONE);
             tabBars[i].setVisibility(i == active ? View.VISIBLE : View.INVISIBLE);
-            if (tabLabels[i] != null) tabLabels[i].setTextColor(i == active ? UI_BLUE : UI_MUTED);
+            if (tabLabels[i] != null) tabLabels[i].setTextColor(palette.color(i == active
+                    ? Palette.Role.ACCENT : Palette.Role.MUTED_INK));
         }
     }
 
@@ -2401,6 +2618,7 @@ public class MainActivity extends Activity {
 
     /** Which of the three things on the stage is showing. */
     private void setStage(int mode, String name) {
+        stageMode = mode;
         if (mode == 0) compare.clear();
         emptyState.setVisibility(mode == 0 ? View.VISIBLE : View.GONE);
         compare.setVisibility(mode == 1 ? View.VISIBLE : View.GONE);
@@ -2565,6 +2783,7 @@ public class MainActivity extends Activity {
         private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
         private final float slop;
         private final float density;
+        private final Palette palette;
         private Bitmap before, after;
         private boolean holding, dragging;
         private float split, downX, downY;
@@ -2577,8 +2796,9 @@ public class MainActivity extends Activity {
             }
         };
 
-        CompareView(android.content.Context context) {
+        CompareView(android.content.Context context, Palette palette) {
             super(context);
+            this.palette = palette;
             density = getResources().getDisplayMetrics().density;
             slop = android.view.ViewConfiguration.get(context).getScaledTouchSlop();
         }
@@ -2625,13 +2845,13 @@ public class MainActivity extends Activity {
         private void drawDivider(android.graphics.Canvas canvas, float x) {
             final float r = 6f * density, cy = getHeight() / 2f;
             paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setColor(0xB3F1F1EE);
+            paint.setColor(palette.color(Palette.Role.STAGE_DIVIDER));
             canvas.drawRect(x - 0.5f, 0f, x + 0.5f, getHeight(), paint);
-            paint.setColor(0xFFF1F1EE);
+            paint.setColor(palette.color(Palette.Role.STAGE_INK));
             canvas.drawRect(x - r, cy - r, x + r, cy + r, paint);
             paint.setStyle(android.graphics.Paint.Style.STROKE);
             paint.setStrokeWidth(Math.max(1f, density));
-            paint.setColor(0xFF1C2AA5);
+            paint.setColor(palette.color(Palette.Role.ACCENT));
             canvas.drawRect(x - r, cy - r, x + r, cy + r, paint);
             paint.setStyle(android.graphics.Paint.Style.FILL);
         }
@@ -2685,10 +2905,12 @@ public class MainActivity extends Activity {
         private final android.graphics.Paint paint =
                 new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         private final int mark;
+        private final Palette palette;
 
-        GuideView(android.content.Context context, int markLength) {
+        GuideView(android.content.Context context, int markLength, Palette palette) {
             super(context);
             mark = markLength;
+            this.palette = palette;
         }
 
         @Override protected void onDraw(android.graphics.Canvas canvas) {
@@ -2697,12 +2919,12 @@ public class MainActivity extends Activity {
             final float dx = w * 0.09f, dy = h * 0.09f;
             paint.setStyle(android.graphics.Paint.Style.STROKE);
             paint.setStrokeWidth(1f);
-            paint.setColor(0x26FFFFFF);
+            paint.setColor(palette.color(Palette.Role.GUIDE_LINE));
             canvas.drawRect(dx, dy, w - dx, h - dy, paint);
-            paint.setColor(0x14FFFFFF);
+            paint.setColor(palette.color(Palette.Role.GUIDE_CENTER));
             canvas.drawLine(w / 2f, dy, w / 2f, h - dy, paint);
             canvas.drawLine(dx, h / 2f, w - dx, h / 2f, paint);
-            paint.setColor(0xA6FFFFFF);
+            paint.setColor(palette.color(Palette.Role.GUIDE_CORNER));
             final float L = mark;
             canvas.drawLine(dx, dy, dx + L, dy, paint);
             canvas.drawLine(dx, dy, dx, dy + L, paint);
@@ -2892,6 +3114,13 @@ public class MainActivity extends Activity {
 
     /** Reads assets/resources/stock_catalog.json (generated from the engine's profiles). */
     private void loadStockCatalog() {
+        // A theme rebuild runs this again through the composition root. Clear
+        // first, or every toggle appends a second copy of the catalogue.
+        filmIds.clear();
+        filmLabels.clear();
+        filmTypes.clear();
+        printIds.clear();
+        printLabels.clear();
         try (InputStream in = getAssets().open("resources/stock_catalog.json")) {
             byte[] buf = new byte[in.available()];
             int off = 0, n;
@@ -3614,19 +3843,19 @@ public class MainActivity extends Activity {
             final android.app.Dialog dialog = new android.app.Dialog(this);
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
-            card.setBackgroundColor(UI_PAPER);
+            card.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
             View cap = new View(this);
-            cap.setBackgroundColor(UI_BLUE);
+            cap.setBackgroundColor(palette.color(Palette.Role.ACCENT));
             card.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
 
             LinearLayout head = new LinearLayout(this);
             head.setOrientation(LinearLayout.HORIZONTAL);
             head.setGravity(android.view.Gravity.CENTER_VERTICAL);
             head.setPadding(dp(16), 0, dp(16), 0);
-            TextView kicker = mixedLabel("ERROR / 错误详情", 8, UI_BLUE);
+            TextView kicker = mixedLabel("ERROR / 错误详情", 8, palette.color(Palette.Role.ACCENT));
             kicker.setLetterSpacing(0.08f);
             head.addView(kicker, new LinearLayout.LayoutParams(0, -2, 1f));
-            TextView close = label("关闭", 9, UI_MUTED, tfHan);
+            TextView close = label("关闭", 9, palette.color(Palette.Role.MUTED_INK), tfHan);
             close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
             close.setPadding(dp(12), dp(14), 0, dp(14));
             close.setOnClickListener(v -> dialog.dismiss());
@@ -3637,19 +3866,20 @@ public class MainActivity extends Activity {
             LinearLayout bodyBox = new LinearLayout(this);
             bodyBox.setOrientation(LinearLayout.VERTICAL);
             bodyBox.setPadding(dp(16), 0, dp(16), 4);
-            TextView titleView = label(shownTitle, 18, UI_INK, tfHan);
+            TextView titleView = label(shownTitle, 18, palette.color(Palette.Role.INK), tfHan);
             titleView.setLetterSpacing(-0.02f);
             bodyBox.addView(titleView);
-            TextView advice = label("请复制下面的完整信息，方便定位问题。", 10, UI_MUTED, tfHan);
+            TextView advice = label("请复制下面的完整信息，方便定位问题。", 10,
+                    palette.color(Palette.Role.MUTED_INK), tfHan);
             LinearLayout.LayoutParams adviceLp = new LinearLayout.LayoutParams(-1, -2);
             adviceLp.topMargin = dp(8);
             bodyBox.addView(advice, adviceLp);
-            TextView detail = label(shownBody, 9.5f, 0xFF454640, tfHan);
+            TextView detail = label(shownBody, 9.5f, palette.color(Palette.Role.INK), tfHan);
             detail.setTextIsSelectable(true);
             detail.setLineSpacing(dp(4), 1f);
             detail.setPadding(dp(12), dp(11), dp(12), dp(11));
             android.graphics.drawable.GradientDrawable detailBg = new android.graphics.drawable.GradientDrawable();
-            detailBg.setColor(0xFFE7E8E3);
+            detailBg.setColor(palette.color(Palette.Role.SURFACE_SUNKEN));
             detail.setBackground(detailBg);
             LinearLayout.LayoutParams detailLp = new LinearLayout.LayoutParams(-1, -2);
             detailLp.topMargin = dp(14);
@@ -3661,20 +3891,20 @@ public class MainActivity extends Activity {
             LinearLayout actions = new LinearLayout(this);
             actions.setOrientation(LinearLayout.HORIZONTAL);
             actions.setPadding(dp(16), dp(14), dp(16), dp(16));
-            TextView closeAction = label("关闭", 10, UI_BLUE, tfHan);
+            TextView closeAction = label("关闭", 10, palette.color(Palette.Role.ACCENT), tfHan);
             closeAction.setGravity(android.view.Gravity.CENTER);
             android.graphics.drawable.GradientDrawable closeBg = new android.graphics.drawable.GradientDrawable();
-            closeBg.setColor(UI_PAPER);
-            closeBg.setStroke(dp(1), UI_BLUE);
+            closeBg.setColor(palette.color(Palette.Role.SURFACE_ELEVATED));
+            closeBg.setStroke(dp(1), palette.color(Palette.Role.ACCENT));
             closeAction.setBackground(closeBg);
             closeAction.setOnClickListener(v -> dialog.dismiss());
             LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(0, dp(42), 1f);
             closeLp.rightMargin = dp(8);
             actions.addView(closeAction, closeLp);
-            TextView copy = label("复制错误信息", 10, UI_PAPER, tfHan);
+            TextView copy = label("复制错误信息", 10, palette.color(Palette.Role.ON_ACCENT), tfHan);
             copy.setGravity(android.view.Gravity.CENTER);
             android.graphics.drawable.GradientDrawable copyBg = new android.graphics.drawable.GradientDrawable();
-            copyBg.setColor(UI_BLUE);
+            copyBg.setColor(palette.color(Palette.Role.ACCENT));
             copy.setBackground(copyBg);
             copy.setOnClickListener(v -> {
                 try {
@@ -3696,7 +3926,8 @@ public class MainActivity extends Activity {
             dialog.setCanceledOnTouchOutside(true);
             dialog.show();
             if (dialog.getWindow() != null) {
-                dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
+                dialog.getWindow().setBackgroundDrawable(
+                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
                 int width = Math.min(dp(358),
                         getResources().getDisplayMetrics().widthPixels - dp(32));
                 dialog.getWindow().setLayout(width, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
