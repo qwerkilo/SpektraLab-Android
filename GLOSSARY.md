@@ -38,6 +38,18 @@ _Avoid_: Develop, process, export (export is writing the file)
 The emulsion chosen for a Look.
 _Avoid_: Film, negative, profile
 
+**Brand**:
+The maker family a Film stock belongs to: Kodak, Fujifilm, Ilford, CineStill, or Other. It is the shelf's filter, not a film format or a Look.
+_Avoid_: Series, line, maker filter, category
+
+**Reversal film** (反转片 / 幻灯):
+A Film stock developed to a positive transparency. It is not printed onto paper in this editor; it is developed and scanned directly.
+_Avoid_: Slide film, positive, transparency, chrome
+
+**Direct scan**:
+A Look that bypasses the Print stock because the developed film is scanned directly. Reversal film uses it; the paper row remains stored for the next negative Look but does not affect the result.
+_Avoid_: Scan mode, no-paper, film scan
+
 **Print stock**:
 The paper chosen for a Look.
 _Avoid_: Paper, print, profile
