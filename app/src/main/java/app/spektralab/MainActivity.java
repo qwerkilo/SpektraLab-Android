@@ -13,16 +13,17 @@ import android.widget.LinearLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ScrollView;
 import android.widget.ProgressBar;
-import android.widget.SeekBar;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
+import androidx.core.view.ViewCompat;
 import app.spektralab.engine.SpektraLabEngine;
 import com.google.android.material.appbar.AppBarLayout;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.color.DynamicColors;
 import com.google.android.material.color.MaterialColors;
+import com.google.android.material.slider.Slider;
 import com.google.android.material.tabs.TabLayout;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -174,6 +175,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView fileLabel, rawName, busyLabel, originalLabel, paperValue, edgeValue, formatFootValue;
     private OpticsRow exposureRow, grainRow, halationRow, glareRow;
     private LinearLayout opticsPanel;
+    private TextView opticsLockNote;
     private boolean opticsUnlocked = false;
 
     // The Console shell's instrument readouts. The strip under the stage is
@@ -362,6 +364,8 @@ public class MainActivity extends AppCompatActivity {
     /** Android's minimum touch target for a primary control. */
     private static final int MIN_TOUCH_DP = 48;
     private static final int SLIDER_HEIGHT_DP = 48;
+    /** Wait this long after a keyboard or TalkBack change before one render. */
+    private static final int OPTICS_COMMIT_DELAY_MS = 180;
     /** 反馈群：the one place a user can reach a human. Shown once per build. */
     private static final String QQ_GROUP = "1134320449";
     private static final String PROMO_PREFS = "promo";
@@ -438,6 +442,26 @@ public class MainActivity extends AppCompatActivity {
         return MaterialColors.getColor(this,
                 com.google.android.material.R.attr.colorSurface,
                 palette.color(Palette.Role.SYSTEM_BAR_BACKGROUND));
+    }
+
+    /** A control colour from the active M3 scheme, with a Palette safety net. */
+    private int m3Color(int attr, int fallback) {
+        return MaterialColors.getColor(this, attr, fallback);
+    }
+
+    private int m3OnSurface() {
+        return m3Color(com.google.android.material.R.attr.colorOnSurface,
+                palette.color(Palette.Role.INK));
+    }
+
+    private int m3OnSurfaceVariant() {
+        return m3Color(com.google.android.material.R.attr.colorOnSurfaceVariant,
+                palette.color(Palette.Role.MUTED_INK));
+    }
+
+    private int m3Primary() {
+        return m3Color(com.google.android.material.R.attr.colorPrimary,
+                palette.color(Palette.Role.ACCENT));
     }
 
     /** The window behind the first frame, so the launch never flashes paper in dark. */
@@ -1805,7 +1829,7 @@ public class MainActivity extends AppCompatActivity {
         // focused slider keeps its own arrow keys.
         final View focus = getCurrentFocus();
         if (scanVisible && scanOverlay != null
-                && !(focus instanceof android.widget.SeekBar)
+                && !(focus instanceof Slider)
                 && scanOverlay.handleKey(keyCode, event.isShiftPressed())) {
             return true;
         }
@@ -1925,8 +1949,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** Put a frame's own look back, controls included: a slider that says 1.00
-     *  while the render used 1.40 is worse than no slider. `setBarProgress`
-     *  goes through `onProgressChanged`, so the number and the field move
+     *  while the render used 1.40 is worse than no slider. `setValue` goes
+     *  through the slider listener, so the number and the field move
      *  together. */
     private void applyLook(Look look) {
         if (look == null) return;
@@ -2564,26 +2588,60 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout buildOpticsPanel() {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(sectionHead("OPTICS / 光学调整", this::resetOpticsPanel),
-                new LinearLayout.LayoutParams(-1, dp(38)));
+        panel.addView(buildOpticsHead(), new LinearLayout.LayoutParams(-1, dp(38)));
         opticsPanel = new LinearLayout(this);
         opticsPanel.setOrientation(LinearLayout.VERTICAL);
         opticsPanel.setOnClickListener(v -> {
-            if (!opticsUnlocked) {
-                showInAppToast(session == null ? "先导入一张照片"
-                        : "先选择胶片或相纸，完成一次渲染");
-            }
+            if (!opticsUnlocked) showInAppToast(opticsLockReason());
         });
-        exposureRow = opticsRow(opticsPanel, "EXPOSURE 曝光", "EV",
-                0.25f, 4.0f, printExposure, OpticsDelta.EXPOSURE_DEFAULT, v -> printExposure = v);
-        grainRow = opticsRow(opticsPanel, "GRAIN 颗粒", "×",
-                0.0f, 2.0f, grainAmount, OpticsDelta.GRAIN_DEFAULT, v -> grainAmount = v);
-        halationRow = opticsRow(opticsPanel, "HALATION 光晕", "×",
-                0.0f, 4.0f, halationAmount, OpticsDelta.HALATION_DEFAULT, v -> halationAmount = v);
-        glareRow = opticsRow(opticsPanel, "GLARE 眩光", "×",
-                0.0f, 12.0f, glareAmount, OpticsDelta.GLARE_DEFAULT, v -> glareAmount = v);
+        exposureRow = opticsRow(opticsPanel, "EXPOSURE 曝光", OpticsDelta.Param.EXPOSURE,
+                printExposure, v -> printExposure = v);
+        grainRow = opticsRow(opticsPanel, "GRAIN 颗粒", OpticsDelta.Param.GRAIN,
+                grainAmount, v -> grainAmount = v);
+        halationRow = opticsRow(opticsPanel, "HALATION 光晕", OpticsDelta.Param.HALATION,
+                halationAmount, v -> halationAmount = v);
+        glareRow = opticsRow(opticsPanel, "GLARE 眩光", OpticsDelta.Param.GLARE,
+                glareAmount, v -> glareAmount = v);
         panel.addView(opticsPanel, new LinearLayout.LayoutParams(-1, 0, 1f));
         return panel;
+    }
+
+    /**
+     * The Optics head: title, page reset, and the locked reason. The reason
+     * sits outside the dimmed row stack so it stays readable while the rows
+     * are disabled.
+     */
+    private View buildOpticsHead() {
+        final LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.VERTICAL);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        final LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView titleView = mixedLabel("OPTICS / 光学调整", 8.5f, m3OnSurface());
+        titleView.setLetterSpacing(0.06f);
+        titleRow.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView resetView = label("重置当前页", 8.5f, m3OnSurfaceVariant(), tfHan);
+        resetView.setPaintFlags(resetView.getPaintFlags()
+                | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+        resetView.setPadding(dp(8), dp(10), 0, dp(10));
+        resetView.setFocusable(true);
+        resetView.setOnClickListener(v -> resetOpticsPanel());
+        titleRow.addView(resetView);
+        head.addView(titleRow, new LinearLayout.LayoutParams(-1, dp(22)));
+
+        opticsLockNote = label("", 7, m3OnSurfaceVariant(), tfHan);
+        opticsLockNote.setSingleLine(true);
+        opticsLockNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        opticsLockNote.setVisibility(View.GONE);
+        head.addView(opticsLockNote, new LinearLayout.LayoutParams(-1, dp(14)));
+        return head;
+    }
+
+    /** The one sentence a locked Optics panel shows and repeats on tap. */
+    private String opticsLockReason() {
+        return session == null ? "先导入一张照片" : "先选择胶片或相纸，完成一次渲染";
     }
 
     private LinearLayout buildFormatPanel() {
@@ -3186,6 +3244,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void resetOpticsPanel() {
+        if (!opticsUnlocked) {
+            showInAppToast(opticsLockReason());
+            return;
+        }
+        final boolean moved =
+                !OpticsDelta.isDefault(printExposure, OpticsDelta.EXPOSURE_DEFAULT)
+                        || !OpticsDelta.isDefault(grainAmount, OpticsDelta.GRAIN_DEFAULT)
+                        || !OpticsDelta.isDefault(halationAmount, OpticsDelta.HALATION_DEFAULT)
+                        || !OpticsDelta.isDefault(glareAmount, OpticsDelta.GLARE_DEFAULT);
         printExposure = OpticsDelta.EXPOSURE_DEFAULT;
         grainAmount = OpticsDelta.GRAIN_DEFAULT;
         halationAmount = OpticsDelta.HALATION_DEFAULT;
@@ -3194,12 +3261,8 @@ public class MainActivity extends AppCompatActivity {
         if (grainRow != null) grainRow.setValue(grainAmount);
         if (halationRow != null) halationRow.setValue(halationAmount);
         if (glareRow != null) glareRow.setValue(glareAmount);
-        if (session != null) { applyParams(); renderImage(); }
-    }
-
-    private void setBarProgress(SeekBar bar, float lo, float hi, float value) {
-        if (bar == null) return;
-        bar.setProgress(Math.round((value - lo) / (hi - lo) * 1000f));
+        // The whole page is already neutral: no parameter delta, no render.
+        if (moved) commitOptics();
     }
 
     private void resetFormatPanel() {
@@ -3493,11 +3556,12 @@ public class MainActivity extends AppCompatActivity {
         row.setContentDescription(toggleDescription(labelText, on));
     }
 
-    /** One calibrated optics row: label, value, unit, display-only Δ, a reset,
-     *  and the existing 32 dp drag target. */
-    private OpticsRow opticsRow(LinearLayout parent, String name, String unit,
-                                final float lo, final float hi, float initial,
-                                final float defaultValue,
+    /**
+     * One calibrated optics row: label, value, unit, display-only Δ, a reset,
+     * and a real M3 slider exposing the Look's float range.
+     */
+    private OpticsRow opticsRow(LinearLayout parent, String name,
+                                final OpticsDelta.Param spec, float initial,
                                 final java.util.function.Consumer<Float> apply) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
@@ -3506,182 +3570,175 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        head.addView(mixedLabel(name, 8, palette.color(Palette.Role.INK)),
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        final TextView valueView = label("", 8.5f,
-                palette.color(Palette.Role.ACCENT), tfDisplay);
+        TextView nameView = mixedLabel(name, 8, m3OnSurface());
+        nameView.setSingleLine(true);
+        nameView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        final TextView valueView = label("", 8.5f, m3Primary(), tfDisplay);
+        final TextView deltaView = label("", 7, m3OnSurfaceVariant(), tfDisplay);
+        // The four rows are useless without their names: the head carries the
+        // parameter, live value, unit, and Δ.
+        head.addView(nameView, new LinearLayout.LayoutParams(0, -2, 1f));
         head.addView(valueView);
-        TextView unitView = label(unit, 6.5f,
-                palette.color(Palette.Role.MUTED_INK), tfBody);
+        TextView unitView = label(spec.unit, 6.5f, m3OnSurfaceVariant(), tfBody);
         LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
         unitLp.leftMargin = dp(2);
         unitLp.bottomMargin = dp(1);
         head.addView(unitView, unitLp);
-        final TextView deltaView = label("", 7,
-                palette.color(Palette.Role.MUTED_INK), tfDisplay);
         LinearLayout.LayoutParams deltaLp = new LinearLayout.LayoutParams(-2, -2);
         deltaLp.leftMargin = dp(8);
         head.addView(deltaView, deltaLp);
-        // The four rows are useless without their names: the head carries the
-        // parameter, live value, unit, and Δ. It was built but never attached.
         row.addView(head, new LinearLayout.LayoutParams(-1, dp(15)));
 
         LinearLayout barRow = new LinearLayout(this);
         barRow.setOrientation(LinearLayout.HORIZONTAL);
         barRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
 
-        SeekBar bar = new SeekBar(this);
-        bar.setMax(1000);
-        bar.setProgress(Math.round((initial - lo) / (hi - lo) * 1000f));
-        styleRange(bar);
-        // A SeekBar's own range is 0..1000; expose the Look's real value and
-        // unit to accessibility services instead.
-        bar.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-            @Override public void onInitializeAccessibilityNodeInfo(
-                    View host, android.view.accessibility.AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                final float current = lo + (hi - lo) * bar.getProgress() / 1000f;
-                info.setRangeInfo(android.view.accessibility.AccessibilityNodeInfo
-                        .RangeInfo.obtain(android.view.accessibility.AccessibilityNodeInfo
-                                .RangeInfo.RANGE_TYPE_FLOAT, lo, hi, current));
+        final Slider bar = new Slider(this);
+        bar.setId(View.generateViewId());
+        bar.setValueFrom(spec.min);
+        bar.setValueTo(spec.max);
+        bar.setValue(spec.clamp(initial));
+        bar.setMinimumHeight(dp(SLIDER_HEIGHT_DP));
+        // The visible head is the label. The formatter still gives TalkBack the
+        // unit with the value it appends, and the real float range comes from
+        // the slider's own RangeInfo.
+        bar.setLabelFormatter(new com.google.android.material.slider.LabelFormatter() {
+            @Override public String getFormattedValue(float value) {
+                return OpticsDelta.valueText(value) + " " + spec.unit;
             }
         });
+        // The head already shows the live value; a floating tooltip would be
+        // clipped by the 48 dp row and repeat it.
+        bar.setLabelBehavior(com.google.android.material.slider.LabelFormatter.LABEL_GONE);
+        bar.setContentDescription(name);
+        valueView.setLabelFor(bar.getId());
         barRow.addView(bar, new LinearLayout.LayoutParams(0, dp(SLIDER_HEIGHT_DP), 1f));
 
-        final TextView reset = label("重置", 7,
-                palette.color(Palette.Role.MUTED_INK), tfHan);
+        final MaterialButton reset = new MaterialButton(this);
+        reset.setText("重置");
+        reset.setAllCaps(false);
+        reset.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 10);
+        reset.setTypeface(tfHan);
+        reset.setMinWidth(0);
+        reset.setMinimumWidth(0);
+        reset.setMinimumHeight(dp(MIN_TOUCH_DP));
+        reset.setInsetTop(0);
+        reset.setInsetBottom(0);
+        reset.setPadding(0, 0, 0, 0);
         reset.setGravity(android.view.Gravity.CENTER);
-        reset.setFocusable(true);
+        reset.setSingleLine(true);
+        reset.setStateListAnimator(null);
         barRow.addView(reset, new LinearLayout.LayoutParams(
-                dp(MIN_TOUCH_DP), dp(MIN_TOUCH_DP)));
+                dp(56), dp(MIN_TOUCH_DP)));
         row.addView(barRow, new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
 
-        final OpticsRow optics = new OpticsRow(bar, valueView, deltaView, reset,
-                name, unit, lo, hi, defaultValue);
-        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
-                float v = lo + (hi - lo) * progress / 1000f;
-                optics.show(v);
-                apply.accept(v);
-                refreshReadoutStrip();
-            }
-            @Override public void onStartTrackingTouch(SeekBar sb) { }
-            @Override public void onStopTrackingTouch(SeekBar sb) {
-                // Send on release: one JNI call per gesture, not one per
-                // hundredth of a stop.
-                applyParams();
-                if (uiReady && session != null) {
-                    showingOriginal = false;
-                    setOriginalVisual(false);
-                    renderImage();
-                }
+        final OpticsRow optics = new OpticsRow(row, bar, valueView, deltaView, reset,
+                name, spec);
+
+        // One commit per completed gesture. A touch release commits at once;
+        // keyboard, switch access, and TalkBack changes coalesce for a moment
+        // so a held arrow key does not queue a render per key event.
+        final Runnable commit = () -> {
+            if (!bar.isAttachedToWindow()) return;
+            commitOptics();
+        };
+        final boolean[] trackingTouch = {false};
+        bar.addOnChangeListener((slider, value, fromUser) -> {
+            optics.show(value);
+            apply.accept(value);
+            refreshReadoutStrip();
+            if (fromUser && !trackingTouch[0]) {
+                slider.removeCallbacks(commit);
+                slider.postDelayed(commit, OPTICS_COMMIT_DELAY_MS);
             }
         });
-        // The Δ is display-only: the reset recomputes it from the bar, and
-        // nothing here is sent to the engine beyond the normal optics values.
+        bar.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+            @Override public void onStartTrackingTouch(Slider slider) {
+                trackingTouch[0] = true;
+                slider.removeCallbacks(commit);
+            }
+            @Override public void onStopTrackingTouch(Slider slider) {
+                trackingTouch[0] = false;
+                slider.removeCallbacks(commit);
+                commit.run();
+            }
+        });
+        // The Δ is display-only: reset recomputes it from the slider, and at
+        // the default there is no render to ask for.
         reset.setOnClickListener(v -> {
             if (!opticsUnlocked) return;
-            final boolean moved = Math.abs(optics.currentValue() - defaultValue) > 0.0005f;
-            apply.accept(defaultValue);
-            optics.setValue(defaultValue);
+            final boolean moved = !optics.isAtDefault();
+            optics.setValue(spec.defaultValue);
             refreshReadoutStrip();
-            if (moved && uiReady && session != null) {
-                showingOriginal = false;
-                setOriginalVisual(false);
-                applyParams();
-                renderImage();
-            }
+            if (moved) commit.run();
         });
-        optics.show(initial);
+        optics.show(bar.getValue());
         parent.addView(row, new LinearLayout.LayoutParams(-1, 0, 1f));
         return optics;
+    }
+
+    /** One parameter delta and one render for a completed optics gesture. */
+    private void commitOptics() {
+        applyParams();
+        if (uiReady && session != null) {
+            showingOriginal = false;
+            setOriginalVisual(false);
+            renderImage();
+        }
     }
 
     /** One optics row's live views. The Δ is computed from the value and the
      *  panel default every time; it is never kept as a second piece of state. */
     private final class OpticsRow {
-        final SeekBar bar;
-        final TextView valueView, deltaView, resetView;
-        final String name, unit;
-        final float lo, hi, defaultValue;
+        final View row;
+        final Slider bar;
+        final TextView valueView, deltaView;
+        final MaterialButton resetView;
+        final String name;
+        final OpticsDelta.Param spec;
 
-        OpticsRow(SeekBar bar, TextView valueView, TextView deltaView, TextView resetView,
-                  String name, String unit, float lo, float hi, float defaultValue) {
+        OpticsRow(View row, Slider bar, TextView valueView, TextView deltaView,
+                  MaterialButton resetView, String name, OpticsDelta.Param spec) {
+            this.row = row;
             this.bar = bar;
             this.valueView = valueView;
             this.deltaView = deltaView;
             this.resetView = resetView;
             this.name = name;
-            this.unit = unit;
-            this.lo = lo;
-            this.hi = hi;
-            this.defaultValue = defaultValue;
+            this.spec = spec;
         }
 
         void show(float v) {
-            final String number = String.format(java.util.Locale.US, "%.2f", v);
-            final boolean moved = Math.abs(v - defaultValue) > 0.0005f;
+            final String number = OpticsDelta.valueText(v);
+            final boolean moved = !spec.isDefault(v);
+            final String delta = OpticsDelta.text(v, spec.defaultValue);
             valueView.setText(number);
-            deltaView.setText("Δ " + OpticsDelta.text(v, defaultValue));
-            final int color = palette.color(moved
-                    ? Palette.Role.ACCENT : Palette.Role.MUTED_INK);
+            deltaView.setText("Δ " + delta);
+            final int color = moved ? m3Primary() : m3OnSurfaceVariant();
             deltaView.setTextColor(color);
             resetView.setTextColor(color);
-            bar.setContentDescription(name + " " + number
-                    + (unit.isEmpty() ? "" : " " + unit)
-                    + "，Δ " + OpticsDelta.text(v, defaultValue));
+            // Slider's accessibility helper appends its formatted value and
+            // RangeInfo to this description; state carries value, unit, and Δ
+            // without repeating the number twice.
+            bar.setContentDescription(name);
+            ViewCompat.setStateDescription(bar, number + " " + spec.unit + "，Δ " + delta);
             resetView.setContentDescription("重置" + name + "为 "
-                    + String.format(java.util.Locale.US, "%.2f", defaultValue));
+                    + OpticsDelta.valueText(spec.defaultValue) + " " + spec.unit);
         }
 
         void setValue(float v) {
-            setBarProgress(bar, lo, hi, v);
+            bar.setValue(spec.clamp(v));
         }
 
-        float currentValue() {
-            return lo + (hi - lo) * bar.getProgress() / 1000f;
+        boolean isAtDefault() {
+            return spec.isDefault(bar.getValue());
         }
 
         void setEnabled(boolean on) {
+            row.setAlpha(on ? 1f : 0.38f);
             bar.setEnabled(on);
             resetView.setEnabled(on);
         }
-    }
-
-    /** 2 px track, square 9 px thumb: input[type=range] in the page. */
-    private void styleRange(SeekBar bar) {
-        final int thickness = dp(2);
-        final int inset = (dp(10) - thickness) / 2;
-        android.graphics.drawable.ShapeDrawable back = new android.graphics.drawable.ShapeDrawable(
-                new android.graphics.drawable.shapes.RectShape());
-        back.getPaint().setColor(palette.color(Palette.Role.LINE));
-        android.graphics.drawable.ShapeDrawable fill = new android.graphics.drawable.ShapeDrawable(
-                new android.graphics.drawable.shapes.RectShape());
-        fill.getPaint().setColor(palette.color(Palette.Role.ACCENT));
-        android.graphics.drawable.ClipDrawable clip = new android.graphics.drawable.ClipDrawable(
-                fill, android.view.Gravity.LEFT, android.graphics.drawable.ClipDrawable.HORIZONTAL);
-        android.graphics.drawable.LayerDrawable layers = new android.graphics.drawable.LayerDrawable(
-                new android.graphics.drawable.Drawable[]{back, clip});
-        layers.setId(0, android.R.id.background);
-        layers.setId(1, android.R.id.progress);
-        // The insets are what make the track 2 px: a ShapeDrawable alone would
-        // paint its whole bounds.
-        layers.setLayerInset(0, 0, inset, 0, inset);
-        layers.setLayerInset(1, 0, inset, 0, inset);
-        bar.setProgressDrawable(layers);
-
-        android.graphics.drawable.ShapeDrawable thumb = new android.graphics.drawable.ShapeDrawable(
-                new android.graphics.drawable.shapes.RectShape());
-        thumb.getPaint().setColor(palette.color(Palette.Role.ACCENT));
-        thumb.setIntrinsicWidth(dp(9));
-        thumb.setIntrinsicHeight(dp(9));
-        bar.setThumb(thumb);
-        bar.setSplitTrack(false);
-        // 48 dp tall view, 10 dp of drawable between 19 dp of vertical padding:
-        // the track keeps its old 2 px look while the touch target meets the
-        // platform minimum. Without the padding the inset above would have to
-        // be 23 dp and the track would vanish into it.
-        bar.setPadding(dp(5), dp(19), dp(5), dp(19));
     }
 
     /** The old four-step ribbon is gone; the render state is in the canvas foot. */
@@ -3745,9 +3802,12 @@ public class MainActivity extends AppCompatActivity {
     private void setOpticsUnlocked(boolean unlocked) {
         opticsUnlocked = unlocked;
         if (opticsPanel == null) return;
-        opticsPanel.setAlpha(unlocked ? 1f : 0.38f);
         OpticsRow[] rows = {exposureRow, grainRow, halationRow, glareRow};
         for (OpticsRow row : rows) if (row != null) row.setEnabled(unlocked);
+        if (opticsLockNote != null) {
+            opticsLockNote.setText(unlocked ? "" : "LOCKED · " + opticsLockReason());
+            opticsLockNote.setVisibility(unlocked ? View.GONE : View.VISIBLE);
+        }
     }
 
     /** Which of the three things on the stage is showing. */
