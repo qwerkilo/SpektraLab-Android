@@ -603,7 +603,27 @@ public class MainActivity extends Activity {
         panelLp.height = wide ? 0 : dp(PANEL_HEIGHT_DP);
         panelLp.weight = wide ? 1f : 0f;
         panelHolder.setLayoutParams(panelLp);
+
+        // On a wide window the control column is a distinct instrument rail:
+        // the page colour would otherwise run on below the panel and read as
+        // an unfinished half-column. The film curve then takes the rest of the
+        // rail on the default tab instead of leaving its lower half empty.
+        final int rail = palette.color(wide ? Palette.Role.SURFACE : Palette.Role.BACKGROUND);
+        controls.setBackgroundColor(rail);
+        panelHolder.setBackgroundColor(rail);
+        applyFilmCurveHeight(wide);
         updateStageReadoutWidths();
+    }
+
+    /** Let the spectral curve own the film panel's spare height on tablets. */
+    private void applyFilmCurveHeight(boolean wide) {
+        if (filmCurve == null) return;
+        LinearLayout.LayoutParams lp =
+                (LinearLayout.LayoutParams) filmCurve.getLayoutParams();
+        if (lp == null) return;
+        lp.height = wide ? 0 : dp(66);
+        lp.weight = wide ? 1f : 0f;
+        filmCurve.setLayoutParams(lp);
     }
 
     /** Keep the status line inside the stage when the stage is not full width. */
@@ -1580,7 +1600,11 @@ public class MainActivity extends Activity {
         caption.setLetterSpacing(0.10f);
         caption.setSingleLine(true);
         caption.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
-        block.addView(caption);
+        // A bare addView in a vertical LinearLayout takes MATCH_PARENT width,
+        // so the caption used to be measured against the narrower RGB line and
+        // clipped at 390 dp. Wrapping it makes the caption the block's widest
+        // child and gives the readout one stable width while the numbers change.
+        block.addView(caption, new LinearLayout.LayoutParams(-2, -2));
 
         scanReadoutRgb = label("R \u2014  G \u2014  B \u2014", 8f,
                 palette.color(Palette.Role.STAGE_INK), tfBody);
@@ -1595,7 +1619,7 @@ public class MainActivity extends Activity {
         scanReadoutLambda.setSingleLine(true);
         scanReadoutLambda.setLetterSpacing(0.02f);
         scanReadoutLambda.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
-        block.addView(scanReadoutLambda);
+        block.addView(scanReadoutLambda, new LinearLayout.LayoutParams(-2, -2));
 
         android.widget.FrameLayout.LayoutParams readoutLp =
                 new android.widget.FrameLayout.LayoutParams(
