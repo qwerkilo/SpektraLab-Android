@@ -29,6 +29,10 @@ public final class FilmBrandCheck {
         eq("ILFORD", FilmBrand.label("ilford"));
         eq("CINESTILL", FilmBrand.label("cinestill"));
         eq("OTHER", FilmBrand.label("other"));
+        eq("OTHER", FilmBrand.label("bogus"));
+        eqInt(6, FilmBrand.order().size());
+        ok(FilmBrand.order().contains("cinestill"));
+        ok(FilmBrand.order().indexOf(FilmBrand.ALL) == 0);
 
         List<String> ids = Arrays.asList(
                 "kodak_portra_400", "kodak_ektar_100",

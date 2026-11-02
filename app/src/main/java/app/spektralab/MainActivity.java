@@ -345,8 +345,9 @@ public class MainActivity extends Activity {
     private static final int READOUT_HEIGHT_DP = 52;
     private static final int SOURCE_HEIGHT_DP = 54;
     private static final int TABS_HEIGHT_DP = 49;
-    /** 48 dp sliders plus their labels need more than the old 232 dp panel. */
-    private static final int PANEL_HEIGHT_DP = 288;
+    /** 48 dp sliders plus their labels need more than the old 232 dp panel.
+     *  The brand row adds 48 dp; 292 leaves 4 dp for density rounding. */
+    private static final int PANEL_HEIGHT_DP = 292;
     /** Breathing room above the gesture bar; the root also carries the inset. */
     private static final int PANEL_BOTTOM_DP = 8;
     private static final int CONTROLS_OPEN_DP = PANEL_HEIGHT_DP + TABS_HEIGHT_DP;
@@ -2221,7 +2222,7 @@ public class MainActivity extends Activity {
         refreshFilmPanel(false);
     }
 
-    /** A brand change starts a new shelf; a theme rebuild keeps its position. */
+    /** A brand change starts a new shelf; other refreshes keep the chip scroll. */
     private void refreshFilmPanel(boolean resetScroll) {
         if (filmChipRow == null) return;
         final int keepScroll = resetScroll || filmChipScroll == null
@@ -2268,7 +2269,7 @@ public class MainActivity extends Activity {
     private void refreshBrandRow() {
         if (brandRow == null) return;
         brandRow.removeAllViews();
-        for (String id : FilmBrand.ORDER) {
+        for (String id : FilmBrand.order()) {
             final int count = FilmBrand.count(filmIds, id);
             if (count == 0 && !FilmBrand.ALL.equals(id)) continue;
             final boolean active = id.equals(brandFilter);
@@ -2283,7 +2284,7 @@ public class MainActivity extends Activity {
             tab.setFocusable(true);
             tab.setClickable(true);
             tab.setContentDescription(FilmBrand.label(id) + "，" + count + " 支胶片"
-                    + (active ? "，已选中" : "，双击筛选"));
+                    + (active ? "，已选中" : "，筛选"));
             tab.setOnClickListener(v -> {
                 if (id.equals(brandFilter)) return;
                 brandFilter = id;
@@ -3149,7 +3150,7 @@ public class MainActivity extends Activity {
         printStock = "kodak_portra_endura";
         brandFilter = FilmBrand.ALL;
         showingOriginal = false;
-        refreshFilmPanel();
+        refreshFilmPanel(true);
         refreshPaperLabel();
         onStockChanged();
     }
@@ -4832,7 +4833,9 @@ public class MainActivity extends Activity {
     }
 
     private void loadImage(Uri uri) {
-        sourceUri = uri;
+        /** Re-opens a chip; captured before rememberFrame consumes the flag. */
+    final boolean reopening = reopeningFrame;
+    sourceUri = uri;
         // A new import works out its own imprint date; the previous frame's
         // cached text must not travel with the new Source.
         dateText = null;
@@ -5019,7 +5022,7 @@ public class MainActivity extends Activity {
             // chosen; the first render happens when the user picks a stock.
             showingOriginal = true;
             lastRenderedBitmap = null;
-            if (!reopeningFrame) brandFilter = FilmBrand.ALL;
+            if (!reopening) brandFilter = FilmBrand.ALL;
             setOriginalVisual(true);
             refreshFilmPanel();
             if (filmStock != null) {
@@ -5145,6 +5148,7 @@ public class MainActivity extends Activity {
     }
 
     private void loadRawImage(Uri uri) {
+        final boolean reopening = reopeningFrame;
         try {
             String filePath = getFilePathFromUri(uri);
             rawFilePath = filePath;
@@ -5290,7 +5294,7 @@ public class MainActivity extends Activity {
                         if (session == null) return;
                         showingOriginal = true;
                         lastRenderedBitmap = null;
-                        if (!reopeningFrame) brandFilter = FilmBrand.ALL;
+                        if (!reopening) brandFilter = FilmBrand.ALL;
                         setOriginalVisual(true);
                         refreshFilmPanel();
                         if (filmStock != null) {

@@ -1,5 +1,7 @@
 package app.spektralab;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -11,21 +13,29 @@ import java.util.List;
  * ships; labels are presentation only. Ids are stable across releases.
  */
 public final class FilmBrand {
+    /** The filter that shows the whole catalogue. It is not a brand. */
     public static final String ALL = "all";
     public static final String OTHER = "other";
 
-    /** Shelf order: the whole catalogue first, then the four shipped brands. */
-    public static final String[] ORDER = {ALL, "kodak", "fujifilm", "ilford", "cinestill", OTHER};
+    private static final String[] IDS = {ALL, "kodak", "fujifilm", "ilford", "cinestill", OTHER};
+    /** Index 0 has no prefix: it is the filter, not a stock family. */
+    private static final String[] PREFIXES = {"", "kodak", "fujifilm", "ilford", "cinestill", ""};
+    private static final String[] LABELS = {"全部", "KODAK", "FUJIFILM", "ILFORD", "CINESTILL", "OTHER"};
 
     private FilmBrand() { }
 
+    /** Shelf order: the whole catalogue first, then the four shipped brands. */
+    public static List<String> order() {
+        return Collections.unmodifiableList(Arrays.asList(IDS));
+    }
+
     /** The brand a stock id belongs to; unknown or null is {@link #OTHER}. */
     public static String of(String id) {
-        if (id == null) return OTHER;
-        if (id.startsWith("kodak")) return "kodak";
-        if (id.startsWith("fujifilm")) return "fujifilm";
-        if (id.startsWith("ilford")) return "ilford";
-        if (id.startsWith("cinestill")) return "cinestill";
+        if (id != null) {
+            for (int i = 1; i < IDS.length - 1; ++i) {
+                if (id.startsWith(PREFIXES[i])) return IDS[i];
+            }
+        }
         return OTHER;
     }
 
@@ -36,12 +46,10 @@ public final class FilmBrand {
 
     /** The filter's own label; the count is appended by the row. */
     public static String label(String brand) {
-        if ("kodak".equals(brand)) return "KODAK";
-        if ("fujifilm".equals(brand)) return "FUJIFILM";
-        if ("ilford".equals(brand)) return "ILFORD";
-        if ("cinestill".equals(brand)) return "CINESTILL";
-        if (OTHER.equals(brand)) return "OTHER";
-        return "全部";
+        for (int i = 0; i < IDS.length; ++i) {
+            if (IDS[i].equals(brand)) return LABELS[i];
+        }
+        return LABELS[LABELS.length - 1];
     }
 
     /** How many stocks this filter would show. */
