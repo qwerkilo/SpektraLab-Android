@@ -90,7 +90,8 @@ if (-not $KsPass -or -not $KeyPass -or -not $Alias) {
 }
 
 if (-not $BaseApk) {
-    $candidate = Get-ChildItem $buildDir -Filter 'SpektraLab-*-console.apk' -File -ErrorAction SilentlyContinue |
+    $candidate = Get-ChildItem $buildDir -Filter 'SpektraLab-*.apk' -File -ErrorAction SilentlyContinue |
+        Where-Object { -not $Output -or $_.FullName -ne $Output } |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($candidate) { $BaseApk = $candidate.FullName }
 }
@@ -109,6 +110,9 @@ $aligned = Join-Path $tmp 'aligned.apk'
 New-Item -ItemType Directory -Path $classes, $dex, (Join-Path $resStage 'values'), (Join-Path $resStage 'xml'), (Join-Path $resStage 'mipmap-xxxhdpi') -Force | Out-Null
 
 try {
+    & $Python (Join-Path $buildDir 'check-manifest.py')
+    if ($LASTEXITCODE -ne 0) { throw "manifest policy check failed with $LASTEXITCODE" }
+
     $sources = Get-ChildItem $sourcesDir -Recurse -Filter *.java | Select-Object -ExpandProperty FullName
     & $javac -source 17 -target 17 -encoding UTF-8 -Xlint:-options -nowarn `
         -classpath $androidJar -d $classes @sources
