@@ -3,11 +3,10 @@ package app.spektralab;
 /**
  * The spectral samples a shipped stock carries, if any.
  *
- * <p>The catalogue is allowed to omit the arrays (the current generator does),
- * and a stock may carry real gaps. This module only counts and ranges the
- * samples that exist; it never fills a gap, interpolates a curve, or turns a
- * bin index into a measured wavelength. The Readout strip is its only consumer
- * in the Console shell.
+ * <p>The catalogue is allowed to omit the arrays, and a stock may carry real
+ * gaps. This module only counts and ranges the samples that exist; it never
+ * fills a gap, interpolates a curve, or turns a bin index into a measured
+ * wavelength. The Readout strip is its only consumer in the Console shell.
  *
  * <p>It is deliberately Android-free so the JVM check can compile it without
  * the SDK.
@@ -43,23 +42,15 @@ public final class SpectrumSamples {
      * Read the shipped series. {@code series} is one row per wavelength, with
      * one entry per channel; nulls, NaNs, and infinities are gaps. A lack of at
      * least two paired samples is unavailability, not a one-point curve.
+     *
+     * <p>The pairing rule lives in {@link SpectrumCurve}; this cell and the
+     * film panel must agree on what counts as a sample.
      */
     public static SpectrumSamples of(double[] wavelengths, double[][] series) {
-        if (wavelengths == null || series == null) return NONE;
-        final int paired = Math.min(wavelengths.length, series.length);
-        int count = 0;
-        double min = Double.POSITIVE_INFINITY;
-        double max = Double.NEGATIVE_INFINITY;
-        for (int i = 0; i < paired; ++i) {
-            final double nm = wavelengths[i];
-            if (!finite(nm)) continue;
-            if (!hasSample(series[i])) continue;
-            count++;
-            if (nm < min) min = nm;
-            if (nm > max) max = nm;
-        }
-        if (count < 2) return NONE;
-        return new SpectrumSamples(count, (int) Math.round(min), (int) Math.round(max));
+        final SpectrumCurve curve = SpectrumCurve.of(wavelengths, series);
+        if (!curve.available()) return NONE;
+        return new SpectrumSamples(curve.sampleCount(),
+                (int) Math.round(curve.minNm()), (int) Math.round(curve.maxNm()));
     }
 
     public boolean available() {
@@ -92,17 +83,5 @@ public final class SpectrumSamples {
     public String detailText() {
         if (!available()) return UNAVAILABLE_LABEL;
         return minNm + "\u2013" + maxNm + " nm";
-    }
-
-    private static boolean hasSample(double[] row) {
-        if (row == null) return false;
-        for (double value : row) {
-            if (finite(value)) return true;
-        }
-        return false;
-    }
-
-    private static boolean finite(double value) {
-        return !Double.isNaN(value) && !Double.isInfinite(value);
     }
 }
