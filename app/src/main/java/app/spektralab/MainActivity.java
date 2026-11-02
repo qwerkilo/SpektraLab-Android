@@ -1,6 +1,7 @@
 package app.spektralab;
 
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
@@ -21,6 +22,8 @@ import app.spektralab.engine.SpektraLabEngine;
 import com.google.android.material.appbar.AppBarLayout;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.chip.Chip;
 import com.google.android.material.color.DynamicColors;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.tabs.TabLayout;
@@ -164,8 +167,9 @@ public class MainActivity extends AppCompatActivity {
     private float scanFraction = ScanSample.DEFAULT_FRACTION;
     private boolean scanVisible = false;
     private ScanOverlayView scanOverlay;
-    private TextView scanToggleChip, scanReadoutRgb, scanReadoutLambda;
-    private View scanToggleTouch, scanReadout;
+    private Chip scanToggleChip;
+    private TextView scanReadoutRgb, scanReadoutLambda;
+    private MaterialCardView scanReadout;
 
     private Typeface tfDisplay;      // Inter 300 — numbers and the wordmark
     private Typeface tfBody;         // Inter 400 — Latin labels
@@ -1154,10 +1158,10 @@ public class MainActivity extends AppCompatActivity {
         addScanControls(stage);
         // TalkBack reaches the scan line after the chip that turns it on,
         // even though the overlay was added before the corner controls.
-        if (scanToggleTouch != null) {
-            scanToggleTouch.setId(View.generateViewId());
+        if (scanToggleChip != null) {
+            scanToggleChip.setId(View.generateViewId());
             scanOverlay.setId(View.generateViewId());
-            scanOverlay.setAccessibilityTraversalAfter(scanToggleTouch.getId());
+            scanOverlay.setAccessibilityTraversalAfter(scanToggleChip.getId());
         }
 
         shelfHandle = buildShelfHandle();
@@ -1364,16 +1368,6 @@ public class MainActivity extends AppCompatActivity {
                 applyTypeface(group.getChildAt(i), face);
             }
         }
-    }
-
-    /** A 48 dp touch target around a smaller visual control. */
-    private android.widget.FrameLayout touchTarget(View content, int minWidthDp) {
-        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
-        box.setMinimumWidth(dp(minWidthDp));
-        box.setFocusable(true);
-        box.addView(content, new android.widget.FrameLayout.LayoutParams(
-                -2, -2, android.view.Gravity.CENTER));
-        return box;
     }
 
     /**
@@ -1623,64 +1617,107 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Scan inspect's two controls: a small toggle under the file readout, and
-     * a readout above the shelf handle. The readout is deliberately away from
-     * the print-exposure corner, the status line, and the folded shelf so the
-     * three never share a corner.
+     * Scan inspect's two controls: a checkable M3 chip under the file readout,
+     * and an M3 filled-card readout above the shelf handle. The readout is
+     * deliberately away from the print-exposure corner, the status line, and
+     * the folded shelf so the three never share a corner.
      */
     private void addScanControls(android.widget.FrameLayout stage) {
-        scanToggleChip = mixedLabel("SCAN · 扫描", 7.5f,
-                palette.color(Palette.Role.STAGE_INK));
-        scanToggleChip.setGravity(android.view.Gravity.CENTER);
-        scanToggleChip.setLetterSpacing(0.06f);
-        scanToggleChip.setSingleLine(true);
-        scanToggleChip.setPadding(dp(12), 0, dp(12), 0);
-        scanToggleTouch = touchTarget(scanToggleChip, 92);
-        scanToggleTouch.setOnClickListener(v -> toggleScan());
+        final int chipSurface = scanColor(
+                com.google.android.material.R.attr.colorSurfaceContainerLow,
+                Palette.Role.SURFACE_ELEVATED);
+        final int chipSelected = scanColor(
+                com.google.android.material.R.attr.colorSecondaryContainer,
+                Palette.Role.ACCENT_SOFT);
+        final int chipText = scanColor(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+        final int chipTextSelected = scanColor(
+                com.google.android.material.R.attr.colorOnSecondaryContainer,
+                Palette.Role.ACCENT);
+        final int chipOutline = scanColor(
+                com.google.android.material.R.attr.colorOutlineVariant,
+                Palette.Role.LINE);
+        final Chip chip = new Chip(this, null,
+                com.google.android.material.R.attr.chipStyle);
+        chip.setCheckable(true);
+        chip.setCheckedIconVisible(false);
+        chip.setChipIconVisible(false);
+        chip.setEnsureMinTouchTargetSize(true);
+        chip.setText(mixedText("SCAN · 扫描"));
+        chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
+                M3Tokens.TypeRole.LABEL_LARGE.sizeSp);
+        chip.setGravity(android.view.Gravity.CENTER);
+        chip.setSingleLine(true);
+        chip.setChipBackgroundColor(scanCheckedColors(chipSelected, chipSurface));
+        chip.setChipStrokeWidth(Math.max(1, dp(1)));
+        chip.setChipStrokeColor(scanCheckedColors(chipSelected, chipOutline));
+        chip.setTextColor(scanCheckedColors(chipTextSelected, chipText));
+        chip.setContentDescription("扫描检视，点击开启");
+        chip.setOnClickListener(v -> toggleScan());
+        scanToggleChip = chip;
         android.widget.FrameLayout.LayoutParams toggleLp =
                 new android.widget.FrameLayout.LayoutParams(
-                        -2, dp(48), android.view.Gravity.TOP | android.view.Gravity.START);
+                        -2, -2, android.view.Gravity.TOP | android.view.Gravity.START);
         toggleLp.leftMargin = dp(14);
         toggleLp.topMargin = dp(34);
-        stage.addView(scanToggleTouch, toggleLp);
+        stage.addView(chip, toggleLp);
+
+        // A filled M3 card is the readout surface; the numbers inside stay
+        // measured text, and the card remains a non-interactive announcement.
+        final int cardSurface = scanColor(
+                com.google.android.material.R.attr.colorSurfaceContainer,
+                Palette.Role.SURFACE_ELEVATED);
+        final int cardText = scanColor(
+                com.google.android.material.R.attr.colorOnSurface,
+                Palette.Role.INK);
+        final int cardMuted = scanColor(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+        final MaterialCardView card = new MaterialCardView(this, null,
+                com.google.android.material.R.attr.materialCardViewFilledStyle);
+        card.setCardBackgroundColor(cardSurface);
+        card.setRadius(dp(M3Tokens.ShapeRole.SMALL.radiusDp));
+        card.setCardElevation(0f);
+        card.setUseCompatPadding(false);
+        card.setClickable(false);
+        card.setFocusable(false);
+        card.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        card.setVisibility(View.GONE);
+        scanReadout = card;
 
         final LinearLayout block = new LinearLayout(this);
         block.setOrientation(LinearLayout.VERTICAL);
-        block.setPadding(dp(9), dp(5), dp(10), dp(6));
-        final android.graphics.drawable.GradientDrawable bg =
-                new android.graphics.drawable.GradientDrawable();
-        bg.setColor(palette.color(Palette.Role.STAGE_SCRIM_TOP));
-        bg.setCornerRadius(dp(2));
-        block.setBackground(bg);
-        block.setClickable(false);
-        block.setVisibility(View.GONE);
-        scanReadout = block;
+        block.setPadding(dp(12), dp(7), dp(12), dp(8));
+        card.addView(block, new android.widget.FrameLayout.LayoutParams(-2, -2));
 
-        final TextView caption = label("SCAN INSPECT · CENTRE ROW", 5f,
-                palette.color(Palette.Role.STAGE_INK), tfBody);
-        caption.setAlpha(0.72f);
-        caption.setLetterSpacing(0.10f);
-        caption.setSingleLine(true);
-        caption.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
         // A bare addView in a vertical LinearLayout takes MATCH_PARENT width,
         // so the caption used to be measured against the narrower RGB line and
         // clipped at 390 dp. Wrapping it makes the caption the block's widest
         // child and gives the readout one stable width while the numbers change.
+        final TextView caption = label("SCAN INSPECT · CENTRE ROW",
+                M3Tokens.TypeRole.LABEL_SMALL.sizeSp,
+                cardMuted, tfBody);
+        caption.setLetterSpacing(0.10f);
+        caption.setSingleLine(true);
+        caption.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         block.addView(caption, new LinearLayout.LayoutParams(-2, -2));
 
-        scanReadoutRgb = label("R \u2014  G \u2014  B \u2014", 8f,
-                palette.color(Palette.Role.STAGE_INK), tfBody);
+        scanReadoutRgb = label("R \u2014  G \u2014  B \u2014",
+                M3Tokens.TypeRole.BODY_SMALL.sizeSp,
+                cardText, tfBody);
         scanReadoutRgb.setSingleLine(true);
-        scanReadoutRgb.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
+        scanReadoutRgb.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         final LinearLayout.LayoutParams rgbLp = new LinearLayout.LayoutParams(-2, -2);
-        rgbLp.topMargin = dp(2);
+        rgbLp.topMargin = dp(3);
         block.addView(scanReadoutRgb, rgbLp);
 
-        scanReadoutLambda = label("\u03bb \u2014", 8f,
-                palette.color(Palette.Role.STAGE_INK), tfDisplay);
+        scanReadoutLambda = label("\u03bb \u2014",
+                M3Tokens.TypeRole.BODY_SMALL.sizeSp,
+                cardText, tfDisplay);
         scanReadoutLambda.setSingleLine(true);
         scanReadoutLambda.setLetterSpacing(0.02f);
-        scanReadoutLambda.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
+        scanReadoutLambda.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         block.addView(scanReadoutLambda, new LinearLayout.LayoutParams(-2, -2));
 
         android.widget.FrameLayout.LayoutParams readoutLp =
@@ -1689,7 +1726,7 @@ public class MainActivity extends AppCompatActivity {
         readoutLp.leftMargin = dp(14);
         // Clear of the 62 dp shelf handle and its 12 dp margin.
         readoutLp.bottomMargin = dp(84);
-        stage.addView(block, readoutLp);
+        stage.addView(card, readoutLp);
         updateScanToggleVisual(false);
     }
 
@@ -1736,46 +1773,40 @@ public class MainActivity extends AppCompatActivity {
         if (filmCurve != null) filmCurve.setScanMark(show, scanFraction);
     }
 
-    /** The toggle's chip: enabled only when there is a preview to read. */
-    private void updateScanToggleVisual(boolean enabled) {
-        if (scanToggleChip == null) return;
-        final android.graphics.drawable.GradientDrawable bg =
-                new android.graphics.drawable.GradientDrawable();
-        bg.setColor(palette.color(Palette.Role.STAGE_SCRIM_TOP));
-        bg.setCornerRadius(dp(99));
-        final int stroke = palette.color(scanVisible
-                ? Palette.Role.ACCENT : Palette.Role.STAGE_INK);
-        bg.setStroke(Math.max(1, dp(1)), scanVisible
-                ? stroke : withAlpha(stroke, 0x66));
-        scanToggleChip.setBackground(bg);
-        scanToggleChip.setTextColor(palette.color(Palette.Role.STAGE_INK));
-        if (scanToggleTouch != null) {
-            scanToggleTouch.setEnabled(enabled);
-            scanToggleTouch.setAlpha(enabled ? 1f : 0.38f);
-            final String state = scanVisible
-                    ? (enabled ? "扫描检视已开启，点击关闭"
-                            : "扫描检视已开启，等待预览")
-                    : (enabled ? "扫描检视，点击开启"
-                            : "扫描检视，需先导入照片");
-            scanToggleTouch.setContentDescription(state);
-        }
+    /** An M3 control role, with the Palette only as the pre-theme fallback. */
+    private int scanColor(int attr, Palette.Role fallback) {
+        return MaterialColors.getColor(this, attr, palette.color(fallback));
     }
 
-    private static int withAlpha(int color, int alpha) {
-        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
+    /** A two-state colour for a real checkable control (checked, then default). */
+    private static ColorStateList scanCheckedColors(int checked, int unchecked) {
+        return new ColorStateList(
+                new int[][]{{android.R.attr.state_checked}, {}},
+                new int[]{checked, unchecked});
+    }
+
+    /** The toggle's chip state: enabled only when there is a preview to read. */
+    private void updateScanToggleVisual(boolean enabled) {
+        if (scanToggleChip == null) return;
+        scanToggleChip.setChecked(scanVisible);
+        scanToggleChip.setEnabled(enabled);
+        scanToggleChip.setAlpha(enabled ? 1f : 0.38f);
+        final String state = scanVisible
+                ? (enabled ? "扫描检视已开启，点击关闭"
+                        : "扫描检视已开启，等待预览")
+                : (enabled ? "扫描检视，点击开启"
+                        : "扫描检视，需先导入照片");
+        scanToggleChip.setContentDescription(state);
     }
 
     /** The overlay reports every move; the readout and the curve follow it. */
     private void onScanSample(ScanSample sample, float fraction) {
         scanFraction = fraction;
         if (scanReadoutRgb != null) {
-            scanReadoutRgb.setText(sample.available()
-                    ? sample.rgbText() : "R \u2014  G \u2014  B \u2014");
+            scanReadoutRgb.setText(sample.rgbReadoutText());
         }
         if (scanReadoutLambda != null) {
-            scanReadoutLambda.setText(sample.hasWavelength()
-                    ? "\u03bb " + sample.wavelengthText() + " nm"
-                    : "\u03bb \u2014");
+            scanReadoutLambda.setText(sample.lambdaText());
         }
         if (scanReadout != null) {
             scanReadout.setContentDescription(sample.description()
