@@ -64,7 +64,7 @@ This checkout has a `.codegraph/` index. Prefer `codegraph explore "<symbols or 
 
 ## Verify
 
-No Gradle test suite. Pure JVM checks live in `app/src/test/java/app/spektralab/*Check.java` (Palette, ThemeMode, SpectrumSamples, SpectrumCurve, OpticsDelta, GateScale, ScanSample, ConsoleLayout, FilmBrand). Compile them with `javac` and run `java app.spektralab.<Name>Check`; they do not need a device. Then `adb install -r`, and watch logcat tags `SpektraLabJNI` and `SpektraLabRAW`. On the device, `DebugSink` POSTs diagnostics to `127.0.0.1:8770` (Termux-side sink). Driver telemetry goes to `report.workshop.skin`.
+No Gradle test suite. Pure JVM checks live in `app/src/test/java/app/spektralab/*Check.java` (Palette, ThemeMode, SpectrumSamples, SpectrumCurve, OpticsDelta, GateScale, ScanSample, ConsoleLayout, FilmBrand, SafeFileName). Compile them with `javac` and run `java app.spektralab.<Name>Check`; they do not need a device. Then `adb install -r`, and watch logcat tags `SpektraLabJNI` and `SpektraLabRAW`. On the device, `DebugSink` POSTs diagnostics to `127.0.0.1:8770` (Termux-side sink). Driver telemetry goes to `report.workshop.skin`.
 
 When the Termux engine toolchain is unavailable, a device build can replace `classes.dex` inside the shipped APK and re-sign it; the native libraries and assets stay from that APK. Do not hand-copy `libspektrafilm_engine.so`.
 
