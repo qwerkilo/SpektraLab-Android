@@ -179,72 +179,69 @@ public class MainActivity extends Activity {
     private boolean dateOn = false;
     private String dateText = null;
     private Square overscanMark, dateMark;
+    /** The date back's own line: the text shown while the imprint is on. */
+    private TextView dateDetail;
 
-    /** 片边: the ten carriers the engine's overscan knows. */
-    private static final String[] EDGE_LABELS = {
-            "135 全画幅", "135 半格", "135 XPan", "645",
-            "6×6", "6×7", "6×8", "6×9", "6×12", "6×17"};
-    private static final String[] EDGE_IDS = {
-            "135", "135_half", "135_xpan", "120_645",
-            "120_6x6", "120_6x7", "120_6x8", "120_6x9", "120_6x12", "120_6x17"};
-    /** Each gate's long/short, from overscan.cpp's measured kFormats. The
-     *  engine refuses a rebate cut for a different shape (5 %), so the list the
-     *  user sees is filtered to the gates this frame actually is. */
-    private static final double[] EDGE_RATIOS = {
-            36.25 / 24.3, 24.0 / 18.0, 65.0 / 24.0, 56.0 / 41.5,
-            1.0, 69.5 / 56.0, 76.0 / 56.0, 84.0 / 56.0, 112.0 / 56.0, 168.0 / 56.0};
-    /** The frame each gate actually takes, in mm -- the same numbers the engine's
-     *  kFormats carries as `along`.
-     *
-     *  <p>These have to travel with the gate. The rebate's canvas is the film's
-     *  width (from the gate: 35 mm for 135, 61.5 mm for 120) plus the frame's
-     *  own length (from the 尺度 page). Two independent controls means they can
-     *  disagree, and "6x8 film around a 36 mm frame" is a camera that does not
-     *  exist: the layout then stretches a 135-shaped rebate across a 120-wide
-     *  film, and the edge print lands where the picture's corner should be. That
-     *  is the "预览正常、导出乱飞" report: the preview had been drawn with the
-     *  old gate, the export with the new one. Choosing a gate now chooses the
-     *  frame that fits it. */
-    private static final float[] EDGE_MM = {
-            36f, 24f, 65f, 56f, 56f, 69.5f, 76f, 84f, 112f, 168f};
+    /** 片边: the Gates this Frame's shape can actually carry, in catalogue order. */
+    private final List<String> edgeLabels = new ArrayList<>(), edgeIds = new ArrayList<>();
 
-    /** The gate's frame length, by id (not by position -- `edgeIds` is a
-     *  filtered subset of EDGE_IDS). */
-    private static float gateMm(String id) {
-        for (int i = 0; i < EDGE_IDS.length; ++i) if (EDGE_IDS[i].equals(id)) return EDGE_MM[i];
-        return 36f;
+    private static String gateLabel(String id) {
+        final GateScale.Gate gate = GateScale.byId(id);
+        return gate == null ? String.valueOf(id) : gate.label;
     }
 
-    /** The gate whose frame is closest to `mm`, for the scale page's cards. */
-    private static String gateForMm(float mm) {
-        String best = EDGE_IDS[0];
-        float bestD = Float.MAX_VALUE;
-        for (int i = 0; i < EDGE_IDS.length; ++i) {
-            final float d = Math.abs(EDGE_MM[i] - mm);
-            if (d < bestD) { bestD = d; best = EDGE_IDS[i]; }
-        }
-        return best;
+    /** "69.5 mm" keeps a measured edge exact; a whole millimetre stays whole. */
+    private static String mmText(float mm) {
+        return Math.abs(mm - Math.round(mm)) < 0.01f
+                ? String.format(java.util.Locale.US, "%.0f", mm)
+                : String.format(java.util.Locale.US, "%.1f", mm);
     }
 
-    private static String gateLabelsFallback(String id) {
-        for (int i = 0; i < EDGE_IDS.length; ++i) if (EDGE_IDS[i].equals(id)) return EDGE_LABELS[i];
-        return id;
-    }
-
-    /** Move the 尺度 page onto `mm`, highlight and all. */
-    private void setScaleMm(float mm) {
-        filmFormatMm = mm;
-        int best = 0;
-        for (int i = 0; i < FORMAT_MM.length; ++i) {
-            if (Math.abs(FORMAT_MM[i] - mm) < Math.abs(FORMAT_MM[best] - mm)) best = i;
-        }
-        formatIndex = best;
+    /**
+     * Move the Scale page and the Edge Gate onto one shipped Gate. The two
+     * controls are one piece of film geometry: there is no state in which the
+     * Scale says 36 mm while the Gate says 6x17.
+     */
+    private void selectGate(String id) {
+        final GateScale.Gate gate = GateScale.byId(id);
+        if (gate == null) return;
+        overscanFormat = gate.id;
+        filmFormatMm = gate.longEdgeMm;
+        updateEdgeValue();
         if (formatFootValue != null) {
-            formatFootValue.setText(String.format(java.util.Locale.US, "%.0f mm", FORMAT_MM[best]));
+            formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
         }
         rebuildFormatCards();
     }
-    private final List<String> edgeLabels = new ArrayList<>(), edgeIds = new ArrayList<>();
+
+    /** The Gate the Scale/Edge readout is showing, or the honest empty state. */
+    private void updateEdgeValue() {
+        if (edgeValue == null) return;
+        final int selected = edgeIds.indexOf(overscanFormat);
+        if (selected >= 0) {
+            edgeValue.setText(edgeLabels.get(selected));
+        } else {
+            edgeValue.setText(edgeIds.isEmpty() ? "无可用片门" : gateLabel(overscanFormat));
+        }
+    }
+
+    /** The Gate a reset lands on: 135 when this Frame fits it, else its closest fit. */
+    private String defaultGateId() {
+        if (edgeIds.isEmpty() || edgeIds.contains("135")) return "135";
+        final double aspect = (sourceWidth > 0 && sourceHeight > 0)
+                ? (double) Math.max(sourceWidth, sourceHeight) / Math.min(sourceWidth, sourceHeight)
+                : 0.0;
+        String bestId = edgeIds.get(0);
+        double bestError = Double.MAX_VALUE;
+        for (String id : edgeIds) {
+            final GateScale.Gate gate = GateScale.byId(id);
+            if (gate == null) continue;
+            final double error = Math.abs(aspect / gate.aspect - 1.0);
+            if (error < bestError) { bestError = error; bestId = id; }
+        }
+        return bestId;
+    }
+
     private LinearLayout controls, panelHolder, filmCardStrip, brandRow, formatCardStrip;
     private HorizontalScrollView filmScroll, formatScroll;
     /**
@@ -297,7 +294,6 @@ public class MainActivity extends Activity {
     /** The shelf opens on 原图, never on a stock the user did not pick. */
     private boolean showingOriginal = true;
     private String brandFilter = "all";
-    private int formatIndex = 0;
     private final List<View> filmCards = new ArrayList<>();
     /** Real previews, per stock, from that stock's own render. A card never
      *  pretends to be a look the engine has not produced for this frame. */
@@ -350,8 +346,6 @@ public class MainActivity extends Activity {
     private static final String[] BRAND_NAMES = {"全部", "KODAK", "FUJIFILM", "ILFORD", "CINESTILL"};
     private static final String[] TAB_NAMES = {"胶片", "光学", "尺度", "边框"};
     private static final String[] TAB_ENGLISH = {"FILM", "OPTICS", "SCALE", "EDGE"};
-    private static final String[] FORMAT_NAMES = {"135 全画幅", "135 半格", "135 XPan", "645", "6×6", "6×7", "6×9", "6×12", "6×17"};
-    private static final float[] FORMAT_MM = {36f, 24f, 65f, 56f, 56f, 70f, 84f, 120f, 170f};
     private final View[] tabCells = new View[4];
     private final View[] tabBars = new View[4];
     private final TextView[] tabLabels = new TextView[4];
@@ -530,7 +524,7 @@ public class MainActivity extends Activity {
         }
         if (sharePill != null) sharePill.setVisibility(s.shareVisible ? View.VISIBLE : View.GONE);
         if (formatFootValue != null) {
-            formatFootValue.setText(String.format(java.util.Locale.US, "%.0f mm", filmFormatMm));
+            formatFootValue.setText(mmText(filmFormatMm) + " mm");
         }
         setTab(s.activeTab);
         setPanelCollapsed(s.panelCollapsed);
@@ -1363,17 +1357,25 @@ public class MainActivity extends Activity {
         overscanOn = look.overscanOn;
         overscanFormat = look.overscanFormat;
         dateOn = look.dateOn;
+        // One piece of film geometry: a stored Gate and Scale that disagree are
+        // pulled onto the Gate's measured edge before either control can draw.
+        final GateScale.Gate gate = GateScale.resolve(overscanFormat, filmFormatMm);
+        overscanFormat = gate.id;
+        filmFormatMm = gate.longEdgeMm;
         setBarProgress(exposureBar, 0.25f, 4.0f, printExposure);
         setBarProgress(grainBar, 0.0f, 2.0f, grainAmount);
         setBarProgress(halationBar, 0.0f, 4.0f, halationAmount);
         setBarProgress(glareBar, 0.0f, 12f, glareAmount);
         if (overscanMark != null) overscanMark.setLit(overscanOn);
         if (dateMark != null) dateMark.setLit(dateOn);
-        for (int i = 0; i < FORMAT_MM.length; ++i) {
-            if (Math.abs(FORMAT_MM[i] - filmFormatMm) < 0.5f) { formatIndex = i; break; }
+        if (edgeValue != null) edgeValue.setText(gate.label);
+        if (dateDetail != null) {
+            dateDetail.setText(dateOn
+                    ? (dateText != null ? dateText : imprintDate())
+                    : "关闭");
         }
         if (formatFootValue != null) {
-            formatFootValue.setText(String.format(java.util.Locale.US, "%.0f mm", filmFormatMm));
+            formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
         }
         refreshPaperLabel();
     }
@@ -1391,9 +1393,9 @@ public class MainActivity extends Activity {
         look.grainAmount = 1.0f;
         look.halationAmount = 1.0f;
         look.glareAmount = 3.0f;
-        look.filmFormatMm = FORMAT_MM[0];
+        look.filmFormatMm = GateScale.defaultGate().longEdgeMm;
         look.overscanOn = false;
-        look.overscanFormat = "135";
+        look.overscanFormat = GateScale.defaultGate().id;
         look.dateOn = false;
         return look;
     }
@@ -1898,9 +1900,10 @@ public class MainActivity extends Activity {
         LinearLayout foot = new LinearLayout(this);
         foot.setOrientation(LinearLayout.HORIZONTAL);
         foot.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        foot.addView(label("颗粒 / 光晕尺度 · 不裁切构图", 8.5f, palette.color(Palette.Role.MUTED_INK), tfHan),
+        foot.addView(label("片门与尺度联动 · 不裁切构图", 8.5f, palette.color(Palette.Role.MUTED_INK), tfHan),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        formatFootValue = label("36 mm", 9, palette.color(Palette.Role.ACCENT), tfBody);
+        formatFootValue = label(mmText(GateScale.resolve(overscanFormat, filmFormatMm).longEdgeMm) + " mm",
+                9, palette.color(Palette.Role.ACCENT), tfBody);
         foot.addView(formatFootValue);
         panel.addView(foot, new LinearLayout.LayoutParams(-1, dp(28)));
         panel.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
@@ -1913,13 +1916,25 @@ public class MainActivity extends Activity {
         if (formatCardStrip == null) return;
         formatCardStrip.removeAllViews();
         formatCards.clear();
-        for (int i = 0; i < FORMAT_NAMES.length; ++i) {
-            final int index = i;
-            boolean active = i == formatIndex;
+        if (edgeIds.isEmpty()) {
+            TextView none = label("这张长宽比没有可用片门", 8.5f,
+                    palette.color(Palette.Role.MUTED_INK), tfHan);
+            LinearLayout.LayoutParams noneLp = new LinearLayout.LayoutParams(-2, dp(105));
+            noneLp.leftMargin = dp(2);
+            formatCardStrip.addView(none, noneLp);
+            return;
+        }
+        for (int i = 0; i < edgeIds.size(); ++i) {
+            final String gateId = edgeIds.get(i);
+            final GateScale.Gate gate = GateScale.byId(gateId);
+            if (gate == null) continue;
+            final boolean active = gate.id.equals(overscanFormat);
 
             android.widget.FrameLayout card = new android.widget.FrameLayout(this);
             card.setBackground(cardBorder(active));
             card.setPadding(dp(1), dp(1), dp(1), dp(1));
+            card.setContentDescription(gate.label + "，" + mmText(gate.longEdgeMm) + " 毫米"
+                    + (active ? "，已选" : ""));
 
             LinearLayout top = new LinearLayout(this);
             top.setOrientation(LinearLayout.VERTICAL);
@@ -1928,8 +1943,8 @@ public class MainActivity extends Activity {
             LinearLayout valueRow = new LinearLayout(this);
             valueRow.setOrientation(LinearLayout.HORIZONTAL);
             valueRow.setGravity(android.view.Gravity.BOTTOM);
-            TextView value = label(String.format(java.util.Locale.US, "%.0f", FORMAT_MM[i]),
-                    23, palette.color(active ? Palette.Role.ACCENT : Palette.Role.MUTED_INK), tfDisplay);
+            TextView value = label(mmText(gate.longEdgeMm),
+                    22, palette.color(active ? Palette.Role.ACCENT : Palette.Role.MUTED_INK), tfDisplay);
             value.setLetterSpacing(-0.05f);
             valueRow.addView(value);
             TextView unit = label("mm", 8,
@@ -1940,14 +1955,14 @@ public class MainActivity extends Activity {
             valueRow.addView(unit, unitLp);
             top.addView(valueRow);
 
-            TextView kind = label(i == 2 || i >= 7 ? "宽幅" : "常规", 7,
+            TextView kind = label(gate.panoramic() ? "宽幅" : "常规", 7,
                     palette.color(Palette.Role.MUTED_INK), tfHan);
             LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-2, -2);
             kindLp.topMargin = dp(4);
             top.addView(kind, kindLp);
             card.addView(top, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
-            TextView name = label(FORMAT_NAMES[i], 8.5f, palette.color(active
+            TextView name = label(gate.label, 8.5f, palette.color(active
                     ? Palette.Role.ACCENT : Palette.Role.INK), tfHan);
             name.setSingleLine(true);
             name.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -1968,7 +1983,8 @@ public class MainActivity extends Activity {
             }
 
             card.setClickable(true);
-            card.setOnClickListener(v -> pickFormat(index));
+            card.setFocusable(true);
+            card.setOnClickListener(v -> pickScale(gate.id));
             LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(dp(80), dp(105));
             cardLp.rightMargin = dp(9);
             formatCardStrip.addView(card, cardLp);
@@ -1976,32 +1992,27 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void pickFormat(int index) {
-        if (index < 0 || index >= FORMAT_MM.length) return;
-        formatIndex = index;
-        filmFormatMm = FORMAT_MM[index];
-        // ... and the other way: a frame length picks the gate it fits.
-        final String gate = gateForMm(filmFormatMm);
-        if (!gate.equals(overscanFormat) && (edgeIds.isEmpty() || edgeIds.contains(gate))) {
-            overscanFormat = gate;
-            if (edgeValue != null) {
-                final int gi = edgeIds.indexOf(gate);
-                edgeValue.setText(gi >= 0 ? edgeLabels.get(gi) : gateLabelsFallback(gate));
-            }
+    /** A Scale card and its Gate are one choice, so one tap moves both. */
+    private void pickScale(String gateId) {
+        final GateScale.Gate gate = GateScale.byId(gateId);
+        if (gate == null) return;
+        if (gate.id.equals(overscanFormat)
+                && Math.abs(gate.longEdgeMm - filmFormatMm) < 0.01f) {
+            return;
         }
+        overscanFormat = gate.id;
+        filmFormatMm = gate.longEdgeMm;
+        updateEdgeValue();
         if (formatFootValue != null) {
-            formatFootValue.setText(String.format(java.util.Locale.US, "%.0f mm", FORMAT_MM[index]));
+            formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
         }
         rebuildFormatCards();
-        if (index < formatCards.size() && formatScroll != null) {
+        final int index = edgeIds.indexOf(gate.id);
+        if (index >= 0 && index < formatCards.size() && formatScroll != null) {
             final View target = formatCards.get(index);
             formatScroll.post(() -> formatScroll.smoothScrollTo(Math.max(0, target.getLeft() - dp(8)), 0));
         }
-        if (session != null && uiReady) {
-            applyParams();
-            showingOriginal = false;
-            renderImage();
-        }
+        onEdgeChanged();
     }
 
     private LinearLayout buildEdgePanel() {
@@ -2031,7 +2042,8 @@ public class MainActivity extends Activity {
         edgeButton.setOrientation(LinearLayout.HORIZONTAL);
         edgeButton.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
         edgeButton.setOnClickListener(v -> showEdgePicker());
-        edgeValue = label("135 全画幅", 10, palette.color(Palette.Role.INK), tfHan);
+        edgeValue = label(GateScale.resolve(overscanFormat, filmFormatMm).label,
+                10, palette.color(Palette.Role.INK), tfHan);
         edgeValue.setGravity(android.view.Gravity.END);
         edgeButton.addView(edgeValue, new LinearLayout.LayoutParams(0, -2, 1f));
         TextView edgeArrow = label("↓", 10, palette.color(Palette.Role.ACCENT), tfBody);
@@ -2043,14 +2055,19 @@ public class MainActivity extends Activity {
 
         dateMark = new Square(this, palette.color(Palette.Role.ACCENT),
                 palette.color(Palette.Role.MARK_OFF));
-        View dateRow = toggleRow("日期水印", dateMark, dateOn, on -> {
+        dateDetail = label(dateOn
+                        ? (dateText != null ? dateText : imprintDate())
+                        : "关闭",
+                7, palette.color(Palette.Role.MUTED_INK), tfBody);
+        View dateRow = toggleRow("日期水印", dateDetail, dateMark, dateOn, on -> {
             dateOn = on;
             if (dateOn && dateText == null) dateText = imprintDate();
+            dateDetail.setText(dateOn ? imprintDate() : "关闭");
             onEdgeChanged();
         });
         panel.addView(dateRow, new LinearLayout.LayoutParams(-1, dp(52)));
 
-        TextView note = label("片边按照片长宽比匹配可用片门", 8,
+        TextView note = label("片门与尺度联动；片边只在这张图可用的片门里选", 8,
                 palette.color(Palette.Role.MUTED_INK), tfHan);
         LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
         noteLp.topMargin = dp(12);
@@ -2068,11 +2085,9 @@ public class MainActivity extends Activity {
         showChoiceSheet("选择片门格式", edgeLabels, currentLabel, picked -> {
             int i = edgeLabels.indexOf(picked);
             if (i < 0) return;
-            overscanFormat = edgeIds.get(i);
-            if (edgeValue != null) edgeValue.setText(edgeLabels.get(i));
-            // The frame that goes in this gate, not whatever the scale page
+            // The frame that goes in this gate, not whatever the Scale page
             // happened to be left on.
-            setScaleMm(gateMm(overscanFormat));
+            selectGate(edgeIds.get(i));
             onEdgeChanged();
         });
     }
@@ -2475,11 +2490,10 @@ public class MainActivity extends Activity {
     }
 
     private void resetFormatPanel() {
-        formatIndex = 0;
-        filmFormatMm = FORMAT_MM[0];
-        if (formatFootValue != null) formatFootValue.setText(String.format(java.util.Locale.US, "%.0f mm", FORMAT_MM[0]));
-        rebuildFormatCards();
-        if (session != null) { applyParams(); renderImage(); }
+        // The page's default is a Gate, not a bare number: resetting the Scale
+        // must not leave the Edge claiming a different piece of film.
+        selectGate(defaultGateId());
+        onEdgeChanged();
     }
 
     private void resetEdgePanel() {
@@ -2487,6 +2501,7 @@ public class MainActivity extends Activity {
         dateOn = false;
         overscanMark.setLit(false);
         dateMark.setLit(false);
+        if (dateDetail != null) dateDetail.setText("关闭");
         if (session != null) onEdgeChanged();
     }
 
@@ -2564,32 +2579,54 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Only the gates whose shape this frame is: the engine's own 5 % rule. */
+    /** Only the Gates whose shape this Frame is: the engine's own 5 % rule. */
     private void refreshEdgeFormats() {
         edgeLabels.clear();
         edgeIds.clear();
         final double aspect = (sourceWidth > 0 && sourceHeight > 0)
                 ? (double) Math.max(sourceWidth, sourceHeight) / Math.min(sourceWidth, sourceHeight)
                 : 0.0;
+        final List<GateScale.Gate> available = GateScale.available(sourceWidth, sourceHeight);
         int best = 0;
         double bestError = Double.MAX_VALUE;
-        for (int i = 0; i < EDGE_IDS.length; ++i) {
-            final double error = aspect <= 0 ? 0.0 : Math.abs(aspect / EDGE_RATIOS[i] - 1.0);
-            if (aspect > 0 && error > 0.045) continue;
-            edgeLabels.add(EDGE_LABELS[i]);
-            edgeIds.add(EDGE_IDS[i]);
-            if (error < bestError) { bestError = error; best = edgeIds.size() - 1; }
+        for (int i = 0; i < available.size(); ++i) {
+            final GateScale.Gate gate = available.get(i);
+            final double error = aspect <= 0 ? 0.0 : Math.abs(aspect / gate.aspect - 1.0);
+            edgeLabels.add(gate.label);
+            edgeIds.add(gate.id);
+            if (error < bestError) { bestError = error; best = i; }
         }
-        if (!edgeIds.isEmpty() && !edgeIds.contains(overscanFormat)) {
-            overscanFormat = edgeIds.get(Math.max(0, Math.min(best, edgeIds.size() - 1)));
+
+        if (!edgeIds.isEmpty()) {
+            if (!edgeIds.contains(overscanFormat)) {
+                overscanFormat = edgeIds.get(Math.max(0, Math.min(best, edgeIds.size() - 1)));
+            }
+            // The Scale is the Gate's measured long edge, never a neighbouring
+            // page value: 6x17 is 168 mm, not the old 170 mm card.
+            final GateScale.Gate gate = GateScale.byId(overscanFormat);
+            if (gate != null) filmFormatMm = gate.longEdgeMm;
+        } else {
+            // No Gate fits this shape. Keep the stored pair consistent even
+            // though the Rebate has nothing to cut.
+            final GateScale.Gate gate = GateScale.resolve(overscanFormat, filmFormatMm);
+            overscanFormat = gate.id;
+            filmFormatMm = gate.longEdgeMm;
+            if (overscanOn) {
+                // A rebate cannot be drawn for a shape no Gate can hold. Leaving
+                // it on would send the engine a layout it has already refused.
+                overscanOn = false;
+                if (overscanMark != null) overscanMark.setLit(false);
+            }
         }
-        if (edgeValue != null) {
-            final int selected = edgeIds.indexOf(overscanFormat);
-            edgeValue.setText(selected >= 0 ? edgeLabels.get(selected) : "无可用片门");
+
+        updateEdgeValue();
+        if (formatFootValue != null) {
+            formatFootValue.setText(mmText(filmFormatMm) + " mm");
         }
+        rebuildFormatCards();
         try {
             DebugSink.text("overscan", "aspect=" + aspect + " gates=" + edgeIds
-                    + " chosen=" + overscanFormat);
+                    + " chosen=" + overscanFormat + " scale=" + filmFormatMm);
         } catch (Throwable ignored) { }
     }
 
@@ -2815,19 +2852,46 @@ public class MainActivity extends Activity {
 
     private View toggleRow(String labelText, Square mark, boolean initial,
                            java.util.function.Consumer<Boolean> onChange) {
+        return toggleRow(labelText, null, mark, initial, onChange);
+    }
+
+    /**
+     * The same row with one quiet line under the label. Edge uses it for the
+     * date back: the imprint's own text is shown only while the toggle is on,
+     * and it is the same text the engine is given.
+     */
+    private View toggleRow(String labelText, TextView detail, Square mark, boolean initial,
+                           java.util.function.Consumer<Boolean> onChange) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        row.addView(label(labelText, 8, palette.color(Palette.Role.INK), tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
+
+        LinearLayout textCol = new LinearLayout(this);
+        textCol.setOrientation(LinearLayout.VERTICAL);
+        textCol.addView(label(labelText, 8, palette.color(Palette.Role.INK), tfHan));
+        if (detail != null) {
+            LinearLayout.LayoutParams detailLp = new LinearLayout.LayoutParams(-1, -2);
+            detailLp.topMargin = dp(3);
+            textCol.addView(detail, detailLp);
+        }
+        row.addView(textCol, new LinearLayout.LayoutParams(0, -2, 1f));
+
         mark.setLit(initial);
         row.addView(mark, new LinearLayout.LayoutParams(dp(12), dp(12)));
         final boolean[] state = {initial};
+        row.setFocusable(true);
+        row.setContentDescription(toggleDescription(labelText, initial));
         row.setOnClickListener(v -> {
             state[0] = !state[0];
             mark.setLit(state[0]);
+            row.setContentDescription(toggleDescription(labelText, state[0]));
             onChange.accept(state[0]);
         });
         return row;
+    }
+
+    private static String toggleDescription(String labelText, boolean on) {
+        return labelText + "，" + (on ? "开" : "关");
     }
 
     /** .range-field: an 8 px head with the value in blue, then the 10 px bar. */
@@ -3705,6 +3769,9 @@ public class MainActivity extends Activity {
 
     private void loadImage(Uri uri) {
         sourceUri = uri;
+        // A new import works out its own imprint date; the previous frame's
+        // cached text must not travel with the new Source.
+        dateText = null;
         // The frame's own look, stated before any session is built: a chip
         // returns to a photograph *and* to what was done to it; a pick from ＋
         // starts with no film at all.
@@ -3783,7 +3850,6 @@ public class MainActivity extends Activity {
             }
             lastRenderedBitmap = null;
             setOpticsUnlocked(false);
-            dateText = null;
             setStage(0, null);
             sourceBitmap = null;
             sourcePixels = null;
