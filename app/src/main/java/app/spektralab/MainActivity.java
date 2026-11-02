@@ -1400,7 +1400,8 @@ public class MainActivity extends Activity {
         if (readoutExposure == null) return;
         readoutExposure.setText(exposure);
         readoutFilm.setText(stockLabel(filmStock, filmIds, filmLabels));
-        readoutPaper.setText(stockLabel(printStock, printIds, printLabels));
+        readoutPaper.setText(isPositiveFilm(filmStock)
+                ? "DIRECT SCAN" : stockLabel(printStock, printIds, printLabels));
 
         final FilmStock stock = currentFilmStock();
         final SpectrumSamples spectrum = stock == null
