@@ -106,7 +106,7 @@ $resStage = Join-Path $tmp 'res'
 $baseResources = Join-Path $tmp 'base.apk'
 $unsigned = Join-Path $tmp 'unsigned.apk'
 $aligned = Join-Path $tmp 'aligned.apk'
-New-Item -ItemType Directory -Path $classes, $dex, (Join-Path $resStage 'values'), (Join-Path $resStage 'mipmap-xxxhdpi') -Force | Out-Null
+New-Item -ItemType Directory -Path $classes, $dex, (Join-Path $resStage 'values'), (Join-Path $resStage 'xml'), (Join-Path $resStage 'mipmap-xxxhdpi') -Force | Out-Null
 
 try {
     $sources = Get-ChildItem $sourcesDir -Recurse -Filter *.java | Select-Object -ExpandProperty FullName
@@ -119,6 +119,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "d8 failed with $LASTEXITCODE" }
 
     Copy-Item (Join-Path $res 'values\themes.xml') (Join-Path $resStage 'values\themes.xml') -Force
+    Copy-Item (Join-Path $res 'xml\network_security_config.xml') `
+        (Join-Path $resStage 'xml\network_security_config.xml') -Force
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [IO.Compression.ZipFile]::OpenRead($BaseApk)
     try {

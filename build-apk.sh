@@ -6,6 +6,8 @@ STAGE="$ROOT/app/build/apk"
 OUT="$ROOT/app/build/SpektraLab-debug.apk"
 TMP="$ROOT/app/build/SpektraLab-complete.apk"
 cp "$ROOT/app/src/main/AndroidManifest.xml" "$STAGE/AndroidManifest.xml"
+mkdir -p "$STAGE/res/xml"
+cp "$ROOT/app/src/main/res/xml/network_security_config.xml" "$STAGE/res/xml/network_security_config.xml"
 cd "$STAGE"
 aapt package -f -m -M AndroidManifest.xml -S res -A assets -I "$SDK/platforms/android-36/android.jar" -F "$OUT" >/dev/null
 python3 - <<'PY'
