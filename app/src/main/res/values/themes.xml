@@ -1,27 +1,119 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-      Launch-only mirrors of Palette: the window is painted before the first
-      Java frame, so these colours match Palette.Role.BACKGROUND and
-      Palette.Role.SYSTEM_BAR_* for each Theme mode. Views never read them.
-      The M3 parents are the foundation for the component migration; the
-      custom Console still paints from Palette until the token ticket lands.
+      The Console's two M3 themes. The window items mirror Palette for the
+      first frame, before Java can apply the stored Theme mode; views never read
+      them. Every control colour below is an M3 color role with a complete brand
+      fallback (colors.xml). On API 31+ DynamicColors replaces those roles with
+      the wallpaper scheme. The stage and spectral colours are deliberately
+      absent: they are measured Palette values, never scheme slots.
     -->
+    <style name="Widget.SpektraLab.Toolbar" parent="Widget.Material3.Toolbar.OnSurface">
+        <item name="subtitleTextAppearance">@style/TextAppearance.Material3.LabelMedium</item>
+        <item name="subtitleTextColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
     <style name="AppTheme" parent="Theme.Material3.Light.NoActionBar">
         <item name="android:windowBackground">#FFF1F1EE</item>
-        <item name="android:statusBarColor">#FF121614</item>
+        <item name="android:statusBarColor">#FFF1F1EE</item>
         <item name="android:navigationBarColor">#FFF1F1EE</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:forceDarkAllowed">false</item>
+
+        <item name="dynamicColorThemeOverlay">@style/ThemeOverlay.Material3.DynamicColors.Light</item>
+        <item name="toolbarStyle">@style/Widget.SpektraLab.Toolbar</item>
+        <item name="tabStyle">@style/Widget.Material3.TabLayout.Secondary</item>
+        <item name="materialButtonStyle">@style/Widget.Material3.Button.TextButton</item>
+
+        <item name="colorPrimary">@color/m3_brand_light_primary</item>
+        <item name="colorOnPrimary">@color/m3_brand_light_on_primary</item>
+        <item name="colorPrimaryContainer">@color/m3_brand_light_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/m3_brand_light_on_primary_container</item>
+        <item name="colorSecondary">@color/m3_brand_light_secondary</item>
+        <item name="colorOnSecondary">@color/m3_brand_light_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/m3_brand_light_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/m3_brand_light_on_secondary_container</item>
+        <item name="colorTertiary">@color/m3_brand_light_tertiary</item>
+        <item name="colorOnTertiary">@color/m3_brand_light_on_tertiary</item>
+        <item name="colorTertiaryContainer">@color/m3_brand_light_tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/m3_brand_light_on_tertiary_container</item>
+        <item name="colorError">@color/m3_brand_light_error</item>
+        <item name="colorOnError">@color/m3_brand_light_on_error</item>
+        <item name="colorErrorContainer">@color/m3_brand_light_error_container</item>
+        <item name="colorOnErrorContainer">@color/m3_brand_light_on_error_container</item>
+        <item name="android:colorBackground">@color/m3_brand_light_background</item>
+        <item name="colorOnBackground">@color/m3_brand_light_on_background</item>
+        <item name="colorSurface">@color/m3_brand_light_surface</item>
+        <item name="colorOnSurface">@color/m3_brand_light_on_surface</item>
+        <item name="colorSurfaceVariant">@color/m3_brand_light_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/m3_brand_light_on_surface_variant</item>
+        <item name="colorSurfaceDim">@color/m3_brand_light_surface_dim</item>
+        <item name="colorSurfaceBright">@color/m3_brand_light_surface_bright</item>
+        <item name="colorSurfaceContainerLowest">@color/m3_brand_light_surface_container_lowest</item>
+        <item name="colorSurfaceContainerLow">@color/m3_brand_light_surface_container_low</item>
+        <item name="colorSurfaceContainer">@color/m3_brand_light_surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/m3_brand_light_surface_container_high</item>
+        <item name="colorSurfaceContainerHighest">@color/m3_brand_light_surface_container_highest</item>
+        <item name="colorSurfaceInverse">@color/m3_brand_light_surface_inverse</item>
+        <item name="colorOnSurfaceInverse">@color/m3_brand_light_on_surface_inverse</item>
+        <item name="colorPrimaryInverse">@color/m3_brand_light_primary_inverse</item>
+        <item name="colorOutline">@color/m3_brand_light_outline</item>
+        <item name="colorOutlineVariant">@color/m3_brand_light_outline_variant</item>
+        <item name="colorShadow">@color/m3_brand_light_shadow</item>
+        <item name="colorScrim">@color/m3_brand_light_scrim</item>
+        <item name="colorSurfaceTint">@color/m3_brand_light_surface_tint</item>
     </style>
 
     <style name="AppTheme.Dark" parent="Theme.Material3.Dark.NoActionBar">
         <item name="android:windowBackground">#FF0E120F</item>
-        <item name="android:statusBarColor">#FF070A08</item>
+        <item name="android:statusBarColor">#FF0E120F</item>
         <item name="android:navigationBarColor">#FF0E120F</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:forceDarkAllowed">false</item>
+
+        <item name="dynamicColorThemeOverlay">@style/ThemeOverlay.Material3.DynamicColors.Dark</item>
+        <item name="toolbarStyle">@style/Widget.SpektraLab.Toolbar</item>
+        <item name="tabStyle">@style/Widget.Material3.TabLayout.Secondary</item>
+        <item name="materialButtonStyle">@style/Widget.Material3.Button.TextButton</item>
+
+        <item name="colorPrimary">@color/m3_brand_dark_primary</item>
+        <item name="colorOnPrimary">@color/m3_brand_dark_on_primary</item>
+        <item name="colorPrimaryContainer">@color/m3_brand_dark_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/m3_brand_dark_on_primary_container</item>
+        <item name="colorSecondary">@color/m3_brand_dark_secondary</item>
+        <item name="colorOnSecondary">@color/m3_brand_dark_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/m3_brand_dark_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/m3_brand_dark_on_secondary_container</item>
+        <item name="colorTertiary">@color/m3_brand_dark_tertiary</item>
+        <item name="colorOnTertiary">@color/m3_brand_dark_on_tertiary</item>
+        <item name="colorTertiaryContainer">@color/m3_brand_dark_tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/m3_brand_dark_on_tertiary_container</item>
+        <item name="colorError">@color/m3_brand_dark_error</item>
+        <item name="colorOnError">@color/m3_brand_dark_on_error</item>
+        <item name="colorErrorContainer">@color/m3_brand_dark_error_container</item>
+        <item name="colorOnErrorContainer">@color/m3_brand_dark_on_error_container</item>
+        <item name="android:colorBackground">@color/m3_brand_dark_background</item>
+        <item name="colorOnBackground">@color/m3_brand_dark_on_background</item>
+        <item name="colorSurface">@color/m3_brand_dark_surface</item>
+        <item name="colorOnSurface">@color/m3_brand_dark_on_surface</item>
+        <item name="colorSurfaceVariant">@color/m3_brand_dark_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/m3_brand_dark_on_surface_variant</item>
+        <item name="colorSurfaceDim">@color/m3_brand_dark_surface_dim</item>
+        <item name="colorSurfaceBright">@color/m3_brand_dark_surface_bright</item>
+        <item name="colorSurfaceContainerLowest">@color/m3_brand_dark_surface_container_lowest</item>
+        <item name="colorSurfaceContainerLow">@color/m3_brand_dark_surface_container_low</item>
+        <item name="colorSurfaceContainer">@color/m3_brand_dark_surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/m3_brand_dark_surface_container_high</item>
+        <item name="colorSurfaceContainerHighest">@color/m3_brand_dark_surface_container_highest</item>
+        <item name="colorSurfaceInverse">@color/m3_brand_dark_surface_inverse</item>
+        <item name="colorOnSurfaceInverse">@color/m3_brand_dark_on_surface_inverse</item>
+        <item name="colorPrimaryInverse">@color/m3_brand_dark_primary_inverse</item>
+        <item name="colorOutline">@color/m3_brand_dark_outline</item>
+        <item name="colorOutlineVariant">@color/m3_brand_dark_outline_variant</item>
+        <item name="colorShadow">@color/m3_brand_dark_shadow</item>
+        <item name="colorScrim">@color/m3_brand_dark_scrim</item>
+        <item name="colorSurfaceTint">@color/m3_brand_dark_surface_tint</item>
     </style>
 </resources>

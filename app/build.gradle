@@ -66,6 +66,45 @@ dependencies {
     implementation 'com.google.android.material:material:1.12.0'
 }
 
+afterEvaluate {
+    /**
+     * The plain `*Check` classes are this project's pure seams. They no longer
+     * compile with `javac -cp android.jar`, because the main sources now use
+     * the AppCompat and Material libraries. Compile the checks against the
+     * app's real debug classpath instead, then run each one from the repository
+     * root so a check can read the theme resources it guards.
+     */
+    def debugCompile = tasks.named('compileDebugJavaWithJavac')
+
+    def checkJvmCompile = tasks.register('checkJvmCompile', JavaCompile) {
+        dependsOn debugCompile
+        source = fileTree('src/test/java') { include '**/*.java' }
+        classpath = files(debugCompile.get().destinationDirectory,
+                debugCompile.get().classpath)
+        destinationDirectory = file("$buildDir/checkJvm/classes")
+        sourceCompatibility = '17'
+        targetCompatibility = '17'
+        options.compilerArgs += ['-proc:none']
+    }
+
+    tasks.register('checkJvm') {
+        dependsOn checkJvmCompile
+        doLast {
+            def runtime = files("$buildDir/checkJvm/classes",
+                    debugCompile.get().destinationDirectory, debugCompile.get().classpath)
+            def java = new File(System.getProperty('java.home'), 'bin/java').absolutePath
+            def checks = fileTree('src/test/java') { include '**/*Check.java' }.files
+                    .collect { it.name.replaceFirst(/\.java$/, '') }.sort()
+            checks.each { name ->
+                exec {
+                    workingDir rootProject.projectDir
+                    commandLine java, '-cp', runtime.asPath, "app.spektralab.${name}"
+                }
+            }
+        }
+    }
+}
+
 /**
  * The native engine and the ~30 MB stock assets live in the shipped APK, not
  * in this checkout. Stage them into Gradle's generated source dirs so a Gradle
@@ -99,8 +138,11 @@ tasks.register('stageBase') {
     }
 }
 
-preBuild.dependsOn tasks.named('stageBase')
-
+// Only packaging consumes the staged assets and native libraries. Keeping the
+// staging out of preBuild lets a Java-only task (`checkJvm`) run without the
+// donor APK.
+tasks.matching { it.name == 'mergeDebugAssets' || it.name == 'mergeDebugJniLibFolders' }
+        .configureEach { dependsOn tasks.named('stageBase') }
 /**
  * Android 15/16 devices with 16 KB pages reject an APK whose uncompressed
  * libraries are only 4 KB aligned. AGP 8.2 does not add the extra zip
