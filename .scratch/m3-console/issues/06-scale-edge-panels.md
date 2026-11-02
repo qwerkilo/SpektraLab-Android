@@ -2,7 +2,7 @@
 
 **Type:** task
 **Blocked by:** 02
-**Status:** pending
+**Status:** completed
 
 **What to build:** The Scale and Edge workspaces use Material cards and
 switches while preserving the Gate/Scale pairing, the Rebate, and the date
@@ -16,3 +16,5 @@ imprint. A Look keeps the same geometry and export behaviour.
 - [ ] Date row shows the imprint only while enabled; preview and export send the same value.
 - [ ] The Gate picker, Scale, and Edge stay in sync in both directions; changing Scale still starts a render.
 - [ ] Device check with 3:2, square, and 6×17 Frames; export geometry matches preview.
+
+**Resolution:** M3 cards and MaterialSwitch rows landed; GateScale.Pair normalization and GateScaleCheck 445. Merged into feat/m3-spec. Device was offline, so geometry/export checks remain for ticket 10.

@@ -2,7 +2,7 @@
 
 **Type:** task
 **Blocked by:** 03, 04, 05, 06, 07, 08, 09
-**Status:** pending
+**Status:** ready-for-agent
 
 **What to build:** The full M3 Console is audited on real devices and closed
 out against the spec. This is the only ticket that may claim the migration is

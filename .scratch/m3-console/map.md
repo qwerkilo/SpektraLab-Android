@@ -43,10 +43,14 @@ Look semantics, and the existing test seams stay intact.
   top app bar, secondary tabs, in-place theme restore. `checkJvm` 7,489,
   ManifestPolicy 26/26, `align16k` signed. Device screenshots were captured
   before the device dropped off the network; the merge gate could not reinstall.
+- **Tickets 03–09 landed** through `6d09bcf`: rail, film chips/cards and
+  FilmBrand.shelf, optics sliders, scale/edge cards and switches, bottom-sheet
+  pickers with StockNames, SpectrumCurveView, and the scan/compare M3 controls.
+  Final JVM gate is 8,583 checks; ManifestPolicy 26/26; the 16 KB APK is signed.
+  Device verification is still blocked because `10.110.67.69:35443` is offline.
 - **Implementation breakdown**: 02 tokens + phone shell, 03 rail, 04 film,
   05 optics, 06 scale/edge, 07 pickers, 08 curve, 09 scan/compare, 10 audit.
-  Tickets 03/04/05/06/09 are unlocked after 02; 07 waits on 04/05/06; 08 waits
-  on 04; 10 waits on everything.
+  Only ticket 10 remains; it needs a reachable device.
 
 ## Not yet specified
 

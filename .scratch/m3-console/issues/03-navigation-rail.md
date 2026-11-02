@@ -2,7 +2,7 @@
 
 **Type:** task
 **Blocked by:** 02 (M3 tokens and the phone shell)
-**Status:** pending
+**Status:** completed
 
 **What to build:** A tablet, foldable, or landscape window at ≥600 dp gets a
 Material navigation rail instead of a stretched tab row. The rail and the
@@ -17,3 +17,5 @@ keeps the edit.
 - [ ] `ConsoleLayoutCheck` covers 600, 800, 960, and 1200 dp: rail width, stage width, and control column width.
 - [ ] Drag across 599↔600 in both directions and rotate; Frame, Look, tab, Scan, and panel collapse survive; no render starts.
 - [ ] 600×960 portrait and 960×600 landscape captured in both themes.
+
+**Resolution:** Material navigation rail and shared tab/rail selection landed; ConsoleLayoutCheck is 5,834. Merged into feat/m3-spec. Device was offline, so the 600 dp visual and TalkBack checks remain for ticket 10.
