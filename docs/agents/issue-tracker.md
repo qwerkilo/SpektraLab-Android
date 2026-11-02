@@ -2,6 +2,10 @@
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
+## Current state
+
+As of 2026-11-02, GitHub Issues are **disabled** on `qwerkilo/SpektraLab-Android` (`gh issue list` returns "repository has disabled issues"). Until they are enabled, keep specs in `docs/specs/` and draft tickets under `.scratch/<feature>/issues/`; do not run `gh issue create`.
+
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.

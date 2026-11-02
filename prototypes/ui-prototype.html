@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpektraLab · UI Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+/* ---------- board ---------- */
+:root{
+  --board:#0b0b0a; --board-ink:#e9e6dd; --board-mut:#8b877c; --board-line:#26251f;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--board); color:var(--board-ink);
+  font-family:'Inter Tight',system-ui,-apple-system,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid #fff;outline-offset:3px}
+.board{max-width:1320px;margin:0 auto;padding:54px 28px 88px}
+.masthead{display:flex;justify-content:space-between;align-items:flex-end;gap:32px;border-bottom:1px solid var(--board-line);padding-bottom:24px}
+.eyebrow{font:500 9.5px/1 'JetBrains Mono',monospace;letter-spacing:.24em;text-transform:uppercase;color:var(--board-mut)}
+.masthead h1{font:300 clamp(34px,4.2vw,56px)/.95 'Archivo',sans-serif;letter-spacing:-.045em;margin:16px 0 0}
+.masthead h1 em{font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;letter-spacing:-.01em;color:#d8c7a4}
+.mast-meta{text-align:right;font:400 10px/1.7 'JetBrains Mono',monospace;color:var(--board-mut);white-space:nowrap}
+.mast-lead{font:400 13px/1.65 'Inter Tight',sans-serif;color:#b4afa2;margin:18px 0 0;max-width:440px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,390px));gap:26px;justify-content:space-between;margin-top:36px}
+@media (max-width:1240px){.grid{grid-template-columns:390px;justify-content:center}}
+.device{display:none;width:390px}
+.device.is-active{display:block;animation:variantIn .3s cubic-bezier(.2,.7,.2,1) both}
+@keyframes variantIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.proto{min-height:100vh}
+.proto-top{position:sticky;top:0;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:24px;padding:14px 28px;background:rgba(11,11,10,.88);backdrop-filter:blur(14px);border-bottom:1px solid var(--board-line)}
+.proto-brand{font:500 9.5px/1 'JetBrains Mono',monospace;letter-spacing:.24em;color:#e9e6dd}
+.proto-brand span{color:var(--board-mut)}
+.proto-title{font:300 16px/1.2 'Archivo',sans-serif;letter-spacing:-.02em;color:#cfc9bb;margin-top:5px}
+.proto-meta{display:flex;align-items:center;gap:14px;font:400 9px/1 'JetBrains Mono',monospace;color:var(--board-mut);white-space:nowrap}
+.proto-badge{border:1px solid #3a382f;color:#d8c7a4;padding:5px 7px;border-radius:99px;font-size:7.5px;letter-spacing:.16em}
+.stage{min-height:calc(100vh - 62px);display:grid;place-items:center;padding:30px 16px 130px}
+.proto-foot{max-width:1320px;margin:0 auto;padding:0 28px 110px;font:400 8.5px/1.6 'JetBrains Mono',monospace;letter-spacing:.1em;color:#6f6c62}
+.switcher{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;width:min(660px,calc(100vw - 20px));padding:8px 10px;border:1px solid #34322b;border-radius:14px;background:rgba(16,16,14,.9);box-shadow:0 18px 50px rgba(0,0,0,.55);backdrop-filter:blur(14px);font-family:'JetBrains Mono',monospace}
+.switcher-row{display:flex;align-items:center;gap:8px}
+.nav-arrow{width:38px;height:38px;border-radius:10px;border:1px solid #34322b;color:#e9e6dd;font:300 19px/1 'Archivo',sans-serif;display:grid;place-items:center;transition:background .15s,border-color .15s}
+.nav-arrow:hover{background:#24231e;border-color:#4a463a}
+.variant-label{flex:1;display:flex;align-items:baseline;justify-content:center;gap:9px;font:400 12px/1 'Inter Tight',sans-serif;color:#e9e6dd;letter-spacing:.02em}
+.variant-label b{font:500 10px/1 'JetBrains Mono',monospace;letter-spacing:.16em;color:#d8c7a4}
+.state{font:400 8.5px/1.5 'JetBrains Mono',monospace;color:#8b877c;white-space:nowrap;overflow-x:auto;text-align:center;scrollbar-width:none;padding-top:7px}
+.state::-webkit-scrollbar{display:none}
+.state b{font-weight:400;color:#cfc9bb}
+.screen{position:relative;width:390px;height:844px;overflow:hidden;border-radius:30px;isolation:isolate}
+.caption{padding:18px 2px 0}
+.cap-top{display:flex;align-items:baseline;gap:10px}
+.cap-num{font:500 9px/1 'JetBrains Mono',monospace;color:var(--board-mut)}
+.cap-top h2{font:400 19px/1 'Archivo',sans-serif;letter-spacing:-.02em;margin:0}
+.cap-tag{margin-left:auto;font:500 8px/1 'JetBrains Mono',monospace;letter-spacing:.16em;color:var(--board-mut);border:1px solid var(--board-line);padding:5px 7px;border-radius:99px}
+.caption p{font:400 12px/1.55 'Inter Tight',sans-serif;color:#b4afa2;margin:9px 0 12px;max-width:340px}
+.swatches{display:flex;gap:6px}
+.swatches i{width:16px;height:16px;border-radius:50%;display:block;border:1px solid rgba(255,255,255,.16)}
+.board-foot{margin-top:52px;padding-top:18px;border-top:1px solid var(--board-line);display:flex;justify-content:space-between;gap:20px;font:400 9.5px/1.6 'JetBrains Mono',monospace;color:var(--board-mut)}
+@media (max-width:1240px){
+  .masthead{flex-direction:column;align-items:flex-start}
+  .mast-meta{text-align:left}
+}
+
+/* ---------- shared phone bits ---------- */
+.status{height:26px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font:500 9px/1 'JetBrains Mono',monospace;letter-spacing:.02em}
+.status .icons{display:flex;align-items:center;gap:5px;font-size:8px;letter-spacing:-.06em}
+.shot{position:relative;overflow:hidden;isolation:isolate}
+.shot-img{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover;object-position:50% 57%}
+.a-thumb img,.a-film-img img,.b-thumb img,.b-card-img img,.c-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.grain,.halation,.vignette{position:absolute;inset:0;pointer-events:none}
+.grain{
+  opacity:.09;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.86' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='.9'/></svg>");
+}
+.halation{background:radial-gradient(circle at 64% 42%,rgba(255,124,64,.65),rgba(255,86,40,.18) 22%,transparent 58%);mix-blend-mode:screen;opacity:.14}
+.vignette{background:radial-gradient(120% 90% at 50% 42%,transparent 52%,rgba(0,0,0,.34) 100%)}
+.is-original .shot-img{filter:none!important}
+.is-original .grain,.is-original .halation{opacity:0!important}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+.a-screen .shot-img{object-position:50% 52%}
+.b-screen .shot-img{object-position:50% 46%}
+.c-screen .shot-img{object-position:50% 58%}
+
+/* =========================================================
+   A — DARKROOM
+   ========================================================= */
+.a-screen{background:#0a0b09;color:#f1eee5;font-family:'Archivo',sans-serif;display:flex;flex-direction:column;box-shadow:0 40px 90px -34px #000,0 0 0 1px #201f1a inset}
+.a-status{color:#9a9c90}
+.a-head{height:46px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid #1d1f19}
+.a-word{font:500 8.5px/1 'JetBrains Mono',monospace;letter-spacing:.26em;color:#ff8551}
+.a-frame{font:400 7.5px/1 'JetBrains Mono',monospace;letter-spacing:.14em;color:#8b8f80;margin-left:auto}
+.a-export{font:400 8px/1 'JetBrains Mono',monospace;letter-spacing:.14em;color:#f1eee5;border-bottom:1px solid #ff8551;padding:4px 0 3px}
+.a-shot{flex:1;min-height:0;background:#1a1a18}
+.a-overlay-top{position:absolute;left:16px;top:14px;right:16px;display:flex;flex-direction:column;gap:3px;text-shadow:0 1px 14px rgba(0,0,0,.55)}
+.a-stock{font:300 27px/1 'Archivo',sans-serif;letter-spacing:-.035em}
+.a-stock-meta{font:400 7.5px/1 'JetBrains Mono',monospace;letter-spacing:.18em;color:#ffb38c}
+.a-overlay-bottom{position:absolute;left:16px;right:16px;bottom:16px;display:flex;align-items:flex-end;gap:12px;text-shadow:0 1px 12px rgba(0,0,0,.5)}
+.a-ev{font:300 34px/1 'Archivo',sans-serif;letter-spacing:-.05em}
+.a-ev-unit{font:400 8px/1 'JetBrains Mono',monospace;letter-spacing:.14em;color:#ffb38c;margin-left:3px}
+.a-spec{font:400 7px/1.5 'JetBrains Mono',monospace;letter-spacing:.14em;color:#c9c5b8;margin-left:auto;text-align:right}
+.a-compare{font:400 8px/1 'JetBrains Mono',monospace;letter-spacing:.08em;color:#0a0b09;background:#f1eee5;border-radius:99px;padding:8px 10px;min-height:30px;transition:background .18s,color .18s}
+.a-compare:active{background:#ff8551}
+.a-perf{position:absolute;left:0;right:0;bottom:0;height:7px;background:repeating-linear-gradient(90deg,#0a0b09 0 8px,transparent 8px 15px);opacity:.9}
+.a-source{height:60px;display:flex;align-items:center;gap:7px;padding:0 12px;border-bottom:1px solid #1d1f19;background:#0d0e0b}
+.a-plus{width:34px;height:44px;display:grid;place-items:center;font:300 17px/1 'Archivo',sans-serif;color:#ff8551;border:1px dashed #3a3d31;border-radius:4px;flex:0 0 auto}
+.a-thumb{width:44px;height:44px;border-radius:4px;overflow:hidden;padding:0;border:1px solid #2c2f25;opacity:.62;transition:opacity .2s,border-color .2s,transform .2s;flex:0 0 auto;position:relative}
+.a-thumb svg{width:100%;height:100%;display:block}
+.a-thumb.is-active{opacity:1;border-color:#ff8551;transform:translateY(-1px)}
+.a-thumb.is-active::after{content:'';position:absolute;inset:0;box-shadow:0 0 0 1px #ff8551 inset}
+.a-count{margin-left:auto;font:400 7.5px/1 'JetBrains Mono',monospace;color:#8b8f80;letter-spacing:.12em}
+.a-tabs{height:44px;display:flex;border-bottom:1px solid #1d1f19;background:#0a0b09}
+.a-tab{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;font:400 10px/1 'Inter Tight',sans-serif;color:#8b8f80;position:relative;transition:color .18s;min-height:44px}
+.a-tab b{font:400 7px/1 'JetBrains Mono',monospace;letter-spacing:.06em;color:#7c8072}
+.a-tab.is-active{color:#f1eee5}
+.a-tab.is-active b{color:#ff8551}
+.a-tab.is-active::after{content:'';position:absolute;left:22%;right:22%;bottom:0;height:1px;background:#ff8551}
+.a-panels{height:270px;background:#0d0e0b;overflow:hidden}
+.a-panel{height:100%;padding:11px 14px 6px;display:flex;flex-direction:column;min-height:0}
+.a-panel[hidden]{display:none}
+.a-panel-head{display:flex;justify-content:space-between;align-items:center;font:400 7px/1 'JetBrains Mono',monospace;letter-spacing:.2em;color:#8b8f80;height:18px;flex:0 0 auto}
+.a-panel-head b{color:#ff8551;font-weight:400}
+.a-brands{display:flex;gap:15px;height:27px;align-items:center;flex:0 0 auto;overflow:hidden}
+.a-brand{font:400 8px/1 'Inter Tight',sans-serif;color:#8b8f80;letter-spacing:.04em;padding:4px 0;border-bottom:1px solid transparent;white-space:nowrap}
+.a-brand.is-active{color:#f1eee5;border-color:#ff8551}
+.a-films{display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;padding:5px 0 7px;scrollbar-width:none;flex:0 0 auto;mask-image:linear-gradient(90deg,#000 88%,transparent);-webkit-mask-image:linear-gradient(90deg,#000 88%,transparent)}
+.a-films::-webkit-scrollbar{display:none}
+.a-film{width:82px;flex:0 0 auto;text-align:left;border:1px solid #2a2d24;background:#111310;padding:3px;border-radius:3px;transition:border-color .18s,transform .18s}
+.a-film.is-active{border-color:#ff8551;transform:translateY(-2px)}
+.a-film-img{display:block;height:67px;overflow:hidden;border-radius:2px;background:#1a1a18}
+.a-film-img svg{width:100%;height:100%;display:block}
+.a-film-name{display:block;font:400 8px/1.25 'Inter Tight',sans-serif;color:#c9c5b8;padding:5px 2px 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.a-film.is-active .a-film-name{color:#fff}
+.a-note{height:34px;padding:1px 0 0;font:400 8.5px/1.45 'Inter Tight',sans-serif;color:#b9b5a8;letter-spacing:.005em;flex:0 0 auto;overflow:hidden}
+.a-process{display:flex;align-items:center;gap:7px;height:30px;margin-top:auto;border-top:1px solid #1d1f19;font:400 7px/1 'JetBrains Mono',monospace;letter-spacing:.14em;color:#8b8f80;flex:0 0 auto}
+.a-process i{width:5px;height:5px;border-radius:50%;background:#ff8551;box-shadow:0 0 7px #ff8551}
+.a-process b{font-weight:400;color:#ff8551;margin-left:auto;letter-spacing:.08em}
+.a-paper{margin-top:auto;height:36px;display:flex;align-items:center;gap:9px;border-top:1px solid #1d1f19;font:400 7px/1 'JetBrains Mono',monospace;letter-spacing:.16em;color:#8b8f80;flex:0 0 auto}
+.a-paper b{font:400 8.5px/1 'Inter Tight',sans-serif;letter-spacing:0;color:#c9c5b8;margin-left:auto}
+.a-paper i{font-style:normal;color:#ff8551;font-size:12px;line-height:1}
+.a-range{padding:6px 0 7px;border-bottom:1px solid #1a1c17;flex:0 0 auto}
+.a-range-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px}
+.a-range label{font:400 9px/1 'Inter Tight',sans-serif;color:#c9c5b8}
+.a-range output{font:400 11px/1 'JetBrains Mono',monospace;color:#ff8551;letter-spacing:-.02em}
+.a-range input,.c-range input{width:100%;height:24px;margin:0;background:transparent;appearance:none;-webkit-appearance:none;cursor:ew-resize}
+.a-range input::-webkit-slider-runnable-track,.c-range input::-webkit-slider-runnable-track{height:1px;background:#3a3d31}
+.a-range input::-webkit-slider-thumb,.c-range input::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:#ff8551;margin-top:-5px;box-shadow:0 0 0 4px rgba(255,133,81,.14)}
+.a-range input::-moz-range-track,.c-range input::-moz-range-track{height:1px;background:#3a3d31}
+.a-range input::-moz-range-thumb,.c-range input::-moz-range-thumb{width:11px;height:11px;border:0;border-radius:50%;background:#ff8551}
+.a-formats{display:flex;gap:8px;padding:9px 0 4px;flex:0 0 auto}
+.a-format{flex:1;border:1px solid #2a2d24;background:#111310;border-radius:3px;padding:10px 8px 9px;text-align:left;transition:border-color .18s}
+.a-format.is-active{border-color:#ff8551}
+.a-format b{display:block;font:300 22px/1 'Archivo',sans-serif;letter-spacing:-.05em;color:#f1eee5}
+.a-format b span{font:400 7px/1 'JetBrains Mono',monospace;letter-spacing:0;color:#8b8f80;margin-left:2px}
+.a-format span{display:block;font:400 7.5px/1.3 'Inter Tight',sans-serif;color:#9a9c90;margin-top:5px}
+.a-switch{display:flex;align-items:center;justify-content:space-between;padding:13px 0;border-bottom:1px solid #1a1c17;flex:0 0 auto}
+.a-switch div{display:flex;flex-direction:column;gap:3px}
+.a-switch b{font:400 9.5px/1 'Inter Tight',sans-serif;color:#e8e5da}
+.a-switch span{font:400 7px/1 'JetBrains Mono',monospace;letter-spacing:.1em;color:#8b8f80}
+.a-toggle{width:34px;height:19px;border-radius:99px;background:#2a2d24;position:relative;transition:background .2s;flex:0 0 auto}
+.a-toggle::after{content:'';position:absolute;top:3px;left:3px;width:13px;height:13px;border-radius:50%;background:#8d9084;transition:transform .2s,background .2s}
+.a-toggle.is-on{background:#ff8551}
+.a-toggle.is-on::after{transform:translateX(15px);background:#0a0b09}
+
+/* =========================================================
+   B — CONTACT SHEET
+   ========================================================= */
+.b-screen{background:#f2eee3;color:#16150f;font-family:'Inter Tight',sans-serif;display:flex;flex-direction:column;box-shadow:0 40px 90px -34px #000,0 0 0 1px #d8d0bd}
+.b-status{color:#6f6a5c}
+.b-head{height:58px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid #d8d0bd}
+.b-word{font:400 27px/1 'Instrument Serif',serif;letter-spacing:-.02em}
+.b-word em{font-style:italic}
+.b-no{margin-left:auto;font:400 8px/1 'JetBrains Mono',monospace;letter-spacing:.16em;color:#6f6a5c;text-align:right}
+.b-export{margin-left:14px;font:400 7px/1 'JetBrains Mono',monospace;letter-spacing:.14em;color:#1e3a8a;border-bottom:1px solid #1e3a8a;padding:4px 0 3px;min-height:24px}
+.b-screen::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:8;opacity:.045;mix-blend-mode:multiply;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='120' height='120' filter='url(%23p)'/></svg>")}
+.b-screen button:focus-visible,.b-screen input:focus-visible{outline-color:#1e3a8a}
+.b-print{padding:16px 18px 0;flex:0 0 auto}
+.b-frame{height:322px;background:#fff;padding:9px 9px 0;box-shadow:0 1px 0 #d9d2c0,0 14px 26px -18px rgba(30,25,15,.55);position:relative}
+.b-frame .shot-img{position:absolute;inset:9px 9px 0;width:calc(100% - 18px);height:calc(100% - 9px)}
+.b-frame .grain,.b-frame .halation,.b-frame .vignette{inset:9px 9px 0}
+.b-compare{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);font:400 7px/1 'JetBrains Mono',monospace;letter-spacing:.14em;color:#f2eee3;background:rgba(20,18,12,.72);padding:7px 9px;border-radius:99px;min-height:26px;z-index:2}
+.b-caption{height:40px;background:#fff;display:flex;align-items:center;padding:0 3px;border-top:1px solid #eee9db}
+.b-caption div{display:flex;flex-direction:column;gap:2px}
+.b-stock{font:400 14px/1.1 'Instrument Serif',serif;font-style:italic}
+.b-meta{font:400 7px/1 'JetBrains Mono',monospace;letter-spacing:.12em;color:#6f6a5c}
+.b-caption .b-no2{margin-left:auto;font:400 8px/1 'JetBrains Mono',monospace;color:#6f6a5c;letter-spacing:.12em}
+.b-strip{height:62px;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid #d8d0bd}
+.b-thumb{width:54px;height:40px;background:#fff;padding:2px;position:relative;flex:0 0 auto;border:1px solid transparent;transition:border-color .18s}
+.b-thumb svg{width:100%;height:100%;display:block}
+.b-thumb span{position:absolute;left:2px;bottom:-10px;font:400 6px/1 'JetBrains Mono',monospace;color:#6f6a5c}
+.b-thumb.is-active{border-color:#1e3a8a}
+.b-plus{width:34px;height:40px;border:1px dashed #bdb5a1;display:grid;place-items:center;font:300 15px/1 'Inter Tight',sans-serif;color:#6f6a5c;flex:0 0 auto}
+.b-lead{margin-left:auto;font:400 7px/1.4 'JetBrains Mono',monospace;letter-spacing:.12em;color:#6f6a5c;text-align:right}
+.b-tabs{height:42px;display:flex;align-items:stretch;border-bottom:1px solid #d8d0bd;padding:0 18px;gap:22px;flex:0 0 auto}
+.b-tab{position:relative;display:flex;align-items:center;gap:5px;font:400 9px/1 'Inter Tight',sans-serif;color:#6f6a5c;letter-spacing:.02em;min-height:42px}
+.b-tab b{font:400 6.5px/1 'JetBrains Mono',monospace;letter-spacing:.06em;color:#8f8876}
+.b-tab.is-active{color:#16150f}
+.b-tab.is-active b{color:#c33b25}
+.b-tab.is-active::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;background:#1e3a8a}
+.b-panels{height:240px;overflow:hidden;flex:0 0 auto}
+.b-panel{height:100%;padding:10px 18px 0;display:flex;flex-direction:column;min-height:0}
+.b-panel[hidden]{display:none}
+.b-panel-head{display:flex;justify-content:space-between;align-items:baseline;height:20px;font:400 7px/1 'JetBrains Mono',monospace;letter-spacing:.16em;color:#6f6a5c;flex:0 0 auto}
+.b-panel-head b{font-weight:400;color:#1e3a8a}
+.b-brands{display:flex;gap:14px;height:24px;align-items:flex-start;flex:0 0 auto;overflow:hidden}
+.b-brand{font:400 8px/1 'Inter Tight',sans-serif;color:#6f6a5c;white-space:nowrap;padding-bottom:4px;border-bottom:1px solid transparent}
+.b-brand.is-active{color:#16150f;border-color:#c33b25}
+.b-sheet{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 9px;padding:5px 0 0;flex:1;min-height:0}
+.b-card{position:relative;text-align:left;min-width:0;padding:2px;background:#fff;border:1px solid #e6dfcd;transition:transform .18s,box-shadow .18s}
+.b-card:nth-child(2n){transform:rotate(.25deg)}
+.b-card:nth-child(3n){transform:rotate(-.3deg)}
+.b-card-img{display:block;height:48px;overflow:hidden;background:#ddd6c4}
+.b-card-img svg{width:100%;height:100%;display:block}
+.b-card-foot{display:flex;gap:4px;align-items:baseline;padding:3px 1px 1px}
+.b-card-foot b{font:400 6px/1 'JetBrains Mono',monospace;color:#8a8372}
+.b-card-foot span{font:400 7px/1.1 'Inter Tight',sans-serif;color:#4d493d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.b-card.is-active::after{content:'';position:absolute;inset:-4px -3px;border:1.5px solid #c33b25;border-radius:48% 52% 46% 54%/54% 46% 54% 46%;transform:rotate(-2.4deg);pointer-events:none}
+.b-card.is-active .b-card-foot span{color:#16150f}
+.b-paper{margin-top:auto;height:34px;display:flex;align-items:baseline;gap:8px;border-top:1px solid #d8d0bd;flex:0 0 auto;padding-top:8px}
+.b-paper span{font:400 7px/1 'JetBrains Mono',monospace;letter-spacing:.16em;color:#6f6a5c}
+.b-paper b{font:400 12px/1 'Instrument Serif',serif;font-style:italic;font-weight:400}
+.b-paper i{font-style:normal;margin-left:auto;color:#c33b25;font-size:11px}
+.b-range{padding:5px 0 6px;border-bottom:1px solid #e3dcc9;flex:0 0 auto}
+.b-range-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px}
+.b-range label{font:400 9.5px/1 'Inter Tight',sans-serif;color:#3c382e}
+.b-range output{font:400 15px/1 'Instrument Serif',serif;font-style:italic;color:#1e3a8a}
+.b-range input{width:100%;height:22px;margin:0;background:transparent;appearance:none;-webkit-appearance:none;cursor:ew-resize}
+.b-range input::-webkit-slider-runnable-track{height:1px;background:#c9c0aa}
+.b-range input::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:10px;height:10px;border-radius:50%;background:#1e3a8a;margin-top:-4.5px}
+.b-range input::-moz-range-track{height:1px;background:#c9c0aa}
+.b-range input::-moz-range-thumb{width:10px;height:10px;border:0;border-radius:50%;background:#1e3a8a}
+.b-formats{display:flex;flex-direction:column;padding-top:4px;flex:1;min-height:0}
+.b-format{display:flex;align-items:baseline;gap:10px;padding:9px 0;border-bottom:1px solid #e3dcc9;text-align:left}
+.b-format b{font:400 22px/1 'Instrument Serif',serif;letter-spacing:-.02em;color:#16150f;min-width:58px}
+.b-format b span{font:400 7px/1 'JetBrains Mono',monospace;color:#6f6a5c;margin-left:3px}
+.b-format span{font:400 9px/1.3 'Inter Tight',sans-serif;color:#6f6a5c}
+.b-format em{margin-left:auto;font:400 7px/1 'JetBrains Mono',monospace;color:#8a8372;font-style:normal;letter-spacing:.1em}
+.b-format.is-active b{color:#1e3a8a}
+.b-format.is-active em{color:#c33b25}
+.b-switch{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #e3dcc9;flex:0 0 auto}
+.b-switch div{display:flex;flex-direction:column;gap:3px}
+.b-switch b{font:400 10px/1 'Inter Tight',sans-serif;color:#16150f}
+.b-switch span{font:400 7px/1 'JetBrains Mono',monospace;letter-spacing:.1em;color:#6f6a5c}
+.b-toggle{width:34px;height:19px;border-radius:99px;background:#d8d0bd;position:relative;transition:background .2s;flex:0 0 auto}
+.b-toggle::after{content:'';position:absolute;top:3px;left:3px;width:13px;height:13px;border-radius:50%;background:#fff;transition:transform .2s}
+.b-toggle.is-on{background:#1e3a8a}
+.b-toggle.is-on::after{transform:translateX(15px)}
+
+/* =========================================================
+   C — INSTRUMENT
+   ========================================================= */
+.c-screen{background:#0d0f10;color:#e6ece7;font-family:'Space Grotesk',sans-serif;display:flex;flex-direction:column;box-shadow:0 40px 90px -34px #000,0 0 0 1px #22282b}
+.c-status{color:#7e8983}
+.c-head{height:42px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid #22282b}
+.c-word{font:500 9px/1 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#e6ece7}
+.c-word span{color:#7e8983}
+.c-live{margin-left:10px;font:400 7.5px/1 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#b6ef4a;display:flex;align-items:center;gap:5px}
+.c-export{margin-left:auto;font:400 8px/1 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#b6ef4a;border-bottom:1px solid #b6ef4a;padding:4px 0 3px;min-height:24px}
+.c-live::before{content:'';width:4px;height:4px;border-radius:50%;background:#b6ef4a;box-shadow:0 0 7px #b6ef4a}
+.c-canvas{height:356px;flex:0 0 auto;background:#14171a;border-bottom:1px solid #22282b}
+.c-canvas .shot-img{inset:0 26px 0 0;width:calc(100% - 26px)}
+.c-canvas .grain,.c-canvas .halation,.c-canvas .vignette{right:26px}
+.c-grid{position:absolute;inset:0 26px 0 0;background-image:linear-gradient(rgba(230,236,231,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(230,236,231,.055) 1px,transparent 1px);background-size:32px 32px;pointer-events:none;mix-blend-mode:screen}
+.c-rail{position:absolute;top:0;right:0;bottom:0;width:26px;border-left:1px solid #22282b;background:#0d0f10;overflow:hidden}
+.c-rail::before{content:'';position:absolute;inset:0 6px;background:repeating-linear-gradient(to bottom,rgba(182,239,74,.38) 0 1px,transparent 1px 4px)}
+.c-rail::after{content:'';position:absolute;left:0;top:38%;width:26px;height:32%;background:linear-gradient(to bottom,transparent,rgba(182,239,74,.16),transparent);border-top:1px solid rgba(182,239,74,.55);border-bottom:1px solid rgba(182,239,74,.55)}
+.c-rail span{position:absolute;right:8px;font:400 6.5px/1 'IBM Plex Mono',monospace;color:#7e8983;writing-mode:vertical-rl;letter-spacing:.1em}
+.c-rail .w1{top:12px}.c-rail .w2{top:44%}.c-rail .w3{bottom:12px}
+.c-tag{position:absolute;left:12px;top:10px;font:400 7.5px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#aeb7b1;background:rgba(13,15,16,.6);padding:5px 6px;border:1px solid #2b3236}
+.c-canvas-foot{position:absolute;left:12px;right:38px;bottom:10px;display:flex;justify-content:space-between;font:400 7.5px/1 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#b9c2bc}
+.c-canvas-foot b{font-weight:400;color:#b6ef4a}
+.c-compare{position:absolute;right:38px;top:10px;font:400 7.5px/1 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#b6ef4a;background:rgba(13,15,16,.7);border:1px solid #46503f;padding:6px 7px;min-height:24px}
+.c-source{height:54px;display:flex;align-items:center;gap:6px;padding:0 12px;border-bottom:1px solid #22282b;flex:0 0 auto}
+.c-plus{width:30px;height:36px;display:grid;place-items:center;border:1px dashed #394246;color:#7e8983;font:300 14px/1 'Space Grotesk',sans-serif;flex:0 0 auto}
+.c-thumb{width:38px;height:36px;border:1px solid #2b3236;overflow:hidden;flex:0 0 auto;opacity:.55;transition:opacity .2s,border-color .2s}
+.c-thumb svg{width:100%;height:100%;display:block}
+.c-thumb.is-active{opacity:1;border-color:#b6ef4a}
+.c-readout{margin-left:auto;font:400 7.5px/1.6 'IBM Plex Mono',monospace;letter-spacing:.08em;color:#7e8983;text-align:right}
+.c-tabs{height:38px;display:flex;padding:5px;gap:4px;border-bottom:1px solid #22282b;flex:0 0 auto}
+.c-tab{flex:1;font:400 9px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#7e8983;border:1px solid transparent;transition:color .18s,border-color .18s,background .18s;min-height:28px}
+.c-tab.is-active{color:#b6ef4a;border-color:#394246;background:#151a1b}
+.c-panels{height:278px;overflow:hidden;flex:0 0 auto}
+.c-panel{height:100%;padding:9px 12px 0;display:flex;flex-direction:column;min-height:0}
+.c-panel[hidden]{display:none}
+.c-panel-head{display:flex;justify-content:space-between;align-items:center;height:18px;font:400 8px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#7e8983;flex:0 0 auto}
+.c-panel-head b{font-weight:400;color:#b6ef4a}
+.c-stocks{display:flex;gap:5px;overflow-x:auto;padding:4px 0 6px;scrollbar-width:none;flex:0 0 auto;mask-image:linear-gradient(90deg,#000 90%,transparent);-webkit-mask-image:linear-gradient(90deg,#000 90%,transparent)}
+.c-stocks::-webkit-scrollbar{display:none}
+.c-stock{width:54px;flex:0 0 auto;border:1px solid #2b3236;padding:4px;text-align:left;background:#111415;transition:border-color .18s,background .18s}
+.c-stock b{display:block;font:400 9px/1 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#e6ece7}
+.c-stock span{display:block;font:400 7.5px/1.2 'Space Grotesk',sans-serif;color:#7e8983;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c-stock.is-active{border-color:#b6ef4a;background:#151a1b}
+.c-stock.is-active b{color:#b6ef4a}
+.c-scales{padding-top:4px;flex:1}
+.c-scale-row{display:flex;align-items:baseline;gap:8px;width:100%;padding:11px 0;border-bottom:1px solid #1d2325;text-align:left}
+.c-scale-row span{font:400 8px/1 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#7e8983}
+.c-scale-row b{font:400 15px/1 'IBM Plex Mono',monospace;color:#e6ece7;margin-left:auto;letter-spacing:-.02em}
+.c-scale-row i{font-style:normal;font:400 7.5px/1 'IBM Plex Mono',monospace;color:#7e8983}
+.c-scale-row.is-active span,.c-scale-row.is-active b{color:#b6ef4a}
+.c-toggle{width:34px;height:19px;border-radius:99px;background:#2a3033;position:relative;transition:background .2s;flex:0 0 auto}
+.c-toggle::after{content:'';position:absolute;top:3px;left:3px;width:13px;height:13px;border-radius:50%;background:#7e8983;transition:transform .2s,background .2s}
+.c-toggle.is-on{background:#b6ef4a}
+.c-toggle.is-on::after{transform:translateX(15px);background:#0d0f10}
+.c-ranges{flex:1;min-height:0}
+.c-range{padding:7px 0 8px;border-bottom:1px solid #1d2325;flex:0 0 auto}
+.c-range-top{display:flex;justify-content:space-between;align-items:baseline}
+.c-range label{font:400 8px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#7e8983}
+.c-range output{font:400 12px/1 'IBM Plex Mono',monospace;color:#b6ef4a;letter-spacing:-.02em}
+.c-range input{height:20px}
+.c-range input::-webkit-slider-runnable-track{height:1px;background:#394246}
+.c-range input::-webkit-slider-thumb{background:#b6ef4a;box-shadow:0 0 0 4px rgba(182,239,74,.12);margin-top:-5px}
+.c-range input::-moz-range-thumb{background:#b6ef4a}
+.c-foot{height:50px;display:flex;align-items:center;gap:8px;padding:0 12px 12px;border-top:1px solid #22282b;flex:0 0 auto}
+.c-foot span{font:400 8px/1 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#7e8983}
+.c-foot b{font:400 10px/1 'Space Grotesk',sans-serif;color:#e6ece7;letter-spacing:.02em}
+.c-run{margin-left:auto;font:400 8px/1 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#0d0f10;background:#b6ef4a;padding:7px 8px;min-height:26px}
+
+@media (max-width:640px){
+  .proto-top{position:static;flex-wrap:wrap;padding:12px 16px;gap:10px}
+  .proto-meta{gap:10px;font-size:8px}
+  .proto-title{font-size:14px}
+  .stage{padding:20px 10px 176px}
+  .proto-foot{padding:0 16px 104px}
+  .device{zoom:.86}
+  .state{white-space:normal;text-align:left;line-height:1.65}
+}
+@media (max-width:380px){.device{zoom:.79}}
+
+@media (prefers-reduced-motion:reduce){
+  .device.is-active{animation:none}
+  *{transition-duration:.01ms!important;animation-duration:.01ms!important}
+}
+</style>
+</head>
+<body>
+
+<!--
+  PROTOTYPE — throwaway. Question: what should the SpektraLab editor look like?
+  Three variants of the same screen, switchable via ?variant=A|B|C.
+  Run: python prototypes/serve.py
+-->
+<main class="proto">
+  <header class="proto-top">
+    <div>
+      <div class="proto-brand">SPEKTRALAB <span>/ UI PROTOTYPE</span></div>
+      <div class="proto-title">One editor, three visual languages.</div>
+    </div>
+    <div class="proto-meta">
+      <span class="proto-badge">THROWAWAY</span>
+      <span>390 × 844 · v1.3.3j</span>
+      <span id="variantName">A · Darkroom</span>
+    </div>
+  </header>
+
+  <div class="stage">
+
+    <!-- ================= A ================= -->
+    <section class="device is-active" data-style="a">
+      <div class="screen a-screen" data-tab="film">
+        <div class="status a-status"><span>9:41</span><span class="icons" aria-hidden="true"><svg width="13" height="8" viewBox="0 0 13 8"><rect x="0" y="5" width="1.8" height="3" rx=".4" fill="currentColor"/><rect x="3.4" y="3.4" width="1.8" height="4.6" rx=".4" fill="currentColor"/><rect x="6.8" y="1.8" width="1.8" height="6.2" rx=".4" fill="currentColor"/><rect x="10.2" y="0" width="1.8" height="8" rx=".4" fill="currentColor"/></svg><svg width="12" height="9" viewBox="0 0 12 9" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"><path d="M1.2 3.4a7.2 7.2 0 0 1 9.6 0"/><path d="M3.4 5.6a4.4 4.4 0 0 1 5.2 0"/><circle cx="6" cy="8" r=".7" fill="currentColor" stroke="none"/></svg><svg width="17" height="9" viewBox="0 0 17 9"><rect x=".5" y=".5" width="13.5" height="8" rx="2" fill="none" stroke="currentColor" opacity=".5"/><rect x="2" y="2" width="9.5" height="5" rx="1" fill="currentColor"/><path d="M15.2 3.2v2.6a1.4 1.4 0 0 0 0-2.6z" fill="currentColor" opacity=".6"/></svg></span></div>
+        <header class="a-head">
+          <span class="a-word">SPEKTRALAB</span>
+          <span class="a-frame">FRAME 07 — 36</span>
+          <button class="a-export">EXPORT ↗</button>
+        </header>
+
+        <div class="a-shot shot">
+          <img class="shot-img" src="assets/frame.jpg" alt="">
+          <div class="grain"></div><div class="halation"></div><div class="vignette"></div>
+          <div class="a-overlay-top">
+            <div class="a-stock" data-stock-name>Portra 400</div>
+            <div class="a-stock-meta" data-stock-meta>KODAK · 135 · ISO 400</div>
+          </div>
+          <div class="a-overlay-bottom">
+            <div><span class="a-ev" data-out="exposure">1.00</span><span class="a-ev-unit">EV</span></div>
+            <div class="a-spec">81 λ<br>16-BIT</div>
+            <button class="a-compare" data-compare>原图</button>
+          </div>
+          <div class="a-perf"></div>
+        </div>
+
+        <div class="a-source">
+          <button class="a-plus" aria-label="导入照片">＋</button>
+          <button class="a-thumb film is-active" data-film="portra" aria-label="Portra 400"><img src="assets/frame.jpg" alt=""></button>
+          <button class="a-thumb film" data-film="ektar" aria-label="Ektar 100"><img src="assets/frame.jpg" alt=""></button>
+          <button class="a-thumb film" data-film="hp5" aria-label="HP5 Plus"><img src="assets/frame.jpg" alt=""></button>
+          <button class="a-thumb film" data-film="cinestill" aria-label="CineStill 800T"><img src="assets/frame.jpg" alt=""></button>
+          <span class="a-count">04 / 04</span>
+        </div>
+
+        <nav class="a-tabs">
+          <button class="a-tab is-active" data-tab-btn="film"><b>01</b>胶片</button>
+          <button class="a-tab" data-tab-btn="optics"><b>02</b>光学</button>
+          <button class="a-tab" data-tab-btn="scale"><b>03</b>尺度</button>
+          <button class="a-tab" data-tab-btn="edge"><b>04</b>边框</button>
+        </nav>
+
+        <div class="a-panels">
+          <section class="a-panel" data-panel="film">
+            <div class="a-panel-head"><span>EMULSION / 胶片</span><b>06 STOCKS</b></div>
+            <div class="a-brands">
+              <button class="a-brand is-active">全部</button>
+              <button class="a-brand">KODAK</button>
+              <button class="a-brand">FUJI</button>
+              <button class="a-brand">ILFORD</button>
+            </div>
+            <div class="a-films">
+              <button class="a-film film" data-film="original"><span class="a-film-img"><img src="assets/frame.jpg" alt=""></span><span class="a-film-name">原图</span></button>
+              <button class="a-film film is-active" data-film="portra"><span class="a-film-img"><img src="assets/frame.jpg" alt="" style="filter:saturate(.92) contrast(.98) sepia(.08)"></span><span class="a-film-name">Portra 400</span></button>
+              <button class="a-film film" data-film="ektar"><span class="a-film-img"><img src="assets/frame.jpg" alt="" style="filter:saturate(1.18) contrast(1.08)"></span><span class="a-film-name">Ektar 100</span></button>
+              <button class="a-film film" data-film="pro400h"><span class="a-film-img"><img src="assets/frame.jpg" alt="" style="filter:saturate(.86) brightness(1.04) hue-rotate(-8deg)"></span><span class="a-film-name">Pro 400H</span></button>
+              <button class="a-film film" data-film="hp5"><span class="a-film-img"><img src="assets/frame.jpg" alt="" style="filter:grayscale(1) contrast(1.14)"></span><span class="a-film-name">HP5 Plus</span></button>
+              <button class="a-film film" data-film="cinestill"><span class="a-film-img"><img src="assets/frame.jpg" alt="" style="filter:saturate(1.06) hue-rotate(-10deg)"></span><span class="a-film-name">CineStill 800T</span></button>
+            </div>
+            <div class="a-note" data-stock-note>Kodak's portrait negative: warm skin, muted greens, fine grain.</div>
+            <div class="a-process"><i></i><span>PROCESS / 自动配光</span><b>spk_solve · BOTH</b></div>
+            <div class="a-paper"><span>PAPER</span><b>Kodak Portra Endura</b><i>↓</i></div>
+          </section>
+
+          <section class="a-panel" data-panel="optics" hidden>
+            <div class="a-panel-head"><span>OPTICS / 光学调整</span><b>LIVE</b></div>
+            <div class="a-range"><div class="a-range-top"><label>放大机曝光</label><output data-out="exposure">1.00</output></div><input type="range" data-var="exposure" min=".25" max="4" step=".01" value="1"></div>
+            <div class="a-range"><div class="a-range-top"><label>颗粒</label><output data-out="grain">0.65</output></div><input type="range" data-var="grain" min="0" max="2" step=".01" value=".65"></div>
+            <div class="a-range"><div class="a-range-top"><label>光晕</label><output data-out="halation">0.40</output></div><input type="range" data-var="halation" min="0" max="4" step=".01" value=".4"></div>
+            <div class="a-range"><div class="a-range-top"><label>眩光</label><output data-out="glare">2.00</output></div><input type="range" data-var="glare" min="0" max="12" step=".01" value="2"></div>
+          </section>
+
+          <section class="a-panel" data-panel="scale" hidden>
+            <div class="a-panel-head"><span>PHYSICAL SCALE / 光学尺度</span><b>135</b></div>
+            <div class="a-formats">
+              <button class="a-format is-active"><b>36<span>mm</span></b><span>135 全画幅</span></button>
+              <button class="a-format"><b>56<span>mm</span></b><span>645</span></button>
+              <button class="a-format"><b>70<span>mm</span></b><span>6×7</span></button>
+            </div>
+            <div class="a-paper"><span>GRAIN SCALE</span><b>不裁切构图</b><i>→</i></div>
+          </section>
+
+          <section class="a-panel" data-panel="edge" hidden>
+            <div class="a-panel-head"><span>FILM EDGE / 边框</span><b>ON</b></div>
+            <div class="a-switch"><div><b>片边</b><span>135 全画幅 · REBATE</span></div><button class="a-toggle is-on" aria-label="片边开关"></button></div>
+            <div class="a-switch"><div><b>日期后背</b><span>1998 07 14 · QUARTZ</span></div><button class="a-toggle" aria-label="日期后背开关"></button></div>
+            <div class="a-switch"><div><b>半格拼接</b><span>2 × 18 MM</span></div><button class="a-toggle" aria-label="半格拼接开关"></button></div>
+          </section>
+        </div>
+      </div>
+
+      <div class="caption">
+        <div class="cap-top"><span class="cap-num">01</span><h2>Darkroom</h2><span class="cap-tag">FWA</span></div>
+        <p>安全灯琥珀配炭黑。画面占满整个屏幕，控件像胶卷与放大机。</p>
+        <div class="swatches"><i style="background:#0a0b09"></i><i style="background:#f1eee5"></i><i style="background:#ff8551"></i><i style="background:#2a2d24"></i></div>
+      </div>
+    </section>
+
+    <!-- ================= B ================= -->
+    <section class="device" data-style="b">
+      <div class="screen b-screen" data-tab="film">
+        <div class="status b-status"><span>9:41</span><span class="icons" aria-hidden="true"><svg width="13" height="8" viewBox="0 0 13 8"><rect x="0" y="5" width="1.8" height="3" rx=".4" fill="currentColor"/><rect x="3.4" y="3.4" width="1.8" height="4.6" rx=".4" fill="currentColor"/><rect x="6.8" y="1.8" width="1.8" height="6.2" rx=".4" fill="currentColor"/><rect x="10.2" y="0" width="1.8" height="8" rx=".4" fill="currentColor"/></svg><svg width="12" height="9" viewBox="0 0 12 9" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"><path d="M1.2 3.4a7.2 7.2 0 0 1 9.6 0"/><path d="M3.4 5.6a4.4 4.4 0 0 1 5.2 0"/><circle cx="6" cy="8" r=".7" fill="currentColor" stroke="none"/></svg><svg width="17" height="9" viewBox="0 0 17 9"><rect x=".5" y=".5" width="13.5" height="8" rx="2" fill="none" stroke="currentColor" opacity=".5"/><rect x="2" y="2" width="9.5" height="5" rx="1" fill="currentColor"/><path d="M15.2 3.2v2.6a1.4 1.4 0 0 0 0-2.6z" fill="currentColor" opacity=".6"/></svg></span></div>
+        <header class="b-head">
+          <span class="b-word">Spektra<em>Lab</em></span>
+          <span class="b-no">No. 07 / 36<br>135 · 400</span>
+          <button class="b-export">EXPORT ↗</button>
+        </header>
+
+        <div class="b-print">
+          <div class="b-frame shot">
+            <img class="shot-img" src="assets/frame.jpg" alt="">
+            <div class="grain"></div><div class="halation"></div><div class="vignette"></div>
+            <button class="b-compare" data-compare>按住看原图</button>
+          </div>
+          <div class="b-caption">
+            <div>
+              <span class="b-stock" data-stock-full>Kodak Portra 400</span>
+              <span class="b-meta" data-stock-meta>KODAK · 135 · ISO 400</span>
+            </div>
+            <span class="b-no2">FRAME 07</span>
+          </div>
+        </div>
+
+        <div class="b-strip">
+          <button class="b-plus" aria-label="导入照片">＋</button>
+          <button class="b-thumb film is-active" data-film="portra" aria-label="Portra 400"><img src="assets/frame.jpg" alt=""><span>01</span></button>
+          <button class="b-thumb film" data-film="ektar" aria-label="Ektar 100"><img src="assets/frame.jpg" alt="" style="filter:saturate(1.18) contrast(1.08)"><span>02</span></button>
+          <button class="b-thumb film" data-film="hp5" aria-label="HP5 Plus"><img src="assets/frame.jpg" alt="" style="filter:grayscale(1) contrast(1.14)"><span>03</span></button>
+          <button class="b-thumb film" data-film="cinestill" aria-label="CineStill 800T"><img src="assets/frame.jpg" alt="" style="filter:saturate(1.06) hue-rotate(-10deg)"><span>04</span></button>
+          <span class="b-lead">CONTACT<br>SHEET</span>
+        </div>
+
+        <nav class="b-tabs">
+          <button class="b-tab is-active" data-tab-btn="film"><b>01</b>胶片</button>
+          <button class="b-tab" data-tab-btn="optics"><b>02</b>光学</button>
+          <button class="b-tab" data-tab-btn="scale"><b>03</b>尺度</button>
+          <button class="b-tab" data-tab-btn="edge"><b>04</b>边框</button>
+        </nav>
+
+        <div class="b-panels">
+          <section class="b-panel" data-panel="film">
+            <div class="b-panel-head"><span>EMULSION</span><b>06 STOCKS</b></div>
+            <div class="b-brands">
+              <button class="b-brand is-active">全部</button>
+              <button class="b-brand">KODAK</button>
+              <button class="b-brand">FUJI</button>
+              <button class="b-brand">ILFORD</button>
+            </div>
+            <div class="b-sheet">
+              <button class="b-card film" data-film="original"><span class="b-card-img"><img src="assets/frame.jpg" alt=""></span><span class="b-card-foot"><b>01</b><span>原图</span></span></button>
+              <button class="b-card film is-active" data-film="portra"><span class="b-card-img"><img src="assets/frame.jpg" alt="" style="filter:saturate(.92) contrast(.98) sepia(.08)"></span><span class="b-card-foot"><b>02</b><span>Portra 400</span></span></button>
+              <button class="b-card film" data-film="ektar"><span class="b-card-img"><img src="assets/frame.jpg" alt="" style="filter:saturate(1.18) contrast(1.08)"></span><span class="b-card-foot"><b>03</b><span>Ektar 100</span></span></button>
+              <button class="b-card film" data-film="pro400h"><span class="b-card-img"><img src="assets/frame.jpg" alt="" style="filter:saturate(.86) brightness(1.04) hue-rotate(-8deg)"></span><span class="b-card-foot"><b>04</b><span>Pro 400H</span></span></button>
+              <button class="b-card film" data-film="hp5"><span class="b-card-img"><img src="assets/frame.jpg" alt="" style="filter:grayscale(1) contrast(1.14)"></span><span class="b-card-foot"><b>05</b><span>HP5 Plus</span></span></button>
+              <button class="b-card film" data-film="cinestill"><span class="b-card-img"><img src="assets/frame.jpg" alt="" style="filter:saturate(1.06) hue-rotate(-10deg)"></span><span class="b-card-foot"><b>06</b><span>CineStill 800T</span></span></button>
+            </div>
+            <div class="b-paper"><span>PAPER</span><b>Kodak Portra Endura</b><i>↓</i></div>
+          </section>
+
+          <section class="b-panel" data-panel="optics" hidden>
+            <div class="b-panel-head"><span>OPTICS</span><b>LIVE</b></div>
+            <div class="b-range"><div class="b-range-top"><label>放大机曝光</label><output data-out="exposure">1.00</output></div><input type="range" data-var="exposure" min=".25" max="4" step=".01" value="1"></div>
+            <div class="b-range"><div class="b-range-top"><label>颗粒</label><output data-out="grain">0.65</output></div><input type="range" data-var="grain" min="0" max="2" step=".01" value=".65"></div>
+            <div class="b-range"><div class="b-range-top"><label>光晕</label><output data-out="halation">0.40</output></div><input type="range" data-var="halation" min="0" max="4" step=".01" value=".4"></div>
+            <div class="b-range"><div class="b-range-top"><label>眩光</label><output data-out="glare">2.00</output></div><input type="range" data-var="glare" min="0" max="12" step=".01" value="2"></div>
+          </section>
+
+          <section class="b-panel" data-panel="scale" hidden>
+            <div class="b-panel-head"><span>PHYSICAL SCALE</span><b>135</b></div>
+            <div class="b-formats">
+              <button class="b-format is-active"><b>36<span>mm</span></b><span>135 全画幅</span><em>SELECTED</em></button>
+              <button class="b-format"><b>56<span>mm</span></b><span>645</span><em>120</em></button>
+              <button class="b-format"><b>70<span>mm</span></b><span>6×7</span><em>120</em></button>
+            </div>
+          </section>
+
+          <section class="b-panel" data-panel="edge" hidden>
+            <div class="b-panel-head"><span>FILM EDGE</span><b>ON</b></div>
+            <div class="b-switch"><div><b>片边</b><span>135 全画幅 · REBATE</span></div><button class="b-toggle is-on" aria-label="片边开关"></button></div>
+            <div class="b-switch"><div><b>日期后背</b><span>1998 07 14 · QUARTZ</span></div><button class="b-toggle" aria-label="日期后背开关"></button></div>
+            <div class="b-switch"><div><b>半格拼接</b><span>2 × 18 MM</span></div><button class="b-toggle" aria-label="半格拼接开关"></button></div>
+          </section>
+        </div>
+      </div>
+
+      <div class="caption">
+        <div class="cap-top"><span class="cap-num">02</span><h2>Contact Sheet</h2><span class="cap-tag">AWWWARDS</span></div>
+        <p>暖纸、蜡笔圈选、印刷校样。应用像一张刚冲好的接触印相。</p>
+        <div class="swatches"><i style="background:#f2eee3"></i><i style="background:#16150f"></i><i style="background:#1e3a8a"></i><i style="background:#c33b25"></i></div>
+      </div>
+    </section>
+
+    <!-- ================= C ================= -->
+    <section class="device" data-style="c">
+      <div class="screen c-screen" data-tab="film">
+        <div class="status c-status"><span>9:41</span><span class="icons" aria-hidden="true"><svg width="13" height="8" viewBox="0 0 13 8"><rect x="0" y="5" width="1.8" height="3" rx=".4" fill="currentColor"/><rect x="3.4" y="3.4" width="1.8" height="4.6" rx=".4" fill="currentColor"/><rect x="6.8" y="1.8" width="1.8" height="6.2" rx=".4" fill="currentColor"/><rect x="10.2" y="0" width="1.8" height="8" rx=".4" fill="currentColor"/></svg><svg width="12" height="9" viewBox="0 0 12 9" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"><path d="M1.2 3.4a7.2 7.2 0 0 1 9.6 0"/><path d="M3.4 5.6a4.4 4.4 0 0 1 5.2 0"/><circle cx="6" cy="8" r=".7" fill="currentColor" stroke="none"/></svg><svg width="17" height="9" viewBox="0 0 17 9"><rect x=".5" y=".5" width="13.5" height="8" rx="2" fill="none" stroke="currentColor" opacity=".5"/><rect x="2" y="2" width="9.5" height="5" rx="1" fill="currentColor"/><path d="M15.2 3.2v2.6a1.4 1.4 0 0 0 0-2.6z" fill="currentColor" opacity=".6"/></svg></span></div>
+        <header class="c-head">
+          <span class="c-word">SPEKTRALAB<span> / MOBILE</span></span>
+          <button class="c-export">EXPORT ↗</button>
+          <span class="c-live">RAW · 16 BIT</span>
+        </header>
+
+        <div class="c-canvas shot">
+          <img class="shot-img" src="assets/frame.jpg" alt="">
+          <div class="grain"></div><div class="halation"></div><div class="vignette"></div>
+          <div class="c-grid"></div>
+          <div class="c-rail"><span class="w1">380</span><span class="w2">550</span><span class="w3">780</span></div>
+          <div class="c-tag">PREVIEW 390 × 430 · FIT</div>
+          <button class="c-compare" data-compare>HOLD · ORIGINAL</button>
+          <div class="c-canvas-foot"><span>POOL <b>2.7 GB</b> · 12 B/PX</span><span>81 λ · 16-BIT</span></div>
+        </div>
+
+        <div class="c-source">
+          <button class="c-plus" aria-label="导入照片">＋</button>
+          <button class="c-thumb film is-active" data-film="portra" aria-label="Portra 400"><img src="assets/frame.jpg" alt=""></button>
+          <button class="c-thumb film" data-film="ektar" aria-label="Ektar 100"><img src="assets/frame.jpg" alt="" style="filter:saturate(1.18) contrast(1.08)"></button>
+          <button class="c-thumb film" data-film="hp5" aria-label="HP5 Plus"><img src="assets/frame.jpg" alt="" style="filter:grayscale(1) contrast(1.14)"></button>
+          <button class="c-thumb film" data-film="cinestill" aria-label="CineStill 800T"><img src="assets/frame.jpg" alt="" style="filter:saturate(1.06) hue-rotate(-10deg)"></button>
+          <span class="c-readout">04 FRAMES<br>2.1 GB FREE</span>
+        </div>
+
+        <nav class="c-tabs">
+          <button class="c-tab is-active" data-tab-btn="film">FILM</button>
+          <button class="c-tab" data-tab-btn="optics">OPTICS</button>
+          <button class="c-tab" data-tab-btn="scale">SCALE</button>
+          <button class="c-tab" data-tab-btn="edge">EDGE</button>
+        </nav>
+
+        <div class="c-panels">
+          <section class="c-panel" data-panel="film">
+            <div class="c-panel-head"><span>EMULSION</span><b data-stock-name-top>PORTRA 400</b></div>
+            <div class="c-stocks">
+              <button class="c-stock film is-active" data-film="portra"><b>P400</b><span>Portra 400</span></button>
+              <button class="c-stock film" data-film="ektar"><b>E100</b><span>Ektar 100</span></button>
+              <button class="c-stock film" data-film="pro400h"><b>400H</b><span>Pro 400H</span></button>
+              <button class="c-stock film" data-film="hp5"><b>HP5</b><span>HP5 Plus</span></button>
+              <button class="c-stock film" data-film="cinestill"><b>800T</b><span>CineStill</span></button>
+            </div>
+            <div class="c-ranges">
+              <div class="c-range"><div class="c-range-top"><label>EXPOSURE</label><output data-out="exposure">1.00</output></div><input type="range" data-var="exposure" min=".25" max="4" step=".01" value="1"></div>
+              <div class="c-range"><div class="c-range-top"><label>GRAIN</label><output data-out="grain">0.65</output></div><input type="range" data-var="grain" min="0" max="2" step=".01" value=".65"></div>
+              <div class="c-range"><div class="c-range-top"><label>HALATION</label><output data-out="halation">0.40</output></div><input type="range" data-var="halation" min="0" max="4" step=".01" value=".4"></div>
+              <div class="c-range"><div class="c-range-top"><label>GLARE</label><output data-out="glare">2.00</output></div><input type="range" data-var="glare" min="0" max="12" step=".01" value="2"></div>
+            </div>
+          </section>
+
+          <section class="c-panel" data-panel="optics" hidden>
+            <div class="c-panel-head"><span>OPTICS</span><b>CALIBRATED</b></div>
+            <div class="c-ranges">
+              <div class="c-range"><div class="c-range-top"><label>ENLARGER EXPOSURE</label><output data-out="exposure">1.00</output></div><input type="range" data-var="exposure" min=".25" max="4" step=".01" value="1"></div>
+              <div class="c-range"><div class="c-range-top"><label>GRAIN</label><output data-out="grain">0.65</output></div><input type="range" data-var="grain" min="0" max="2" step=".01" value=".65"></div>
+              <div class="c-range"><div class="c-range-top"><label>HALATION</label><output data-out="halation">0.40</output></div><input type="range" data-var="halation" min="0" max="4" step=".01" value=".4"></div>
+              <div class="c-range"><div class="c-range-top"><label>GLARE</label><output data-out="glare">2.00</output></div><input type="range" data-var="glare" min="0" max="12" step=".01" value="2"></div>
+            </div>
+          </section>
+
+          <section class="c-panel" data-panel="scale" hidden>
+            <div class="c-panel-head"><span>PHYSICAL SCALE</span><b>36 MM</b></div>
+            <div class="c-scales">
+              <button class="c-scale-row is-active"><span>135 FULL FRAME</span><b>36.00</b><i>mm</i></button>
+              <button class="c-scale-row"><span>645</span><b>56.00</b><i>mm</i></button>
+              <button class="c-scale-row"><span>6 × 7</span><b>70.00</b><i>mm</i></button>
+            </div>
+          </section>
+
+          <section class="c-panel" data-panel="edge" hidden>
+            <div class="c-panel-head"><span>FILM EDGE</span><b>135 / ON</b></div>
+            <div class="a-switch" style="border-color:#1d2325"><div><b style="color:#e6ece7;font-family:'Space Grotesk'">REBATE / 片边</b><span style="color:#7e8983;font-family:'IBM Plex Mono'">135 FULL FRAME</span></div><button class="c-toggle is-on" aria-label="片边开关"></button></div>
+            <div class="a-switch" style="border-color:#1d2325"><div><b style="color:#e6ece7;font-family:'Space Grotesk'">DATE BACK / 日期</b><span style="color:#7e8983;font-family:'IBM Plex Mono'">1998 07 14</span></div><button class="c-toggle" aria-label="日期后背开关"></button></div>
+          </section>
+        </div>
+
+        <div class="c-foot">
+          <span>PAPER</span><b>Portra Endura</b>
+          <button class="c-run">RENDER · 8.2s</button>
+        </div>
+      </div>
+
+      <div class="caption">
+        <div class="cap-top"><span class="cap-num">03</span><h2>Instrument</h2><span class="cap-tag">WEBBY</span></div>
+        <p>石墨黑与荧光绿。每个控件都可校准，每个数字都可见，像一台光学仪器。</p>
+        <div class="swatches"><i style="background:#0d0f10"></i><i style="background:#e6ece7"></i><i style="background:#b6ef4a"></i><i style="background:#262c30"></i></div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<footer class="proto-foot">PHOTO: LOREM PICSUM · TYPE: ARCHIVO / INSTRUMENT SERIF / SPACE GROTESK</footer>
+
+<nav class="switcher" id="switcher" aria-label="Prototype variants">
+  <div class="switcher-row">
+    <button class="nav-arrow" id="prevVariant" aria-label="上一个方案">‹</button>
+    <div class="variant-label"><b id="variantKey">A</b><span id="variantLabel">Darkroom</span></div>
+    <button class="nav-arrow" id="nextVariant" aria-label="下一个方案">›</button>
+  </div>
+  <div class="state" id="state" aria-live="polite"></div>
+</nav>
+
+<script>
+(function () {
+  'use strict';
+  var FILMS = {
+    original: { name: 'Original',     full: '原图',            meta: 'NO EMULSION · 0 λ',        filter: 'none',                                              hal: 0.08, note: 'No emulsion. The decoded frame, before any film or paper.' },
+    portra:   { name: 'Portra 400',   full: 'Kodak Portra 400', meta: 'KODAK · 135 · ISO 400',   filter: 'saturate(.92) contrast(.98) sepia(.08)',             hal: 0.34, note: "Kodak's portrait negative: warm skin, muted greens, fine grain." },
+    ektar:    { name: 'Ektar 100',    full: 'Kodak Ektar 100',  meta: 'KODAK · 135 · ISO 100',   filter: 'saturate(1.18) contrast(1.08) hue-rotate(-4deg)',   hal: 0.22, note: "Kodak's vivid negative: saturated reds, tight grain, high contrast." },
+    pro400h:  { name: 'Pro 400H',     full: 'Fujifilm Pro 400H',meta: 'FUJIFILM · 135 · ISO 400',filter: 'saturate(.86) brightness(1.04) hue-rotate(-8deg)',  hal: 0.30, note: "Fujifilm's portrait negative: cool shadows, soft greens." },
+    hp5:      { name: 'HP5 Plus',     full: 'Ilford HP5 Plus',  meta: 'ILFORD · 135 · ISO 400',  filter: 'grayscale(1) contrast(1.14)',                        hal: 0.16, note: "Ilford's pushable B&W: broad midtones, visible grain." },
+    cinestill:{ name: 'CineStill 800T',full: 'CineStill 800T',  meta: 'CINESTILL · 135 · ISO 800',filter: 'saturate(1.06) contrast(1.04) hue-rotate(-10deg) brightness(.97)', hal: 0.72, note: 'Tungsten-balanced cinema film: cyan shadows, halation on highlights.' }
+  };
+
+  var GRADE = {
+    a: 'saturate(1.05) contrast(1.02)',
+    b: 'saturate(.90) brightness(1.03)',
+    c: 'saturate(.86) contrast(1.08)'
+  };
+
+  var BRAND_OF = { original: 'all', portra: 'kodak', ektar: 'kodak', pro400h: 'fuji', hp5: 'ilford', cinestill: 'cinestill' };
+  var BRAND_KEYS = { '全部': 'all', 'KODAK': 'kodak', 'FUJI': 'fuji', 'ILFORD': 'ilford' };
+
+  function initScreen(root) {
+    var device = root.closest('.device');
+    var style = device ? device.getAttribute('data-style') : 'a';
+    var state = { film: 'portra', exposure: 1, grain: .65, halation: .4, glare: 2 };
+    var shotImg = root.querySelector('.shot-img');
+    var grain = root.querySelector('.grain');
+    var halation = root.querySelector('.halation');
+
+    function paint() {
+      var f = FILMS[state.film] || FILMS.portra;
+      var brightness = (0.55 + state.exposure * 0.45).toFixed(3);
+      var base = GRADE[style] || '';
+      var film = f.filter === 'none' ? '' : f.filter + ' ';
+      var filter = (base ? base + ' ' : '') + film + 'brightness(' + brightness + ')';
+      shotImg.style.filter = filter;
+      if (grain) grain.style.opacity = (0.025 + state.grain * 0.085).toFixed(3);
+      if (halation) halation.style.opacity = (f.hal * 0.32 + state.halation * 0.07 + state.glare * 0.008).toFixed(3);
+
+      root.querySelectorAll('[data-stock-name]').forEach(function (el) { el.textContent = f.name; });
+      root.querySelectorAll('[data-stock-full]').forEach(function (el) { el.textContent = f.full; });
+      root.querySelectorAll('[data-stock-meta]').forEach(function (el) { el.textContent = f.meta; });
+      var top = root.querySelector('[data-stock-name-top]');
+      if (top) top.textContent = f.name.toUpperCase();
+      var note = root.querySelector('[data-stock-note]');
+      if (note) note.textContent = f.note;
+
+      root.querySelectorAll('[data-out]').forEach(function (el) {
+        var key = el.getAttribute('data-out');
+        if (key in state) el.textContent = Number(state[key]).toFixed(2);
+      });
+    }
+
+    root.querySelectorAll('[data-film]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.film = btn.getAttribute('data-film');
+        root.querySelectorAll('[data-film]').forEach(function (b) {
+          b.classList.toggle('is-active', b.getAttribute('data-film') === state.film);
+        });
+        paint();
+        syncState();
+      });
+    });
+
+    root.querySelectorAll('[data-tab-btn]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var tab = btn.getAttribute('data-tab-btn');
+        root.setAttribute('data-tab', tab);
+        root.querySelectorAll('[data-tab-btn]').forEach(function (b) {
+          b.classList.toggle('is-active', b.getAttribute('data-tab-btn') === tab);
+        });
+        root.querySelectorAll('[data-panel]').forEach(function (p) {
+          p.hidden = p.getAttribute('data-panel') !== tab;
+        });
+        syncState();
+      });
+    });
+
+    root.querySelectorAll('input[data-var]').forEach(function (input) {
+      input.addEventListener('input', function () {
+        var key = input.getAttribute('data-var');
+        state[key] = parseFloat(input.value);
+        root.querySelectorAll('input[data-var="' + key + '"]').forEach(function (other) {
+          if (other !== input) other.value = input.value;
+        });
+        paint();
+        syncState();
+      });
+    });
+
+    root.querySelectorAll('[data-compare]').forEach(function (btn) {
+      var down = function (e) { e.preventDefault(); root.classList.add('is-original'); };
+      var up = function () { root.classList.remove('is-original'); };
+      btn.addEventListener('pointerdown', down);
+      btn.addEventListener('pointerup', up);
+      btn.addEventListener('pointerleave', up);
+      btn.addEventListener('pointercancel', up);
+    });
+
+    root.querySelectorAll('.a-toggle, .b-toggle, .c-toggle').forEach(function (t) {
+      t.addEventListener('click', function () {
+        t.classList.toggle('is-on');
+        syncState();
+      });
+    });
+
+    root.querySelectorAll('.a-brand, .b-brand').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var key = BRAND_KEYS[btn.textContent.trim()] || 'all';
+        root.querySelectorAll('.a-brand, .b-brand').forEach(function (b) {
+          b.classList.toggle('is-active', b === btn);
+        });
+        root.querySelectorAll('.a-film, .b-card').forEach(function (card) {
+          card.hidden = key !== 'all' && BRAND_OF[card.getAttribute('data-film')] !== key;
+        });
+        syncState();
+      });
+    });
+
+    root.querySelectorAll('.a-format, .b-format, .c-scale-row').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var group = btn.classList.contains('a-format') ? '.a-format'
+          : btn.classList.contains('b-format') ? '.b-format' : '.c-scale-row';
+        root.querySelectorAll(group).forEach(function (b) {
+          b.classList.toggle('is-active', b === btn);
+        });
+        syncState();
+      });
+    });
+
+    paint();
+  }
+
+  document.querySelectorAll('.screen').forEach(initScreen);
+
+  // ---- prototype switcher (throwaway; never ships) ----------------------
+  var PROTOTYPE_ONLY = !/(^|\.)spektralab\.workshop\.skin$/.test(location.hostname);
+  var VARIANTS = {
+    A: { style: 'a', name: 'Darkroom' },
+    B: { style: 'b', name: 'Contact Sheet' },
+    C: { style: 'c', name: 'Instrument' }
+  };
+  var ORDER = ['A', 'B', 'C'];
+  var current = 'A';
+
+  function syncState() {
+    var screen = document.querySelector('.device.is-active .screen');
+    if (!screen) return;
+    var tab = screen.getAttribute('data-tab') || 'film';
+    var activeFilm = screen.querySelector('[data-film].is-active');
+    var filmKey = activeFilm ? activeFilm.getAttribute('data-film') : 'portra';
+    var film = (FILMS[filmKey] || FILMS.portra).name;
+    var values = {};
+    screen.querySelectorAll('input[data-var]').forEach(function (input) {
+      values[input.getAttribute('data-var')] = parseFloat(input.value);
+    });
+    var edge = screen.querySelectorAll('.a-toggle.is-on, .b-toggle.is-on, .c-toggle.is-on').length;
+    var brandBtn = screen.querySelector('.a-brand.is-active, .b-brand.is-active');
+    var brand = brandBtn ? brandBtn.textContent.trim() : '';
+    var scaleBtn = screen.querySelector('.a-format.is-active, .b-format.is-active, .c-scale-row.is-active');
+    var scale = scaleBtn ? scaleBtn.textContent.replace(/\s+/g, ' ').trim() : '';
+    var parts = [
+      'TAB ' + tab.toUpperCase(),
+      'FILM ' + film,
+      'EXP ' + Number(values.exposure || 0).toFixed(2),
+      'GRAIN ' + Number(values.grain || 0).toFixed(2),
+      'HAL ' + Number(values.halation || 0).toFixed(2),
+      'GLARE ' + Number(values.glare || 0).toFixed(2)
+    ];
+    if (brand) parts.push('BRAND ' + brand);
+    if (scale) parts.push('SCALE ' + scale);
+    parts.push('EDGE ' + edge + ' ON');
+    document.getElementById('state').textContent = parts.join(' · ');
+  }
+
+  function show(key, updateUrl) {
+    if (!VARIANTS[key]) key = 'A';
+    current = key;
+    document.querySelectorAll('.device').forEach(function (device) {
+      device.classList.toggle('is-active', device.getAttribute('data-style') === VARIANTS[key].style);
+    });
+    document.getElementById('variantKey').textContent = key;
+    document.getElementById('variantLabel').textContent = VARIANTS[key].name;
+    document.getElementById('variantName').textContent = key + ' · ' + VARIANTS[key].name;
+    document.title = key + ' · ' + VARIANTS[key].name + ' — SpektraLab UI prototype';
+    if (updateUrl) {
+      try {
+        var url = new URL(location.href);
+        url.searchParams.set('variant', key);
+        history.replaceState(null, '', url);
+      } catch (ignored) { /* file:// may refuse; the switch still works */ }
+    }
+    syncState();
+  }
+
+  function step(delta) {
+    var index = ORDER.indexOf(current);
+    show(ORDER[(index + delta + ORDER.length) % ORDER.length], true);
+  }
+
+  if (!PROTOTYPE_ONLY) {
+    document.getElementById('switcher').hidden = true;
+  } else {
+    document.getElementById('prevVariant').addEventListener('click', function () { step(-1); });
+    document.getElementById('nextVariant').addEventListener('click', function () { step(1); });
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      var target = event.target;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      event.preventDefault();
+      step(event.key === 'ArrowLeft' ? -1 : 1);
+    });
+  }
+
+  // Any control change is reflected in the state line, after its handler ran.
+  setTimeout(syncState, 0);
+
+  var initial = (new URLSearchParams(location.search).get('variant') || 'A').toUpperCase();
+  show(VARIANTS[initial] ? initial : 'A', false);
+})();
+</script>
+</body>
+</html>

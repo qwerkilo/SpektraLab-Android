@@ -1,8 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!--
+      Launch-only mirrors of Palette: the window is painted before the first
+      Java frame, so these four colours must match Palette.Role.BACKGROUND and
+      Palette.Role.SYSTEM_BAR_* for each Theme mode. Views never read them.
+    -->
     <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">#FFE3E3E0</item>
-        <item name="android:statusBarColor">#FFE3E3E0</item>
-        <item name="android:navigationBarColor">#FFE3E3E0</item>
+        <item name="android:windowBackground">#FFF1F1EE</item>
+        <item name="android:statusBarColor">#FF172174</item>
+        <item name="android:navigationBarColor">#FFF1F1EE</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+
+    <style name="AppTheme.Dark" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF0E120F</item>
+        <item name="android:statusBarColor">#FF070A08</item>
+        <item name="android:navigationBarColor">#FF0E120F</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>
