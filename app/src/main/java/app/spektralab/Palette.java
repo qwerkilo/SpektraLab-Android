@@ -114,18 +114,18 @@ public final class Palette {
         p.put(Role.INK, 0xFF171717);
         p.put(Role.MUTED_INK, 0xFF5E5E58);
         p.put(Role.LINE, 0xFF82827A);
-        p.put(Role.ACCENT, 0xFF1C2AA5);              // ink blue
-        p.put(Role.ACCENT_SOFT, 0xFFDCE1F4);
+        p.put(Role.ACCENT, 0xFF2F5D3A);              // deep safelight green
+        p.put(Role.ACCENT_SOFT, 0xFFDDE6DA);
         p.put(Role.SPECTRUM_RED, 0xFFA93226);
         p.put(Role.SPECTRUM_GREEN, 0xFF2E6B3A);
         p.put(Role.SPECTRUM_BLUE, 0xFF24479A);
         p.put(Role.ON_ACCENT, 0xFFF1F1EE);
-        p.put(Role.STAGE, 0xFF172174);               // deep blue surround
+        p.put(Role.STAGE, 0xFF121614);               // neutral dark surround
         p.put(Role.STAGE_INK, 0xFFF1F1EE);
-        p.put(Role.STAGE_BUSY, 0xE6172174);
-        p.put(Role.STAGE_SCRIM_TOP, 0xC9070C23);
-        p.put(Role.STAGE_SCRIM_MID, 0x66070C23);
-        p.put(Role.STAGE_SCRIM_END, 0x00070C23);
+        p.put(Role.STAGE_BUSY, 0xE6121614);
+        p.put(Role.STAGE_SCRIM_TOP, 0xC9050906);
+        p.put(Role.STAGE_SCRIM_MID, 0x66050906);
+        p.put(Role.STAGE_SCRIM_END, 0x00050906);
         p.put(Role.STAGE_DIVIDER, 0xB3F1F1EE);
         p.put(Role.STAGE_SHADOW, 0x99000000);
         p.put(Role.GUIDE_LINE, 0x26FFFFFF);
@@ -134,7 +134,7 @@ public final class Palette {
         p.put(Role.OVERLAY, 0xFF171717);
         p.put(Role.ON_OVERLAY, 0xFFF1F1EE);
         p.put(Role.MARK_OFF, 0x66171717);
-        p.put(Role.SYSTEM_BAR_STAGE, 0xFF172174);
+        p.put(Role.SYSTEM_BAR_STAGE, 0xFF121614);
         p.put(Role.SYSTEM_BAR_BACKGROUND, 0xFFF1F1EE);
         return p;
     }
