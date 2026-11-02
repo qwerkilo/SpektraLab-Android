@@ -13,6 +13,7 @@ public final class GateScaleCheck {
         everyShippedScaleSelectsItsGate();
         mismatchedPairsAreRejected();
         legacyScaleValuesNormaliseToMeasuredGate();
+        everyNormalisedPairIsValid();
         frameAspectFiltersGates();
 
         System.out.println("GateScaleCheck: " + checks + " checks passed");
@@ -75,6 +76,37 @@ public final class GateScaleCheck {
                 !GateScale.pairIsValid("120_6x17", 170f));
         require("6x17 normalises to 168 mm",
                 Math.abs(GateScale.resolve("120_6x17", 170f).longEdgeMm - 168f) < 0.001f);
+    }
+
+    /**
+     * Both panels send one pair to the engine. Whatever Gate id and Scale they
+     * start from -- including the legacy 70/120/170 mm pages and a missing or
+     * unknown Gate -- the normalised pair names a shipped Gate and that Gate's
+     * own measured edge, so no invalid layout leaves the UI.
+     */
+    private static void everyNormalisedPairIsValid() {
+        final float[] legacyEdges = {36f, 56f, 69.5f, 70f, 84f, 112f, 120f, 168f, 170f};
+        final String[] ids = {"135", "135_half", "135_xpan", "120_645", "120_6x6",
+                "120_6x7", "120_6x8", "120_6x9", "120_6x12", "120_6x17",
+                "120_made_up", null};
+        for (String id : ids) {
+            for (float edge : legacyEdges) {
+                final GateScale.Pair pair = GateScale.pair(id, edge);
+                require("pair(" + id + ", " + edge + ") has a gate", pair.gate != null);
+                require("pair(" + id + ", " + edge + ") uses the gate's edge",
+                        Math.abs(pair.longEdgeMm - pair.gate.longEdgeMm) < 0.001f);
+                require("pair(" + id + ", " + edge + ") is a valid layout",
+                        GateScale.pairIsValid(pair.gate.id, pair.longEdgeMm));
+            }
+        }
+        require("a legacy 170 mm 6x17 pair normalises to 168 mm",
+                Math.abs(GateScale.pair("120_6x17", 170f).longEdgeMm - 168f) < 0.001f);
+        require("a legacy 120 mm 6x12 pair normalises to 112 mm",
+                Math.abs(GateScale.pair("120_6x12", 120f).longEdgeMm - 112f) < 0.001f);
+        require("a legacy 70 mm 6x7 pair normalises to 69.5 mm",
+                Math.abs(GateScale.pair("120_6x7", 70f).longEdgeMm - 69.5f) < 0.001f);
+        require("a missing gate resolves from the scale",
+                "135".equals(GateScale.pair(null, 36f).gate.id));
     }
 
     private static void frameAspectFiltersGates() {
