@@ -61,7 +61,7 @@ Conventional commits, one concern each: `fix(native):`, `feat:`, `chore(update):
 
 ### Issue tracker
 
-Issues live in this repo's GitHub Issues (`qwerkilo/SpektraLab-Android`), managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in this repo's GitHub Issues (`qwerkilo/SpektraLab-Android`), managed with the `gh` CLI. See `docs/agents/issue-tracker.md`. Issues are currently disabled; use the local fallback described there.
 
 ### Triage labels
 
