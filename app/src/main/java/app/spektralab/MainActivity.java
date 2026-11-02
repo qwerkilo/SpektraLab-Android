@@ -25,6 +25,8 @@ import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.chip.Chip;
+import com.google.android.material.chip.ChipDrawable;
+import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.color.DynamicColors;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.materialswitch.MaterialSwitch;
@@ -345,9 +347,11 @@ public class MainActivity extends AppCompatActivity {
     /** The film panel's own views: brands, chips, curve, measured values, note. They
      *  read the current Look on every refresh; no field here is a second copy
      *  of `filmStock`. */
-    private LinearLayout brandRow, filmChipRow, filmMetricsRow;
+    private ChipGroup brandRow;
+    private LinearLayout filmChipRow, filmMetricsRow;
     private HorizontalScrollView filmChipScroll;
     private FilmCurveView filmCurve;
+    private MaterialCardView filmCurveCard;
     private TextView filmNote;
     /** One render at a time, whole sequence -- the engine's lock only covers a
      *  single call, so a queued render could otherwise swap parameters
@@ -372,6 +376,12 @@ public class MainActivity extends AppCompatActivity {
     /** Android's minimum touch target for a primary control. */
     private static final int MIN_TOUCH_DP = 48;
     private static final int SLIDER_HEIGHT_DP = 48;
+    /** The film shelf's M3 card: two M3 label lines fit without clipping. */
+    private static final int FILM_CARD_WIDTH_DP = 120;
+    private static final int FILM_CARD_HEIGHT_DP = 52;
+    private static final int FILM_CARD_GAP_DP = 8;
+    /** The curve's M3 surface; 76 dp keeps the panel's fixed 304 dp budget. */
+    private static final int FILM_CURVE_HEIGHT_DP = 76;
     /** 反馈群：the one place a user can reach a human. Shown once per build. */
     private static final String QQ_GROUP = "1134320449";
     private static final String PROMO_PREFS = "promo";
@@ -467,6 +477,10 @@ public class MainActivity extends AppCompatActivity {
                 new int[] { checked, unchecked });
     }
 
+    /** Replace a colour's alpha channel; RGB is kept. */
+    private static int withAlpha(int color, int alpha) {
+        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
+    }
     /** The window behind the first frame, so the launch never flashes paper in dark. */
     private void applyWindowPalette() {
         try {
@@ -678,15 +692,16 @@ public class MainActivity extends AppCompatActivity {
         updateStageReadoutWidths();
     }
 
-    /** Let the spectral curve own the film panel's spare height on tablets. */
+    /** Let the spectral curve's M3 surface own the film panel's spare height. */
     private void applyFilmCurveHeight(boolean wide) {
-        if (filmCurve == null) return;
+        final View surface = filmCurveCard != null ? filmCurveCard : filmCurve;
+        if (surface == null) return;
         LinearLayout.LayoutParams lp =
-                (LinearLayout.LayoutParams) filmCurve.getLayoutParams();
+                (LinearLayout.LayoutParams) surface.getLayoutParams();
         if (lp == null) return;
-        lp.height = wide ? 0 : dp(66);
+        lp.height = wide ? 0 : dp(FILM_CURVE_HEIGHT_DP);
         lp.weight = wide ? 1f : 0f;
-        filmCurve.setLayoutParams(lp);
+        surface.setLayoutParams(lp);
     }
 
     /** Keep the status line inside the stage when the stage is not full width. */
@@ -767,6 +782,13 @@ public class MainActivity extends AppCompatActivity {
         t.setText(mixedText(text));
         t.setIncludeFontPadding(false);
         return t;
+    }
+
+    /** Text with one M3 type role: size, tracking, and the brand family. */
+    private TextView m3Label(String text, M3Tokens.TypeRole role, int color, Typeface family) {
+        final TextView view = label(text, role.sizeSp, color, family);
+        view.setLetterSpacing(role.letterSpacingEm);
+        return view;
     }
 
     private View hairline(int color) {
@@ -880,9 +902,13 @@ public class MainActivity extends AppCompatActivity {
         private final android.graphics.Paint paint =
                 new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         private final android.graphics.Path path = new android.graphics.Path();
-        private final int surfaceColor, lineColor, mutedColor, scanColor;
+        private final int lineColor, mutedColor, scanColor;
         private final int[] seriesColors;
         private final float density;
+        /** The plot's labels and legend use one M3 type role, not ad-hoc sp. */
+        private final Typeface labelTypeface;
+        private final float labelSizePx;
+        private final float labelTracking;
         private SpectrumCurve curve = SpectrumCurve.unavailable();
         private String seriesLabel = "";
         private String emptyLabel = SpectrumCurve.UNAVAILABLE_LABEL;
@@ -891,18 +917,29 @@ public class MainActivity extends AppCompatActivity {
         private android.animation.ValueAnimator revealAnimator;
         private float reveal = 1f;
 
-        FilmCurveView(android.content.Context context, Palette palette) {
+        FilmCurveView(android.content.Context context, Palette palette, Typeface labelTypeface) {
             super(context);
             density = getResources().getDisplayMetrics().density;
-            surfaceColor = palette.color(Palette.Role.SURFACE_ELEVATED);
-            lineColor = palette.color(Palette.Role.LINE);
-            mutedColor = palette.color(Palette.Role.MUTED_INK);
-            scanColor = palette.color(Palette.Role.ACCENT);
+            lineColor = MaterialColors.getColor(context,
+                    com.google.android.material.R.attr.colorOutlineVariant,
+                    palette.color(Palette.Role.LINE));
+            mutedColor = MaterialColors.getColor(context,
+                    com.google.android.material.R.attr.colorOnSurfaceVariant,
+                    palette.color(Palette.Role.MUTED_INK));
+            scanColor = MaterialColors.getColor(context,
+                    com.google.android.material.R.attr.colorPrimary,
+                    palette.color(Palette.Role.ACCENT));
             seriesColors = new int[]{
                     palette.color(Palette.Role.SPECTRUM_RED),
                     palette.color(Palette.Role.SPECTRUM_GREEN),
                     palette.color(Palette.Role.SPECTRUM_BLUE),
             };
+            this.labelTypeface = labelTypeface == null ? Typeface.DEFAULT : labelTypeface;
+            this.labelSizePx = android.util.TypedValue.applyDimension(
+                    android.util.TypedValue.COMPLEX_UNIT_SP,
+                    M3Tokens.TypeRole.LABEL_SMALL.sizeSp,
+                    getResources().getDisplayMetrics());
+            this.labelTracking = M3Tokens.TypeRole.LABEL_SMALL.letterSpacingEm;
         }
 
         private float dp(float v) {
@@ -962,20 +999,20 @@ public class MainActivity extends AppCompatActivity {
         @Override protected void onDraw(android.graphics.Canvas canvas) {
             final float w = getWidth(), h = getHeight();
             final float pad = dp(8);
+            // The MaterialCardView behind this view owns the surface, its
+            // radius, and its ripple; the plot draws only its own ink.
             paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setColor(surfaceColor);
-            canvas.drawRoundRect(new android.graphics.RectF(0, 0, w, h), dp(2), dp(2), paint);
-
-            paint.setTypeface(android.graphics.Typeface.create("sans-serif", Typeface.NORMAL));
-            paint.setTextSize(dp(5.5f));
-            paint.setLetterSpacing(0.06f);
+            paint.setTypeface(labelTypeface);
+            paint.setTextSize(labelSizePx);
+            paint.setLetterSpacing(labelTracking);
             paint.setColor(mutedColor);
 
             final boolean available = curve.available();
             final String caption = available
                     ? seriesLabel + " \u00b7 " + curve.sampleCount() + " SMP"
                     : "SPECTRUM";
-            canvas.drawText(caption, pad, dp(9.5f), paint);
+            final float captionBaseline = pad + labelSizePx;
+            canvas.drawText(caption, pad, captionBaseline, paint);
 
             if (available) {
                 float legendRight = w - pad;
@@ -983,13 +1020,13 @@ public class MainActivity extends AppCompatActivity {
                     final String label = SpectrumCurve.channelLabel(channel);
                     final float labelWidth = paint.measureText(label);
                     paint.setColor(seriesColors[channel]);
-                    canvas.drawText(label, legendRight - labelWidth, dp(9.5f), paint);
+                    canvas.drawText(label, legendRight - labelWidth, captionBaseline, paint);
                     legendRight -= labelWidth + dp(6);
                 }
             }
 
-            final float top = dp(16);
-            final float bottom = h - dp(12);
+            final float top = captionBaseline + dp(6);
+            final float bottom = h - labelSizePx - dp(6);
             final float left = pad;
             final float right = w - pad;
 
@@ -1007,11 +1044,12 @@ public class MainActivity extends AppCompatActivity {
             if (!available) {
                 paint.setStyle(android.graphics.Paint.Style.FILL);
                 paint.setColor(mutedColor);
-                paint.setTextSize(dp(6.5f));
-                paint.setLetterSpacing(0.06f);
+                paint.setTypeface(labelTypeface);
+                paint.setTextSize(labelSizePx);
+                paint.setLetterSpacing(labelTracking);
                 final float textWidth = paint.measureText(emptyLabel);
                 canvas.drawText(emptyLabel, Math.max(pad, (w - textWidth) * 0.5f),
-                        (top + bottom) * 0.5f + dp(2), paint);
+                        (top + bottom) * 0.5f + labelSizePx * 0.35f, paint);
                 return;
             }
 
@@ -1078,12 +1116,14 @@ public class MainActivity extends AppCompatActivity {
 
             paint.setStyle(android.graphics.Paint.Style.FILL);
             paint.setColor(mutedColor);
-            paint.setTextSize(dp(5f));
-            paint.setLetterSpacing(0.04f);
+            paint.setTypeface(labelTypeface);
+            paint.setTextSize(labelSizePx);
+            paint.setLetterSpacing(labelTracking);
             final String lo = formatNm(curve.minNm());
             final String hi = formatNm(curve.maxNm()) + " nm";
-            canvas.drawText(lo, left, h - dp(2), paint);
-            canvas.drawText(hi, right - paint.measureText(hi), h - dp(2), paint);
+            final float xLabelBaseline = h - dp(4);
+            canvas.drawText(lo, left, xLabelBaseline, paint);
+            canvas.drawText(hi, right - paint.measureText(hi), xLabelBaseline, paint);
         }
 
         private static String formatNm(double nm) {
@@ -2264,9 +2304,12 @@ public class MainActivity extends AppCompatActivity {
         brandScroll.setHorizontalScrollBarEnabled(false);
         brandScroll.setClipToPadding(false);
         brandScroll.setFillViewport(false);
-        brandRow = new LinearLayout(this);
-        brandRow.setOrientation(LinearLayout.HORIZONTAL);
-        brandRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        brandRow = new ChipGroup(this);
+        brandRow.setSingleLine(true);
+        brandRow.setSingleSelection(true);
+        brandRow.setSelectionRequired(true);
+        brandRow.setChipSpacingHorizontal(dp(4));
+        brandRow.setChipSpacingVertical(0);
         brandScroll.addView(brandRow, new android.widget.FrameLayout.LayoutParams(-2, -2));
         panel.addView(brandScroll, new LinearLayout.LayoutParams(-1, dp(MIN_TOUCH_DP)));
 
@@ -2278,10 +2321,23 @@ public class MainActivity extends AppCompatActivity {
         filmChipRow.setOrientation(LinearLayout.HORIZONTAL);
         filmChipRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
         filmChipScroll.addView(filmChipRow, new android.widget.FrameLayout.LayoutParams(-2, -1));
-        panel.addView(filmChipScroll, new LinearLayout.LayoutParams(-1, dp(48)));
+        panel.addView(filmChipScroll, new LinearLayout.LayoutParams(-1, dp(FILM_CARD_HEIGHT_DP)));
 
-        filmCurve = new FilmCurveView(this, palette);
-        panel.addView(filmCurve, new LinearLayout.LayoutParams(-1, dp(66)));
+        // The plot is a custom view inside a real M3 card: the surface, radius,
+        // and outline are Material's; ticket 08 owns the plot's geometry.
+        filmCurveCard = new MaterialCardView(this);
+        filmCurveCard.setCardElevation(0f);
+        filmCurveCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
+        filmCurveCard.setCardBackgroundColor(m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainer,
+                Palette.Role.SURFACE_ELEVATED));
+        filmCurveCard.setStrokeWidth(dp(1));
+        filmCurveCard.setStrokeColor(m3Role(
+                com.google.android.material.R.attr.colorOutlineVariant,
+                Palette.Role.LINE));
+        filmCurve = new FilmCurveView(this, palette, tfBody);
+        filmCurveCard.addView(filmCurve, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        panel.addView(filmCurveCard, new LinearLayout.LayoutParams(-1, dp(FILM_CURVE_HEIGHT_DP)));
 
         filmMetricsRow = new LinearLayout(this);
         filmMetricsRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -2345,23 +2401,15 @@ public class MainActivity extends AppCompatActivity {
         addFilmChip("original", "原图", "ORIGINAL", showingOriginal);
 
         // The active stock is the one the curve and the readout describe. If
-        // another brand is selected, pin it first so the shelf never hides the
-        // Look that is still in force.
-        final int active = filmStock == null || showingOriginal
-                ? -1 : filmIds.indexOf(filmStock);
-        final boolean pinnedActive = active >= 0
-                && !FilmBrand.matches(filmStock, brandFilter);
-        if (pinnedActive) {
-            addFilmChip(filmStock, shortStockName(filmLabels.get(active)),
-                    chipSubtitle(active, filmStocks.get(filmStock)), true);
-        }
-        for (int i = 0; i < filmIds.size(); ++i) {
-            final String id = filmIds.get(i);
-            if (!FilmBrand.matches(id, brandFilter)) continue;
-            if (pinnedActive && i == active) continue;
+        // another brand is selected, FilmBrand.shelf pins it first so the
+        // shelf never hides the Look that is still in force.
+        final String activeId = filmStock == null || showingOriginal ? null : filmStock;
+        for (String id : FilmBrand.shelf(filmIds, brandFilter, activeId)) {
+            final int i = filmIds.indexOf(id);
+            if (i < 0) continue;
             addFilmChip(id, shortStockName(filmLabels.get(i)),
                     chipSubtitle(i, filmStocks.get(id)),
-                    filmStock != null && !showingOriginal && id.equals(filmStock));
+                    activeId != null && id.equals(activeId));
         }
         if (filmChipScroll != null) filmChipScroll.post(() -> filmChipScroll.scrollTo(keepScroll, 0));
 
@@ -2379,7 +2427,7 @@ public class MainActivity extends AppCompatActivity {
         syncScanAvailability();
     }
 
-    /** The brand facet: counts come from the catalogue, empty brands stay out. */
+    /** The brand facet: M3 filter chips, with counts from the catalogue. */
     private void refreshBrandRow() {
         if (brandRow == null) return;
         brandRow.removeAllViews();
@@ -2387,24 +2435,27 @@ public class MainActivity extends AppCompatActivity {
             final int count = FilmBrand.count(filmIds, id);
             if (count == 0 && !FilmBrand.ALL.equals(id)) continue;
             final boolean active = id.equals(brandFilter);
-            TextView tab = label(FilmBrand.label(id) + " " + count, 8.5f,
-                    palette.color(active ? Palette.Role.ACCENT : Palette.Role.MUTED_INK),
-                    FilmBrand.ALL.equals(id) ? tfHan : tfBody);
-            tab.setGravity(android.view.Gravity.CENTER);
-            tab.setSingleLine(true);
-            tab.setPadding(dp(2), 0, dp(18), 0);
-            tab.setMinWidth(dp(MIN_TOUCH_DP));
-            if (active) tab.setPaintFlags(tab.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
-            tab.setFocusable(true);
-            tab.setClickable(true);
-            tab.setContentDescription(FilmBrand.label(id) + "，" + count + " 支胶片"
+            final Chip chip = new Chip(this);
+            // A real filter chip, not an assist chip with a checkmark bolted
+            // on: the style owns its checked/disabled colours and state layer.
+            chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null,
+                    0,
+                    com.google.android.material.R.style.Widget_Material3_Chip_Filter));
+            chip.setId(View.generateViewId());
+            chip.setCheckable(true);
+            chip.setChecked(active);
+            chip.setSingleLine(true);
+            chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            chip.setText(mixedText(FilmBrand.label(id) + " " + count));
+            chip.setContentDescription(FilmBrand.label(id) + "，" + count + " 支胶片"
                     + (active ? "，已选中" : "，筛选"));
-            tab.setOnClickListener(v -> {
+            chip.setOnClickListener(v -> {
                 if (id.equals(brandFilter)) return;
                 brandFilter = id;
                 refreshFilmPanel(true);
             });
-            brandRow.addView(tab, new LinearLayout.LayoutParams(-2, dp(MIN_TOUCH_DP)));
+            brandRow.addView(chip,
+                    new android.view.ViewGroup.LayoutParams(-2, dp(MIN_TOUCH_DP)));
         }
     }
 
@@ -2422,41 +2473,73 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void addFilmChip(final String id, String title, String subtitle, boolean active) {
-        LinearLayout chip = new LinearLayout(this);
-        chip.setOrientation(LinearLayout.VERTICAL);
-        chip.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        chip.setPadding(dp(8), dp(3), dp(8), dp(3));
+        // A real MaterialCardView carries pressed, focused, selected, and
+        // disabled state; the state lists below only name M3 roles, so a
+        // dynamic scheme and the brand fallback both read as the same component.
+        final int[][] states = new int[][]{
+                { android.R.attr.state_enabled, android.R.attr.state_checked },
+                { android.R.attr.state_enabled },
+                { -android.R.attr.state_enabled },
+        };
+        final int checkedBg = m3Role(com.google.android.material.R.attr.colorSecondaryContainer,
+                Palette.Role.ACCENT_SOFT);
+        final int restBg = m3Role(com.google.android.material.R.attr.colorSurfaceContainerHighest,
+                Palette.Role.SURFACE_ELEVATED);
+        final int disabledBg = m3Role(com.google.android.material.R.attr.colorSurfaceContainerLow,
+                Palette.Role.SURFACE);
+        final int checkedInk = m3Role(com.google.android.material.R.attr.colorOnSecondaryContainer,
+                Palette.Role.ON_ACCENT);
+        final int restInk = m3Role(com.google.android.material.R.attr.colorOnSurface,
+                Palette.Role.INK);
+        final int restMuted = m3Role(com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+        final int disabledInk = withAlpha(restMuted, 0x61);
+        final android.content.res.ColorStateList ink = new android.content.res.ColorStateList(
+                states, new int[]{checkedInk, restInk, disabledInk});
+        final android.content.res.ColorStateList muted = new android.content.res.ColorStateList(
+                states, new int[]{withAlpha(checkedInk, 0xB3), restMuted, disabledInk});
 
-        android.graphics.drawable.GradientDrawable bg =
-                new android.graphics.drawable.GradientDrawable();
-        bg.setColor(palette.color(active
-                ? Palette.Role.ACCENT_SOFT : Palette.Role.SURFACE_ELEVATED));
-        bg.setCornerRadius(dp(2));
-        bg.setStroke(dp(active ? 2 : 1),
-                palette.color(active ? Palette.Role.ACCENT : Palette.Role.LINE));
-        chip.setBackground(bg);
+        final MaterialCardView card = new MaterialCardView(this);
+        card.setCheckable(true);
+        card.setChecked(active);
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
+        card.setStrokeWidth(dp(1));
+        card.setCardBackgroundColor(new android.content.res.ColorStateList(
+                states, new int[]{checkedBg, restBg, disabledBg}));
+        card.setStrokeColor(new android.content.res.ColorStateList(states, new int[]{
+                m3Role(com.google.android.material.R.attr.colorOutline, Palette.Role.ACCENT),
+                m3Role(com.google.android.material.R.attr.colorOutlineVariant, Palette.Role.LINE),
+                withAlpha(restMuted, 0x3D)}));
+        card.setCheckedIconSize(dp(16));
+        card.setCheckedIconMargin(dp(4));
+        card.setCheckedIconGravity(MaterialCardView.CHECKED_ICON_GRAVITY_TOP_END);
+        card.setCheckedIconTint(android.content.res.ColorStateList.valueOf(checkedInk));
 
-        TextView name = label(title, 8, palette.color(active
-                ? Palette.Role.ACCENT : Palette.Role.INK), tfHan);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        content.setPadding(dp(8), dp(4), dp(24), dp(4));
+
+        TextView name = m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM, restInk, tfHan);
+        name.setTextColor(ink);
         name.setSingleLine(true);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        chip.addView(name, new LinearLayout.LayoutParams(-1, -2));
+        content.addView(name, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView kind = label(subtitle, 5.5f,
-                palette.color(Palette.Role.MUTED_INK), tfBody);
+        TextView kind = m3Label(subtitle, M3Tokens.TypeRole.LABEL_SMALL, restMuted, tfBody);
+        kind.setTextColor(muted);
         kind.setSingleLine(true);
-        kind.setLetterSpacing(0.08f);
         kind.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-1, -2);
-        kindLp.topMargin = dp(2);
-        chip.addView(kind, kindLp);
+        kindLp.topMargin = dp(1);
+        content.addView(kind, kindLp);
+        card.addView(content, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
-        chip.setClickable(true);
-        chip.setFocusable(true);
-        chip.setSelected(active);
-        chip.setContentDescription(title + (subtitle.isEmpty() ? "" : "，" + subtitle)
+        card.setContentDescription(title + (subtitle.isEmpty() ? "" : "，" + subtitle)
                 + (active ? "，已选中，双击切换" : "，未选中，双击选择"));
-        chip.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+        card.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(
                     View host, android.view.accessibility.AccessibilityNodeInfo info) {
                 super.onInitializeAccessibilityNodeInfo(host, info);
@@ -2465,14 +2548,14 @@ public class MainActivity extends AppCompatActivity {
                 info.setChecked(active);
             }
         });
-        chip.setOnClickListener(v -> {
+        card.setOnClickListener(v -> {
             if ("original".equals(id)) toggleOriginal();
             else pickFilmChip(id);
         });
-        LinearLayout.LayoutParams lp =
-                new LinearLayout.LayoutParams(dp(92), dp(MIN_TOUCH_DP));
-        lp.rightMargin = dp(6);
-        filmChipRow.addView(chip, lp);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                dp(FILM_CARD_WIDTH_DP), dp(FILM_CARD_HEIGHT_DP));
+        lp.rightMargin = dp(FILM_CARD_GAP_DP);
+        filmChipRow.addView(card, lp);
     }
 
     /** A stock chip is a Look choice: same path as any other stock change. */
@@ -3308,14 +3391,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void resetFilmPanel() {
-        // 原图 is the reset: no stock, no render, the imported frame as it was.
-        filmStock = null;
-        printStock = "kodak_portra_endura";
+        // 重置当前页 is the page's presentation, not the Look: the facet goes
+        // back to 全部 and the shelf back to its first stock, while the Film,
+        // paper, and exposure the user chose stay in force and no render runs.
         brandFilter = FilmBrand.ALL;
-        showingOriginal = false;
         refreshFilmPanel(true);
-        refreshPaperLabel();
-        onStockChanged();
     }
 
     private void resetOpticsPanel() {
