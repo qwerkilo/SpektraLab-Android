@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Material Components 1.12 does not declare these M3 scheme slots as
+      attributes, although the M3 scheme defines them. Declaring them here keeps
+      the token table complete and lets custom surfaces resolve the same roles
+      the Material components use. They are not component styles.
+    -->
+    <attr name="colorShadow" format="color"/>
+    <attr name="colorScrim" format="color"/>
+    <attr name="colorSurfaceTint" format="color"/>
+</resources>
