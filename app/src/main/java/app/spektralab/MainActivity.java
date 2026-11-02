@@ -79,10 +79,10 @@ public class MainActivity extends Activity {
      *  a Portra 400 session, and must not render one behind their back. */
     private String filmStock = null;
     private String printStock = "kodak_portra_endura";
-    private float printExposure = 1.0f;
-    private float grainAmount = 1.0f;      // 0..2, engine default 1
-    private float halationAmount = 1.0f;   // 0..4
-    private float glareAmount = 3.0f;      // 0..30 (percent x100)
+    private float printExposure = OpticsDelta.EXPOSURE_DEFAULT;
+    private float grainAmount = OpticsDelta.GRAIN_DEFAULT;      // 0..2
+    private float halationAmount = OpticsDelta.HALATION_DEFAULT; // 0..4
+    private float glareAmount = OpticsDelta.GLARE_DEFAULT;      // 0..12 shown; engine 0..30
     private float filmFormatMm = 36.0f;    // frame's long edge, 135 = 36 mm
     private boolean uiReady = false;
     private String lastImportError = null;
@@ -160,7 +160,7 @@ public class MainActivity extends Activity {
     private Typeface tfHan;          // OPPO Sans — Chinese, and anything mixed
     private View emptyState, rawState;
     private TextView fileLabel, rawName, busyLabel, originalLabel, paperValue, edgeValue, formatFootValue;
-    private SeekBar exposureBar, grainBar, halationBar, glareBar;
+    private OpticsRow exposureRow, grainRow, halationRow, glareRow;
     private LinearLayout opticsPanel;
     private boolean opticsUnlocked = false;
 
@@ -1357,15 +1357,15 @@ public class MainActivity extends Activity {
         overscanOn = look.overscanOn;
         overscanFormat = look.overscanFormat;
         dateOn = look.dateOn;
+        final GateScale.Gate gate = GateScale.resolve(overscanFormat, filmFormatMm);
         // One piece of film geometry: a stored Gate and Scale that disagree are
         // pulled onto the Gate's measured edge before either control can draw.
-        final GateScale.Gate gate = GateScale.resolve(overscanFormat, filmFormatMm);
         overscanFormat = gate.id;
         filmFormatMm = gate.longEdgeMm;
-        setBarProgress(exposureBar, 0.25f, 4.0f, printExposure);
-        setBarProgress(grainBar, 0.0f, 2.0f, grainAmount);
-        setBarProgress(halationBar, 0.0f, 4.0f, halationAmount);
-        setBarProgress(glareBar, 0.0f, 12f, glareAmount);
+        if (exposureRow != null) exposureRow.setValue(printExposure);
+        if (grainRow != null) grainRow.setValue(grainAmount);
+        if (halationRow != null) halationRow.setValue(halationAmount);
+        if (glareRow != null) glareRow.setValue(glareAmount);
         if (overscanMark != null) overscanMark.setLit(overscanOn);
         if (dateMark != null) dateMark.setLit(dateOn);
         if (edgeValue != null) edgeValue.setText(gate.label);
@@ -1389,10 +1389,10 @@ public class MainActivity extends Activity {
         final Look look = new Look();
         look.filmStock = null;
         look.printStock = "kodak_portra_endura";
-        look.printExposure = 1.0f;
-        look.grainAmount = 1.0f;
-        look.halationAmount = 1.0f;
-        look.glareAmount = 3.0f;
+        look.printExposure = OpticsDelta.EXPOSURE_DEFAULT;
+        look.grainAmount = OpticsDelta.GRAIN_DEFAULT;
+        look.halationAmount = OpticsDelta.HALATION_DEFAULT;
+        look.glareAmount = OpticsDelta.GLARE_DEFAULT;
         look.filmFormatMm = GateScale.defaultGate().longEdgeMm;
         look.overscanOn = false;
         look.overscanFormat = GateScale.defaultGate().id;
@@ -1874,10 +1874,14 @@ public class MainActivity extends Activity {
                         : "先选择胶片或相纸，完成一次渲染");
             }
         });
-        exposureBar = rangeRow(opticsPanel, "放大机曝光", 0.25f, 4.0f, printExposure, v -> printExposure = v);
-        grainBar = rangeRow(opticsPanel, "颗粒", 0.0f, 2.0f, grainAmount, v -> grainAmount = v);
-        halationBar = rangeRow(opticsPanel, "光晕", 0.0f, 4.0f, halationAmount, v -> halationAmount = v);
-        glareBar = rangeRow(opticsPanel, "眩光", 0.0f, 12.0f, glareAmount, v -> glareAmount = v);
+        exposureRow = opticsRow(opticsPanel, "EXPOSURE 曝光", "EV",
+                0.25f, 4.0f, printExposure, OpticsDelta.EXPOSURE_DEFAULT, v -> printExposure = v);
+        grainRow = opticsRow(opticsPanel, "GRAIN 颗粒", "×",
+                0.0f, 2.0f, grainAmount, OpticsDelta.GRAIN_DEFAULT, v -> grainAmount = v);
+        halationRow = opticsRow(opticsPanel, "HALATION 光晕", "×",
+                0.0f, 4.0f, halationAmount, OpticsDelta.HALATION_DEFAULT, v -> halationAmount = v);
+        glareRow = opticsRow(opticsPanel, "GLARE 眩光", "×",
+                0.0f, 12.0f, glareAmount, OpticsDelta.GLARE_DEFAULT, v -> glareAmount = v);
         panel.addView(opticsPanel, new LinearLayout.LayoutParams(-1, 0, 1f));
         return panel;
     }
@@ -2473,14 +2477,14 @@ public class MainActivity extends Activity {
     }
 
     private void resetOpticsPanel() {
-        printExposure = 1.0f;
-        grainAmount = 1.0f;
-        halationAmount = 1.0f;
-        glareAmount = 3.0f;
-        setBarProgress(exposureBar, 0.25f, 4f, printExposure);
-        setBarProgress(grainBar, 0f, 2f, grainAmount);
-        setBarProgress(halationBar, 0f, 4f, halationAmount);
-        setBarProgress(glareBar, 0f, 12f, glareAmount);
+        printExposure = OpticsDelta.EXPOSURE_DEFAULT;
+        grainAmount = OpticsDelta.GRAIN_DEFAULT;
+        halationAmount = OpticsDelta.HALATION_DEFAULT;
+        glareAmount = OpticsDelta.GLARE_DEFAULT;
+        if (exposureRow != null) exposureRow.setValue(printExposure);
+        if (grainRow != null) grainRow.setValue(grainAmount);
+        if (halationRow != null) halationRow.setValue(halationAmount);
+        if (glareRow != null) glareRow.setValue(glareAmount);
         if (session != null) { applyParams(); renderImage(); }
     }
 
@@ -2894,9 +2898,12 @@ public class MainActivity extends Activity {
         return labelText + "，" + (on ? "开" : "关");
     }
 
-    /** .range-field: an 8 px head with the value in blue, then the 10 px bar. */
-    private SeekBar rangeRow(LinearLayout parent, String name, final float lo, final float hi,
-                             float initial, final java.util.function.Consumer<Float> apply) {
+    /** One calibrated optics row: label, value, unit, display-only Δ, a reset,
+     *  and the existing 32 dp drag target. */
+    private OpticsRow opticsRow(LinearLayout parent, String name, String unit,
+                                final float lo, final float hi, float initial,
+                                final float defaultValue,
+                                final java.util.function.Consumer<Float> apply) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -2904,32 +2911,52 @@ public class MainActivity extends Activity {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        head.addView(label(name, 8, palette.color(Palette.Role.INK), tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-        final TextView value = label(String.format(java.util.Locale.US, "%.2f", initial), 8,
-                palette.color(Palette.Role.ACCENT), tfBody);
-        head.addView(value);
-        LinearLayout.LayoutParams headLp = new LinearLayout.LayoutParams(-1, -2);
-        headLp.bottomMargin = dp(2);
-        row.addView(head, headLp);
+        head.addView(mixedLabel(name, 8, palette.color(Palette.Role.INK)),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        final TextView valueView = label("", 8.5f,
+                palette.color(Palette.Role.ACCENT), tfDisplay);
+        head.addView(valueView);
+        TextView unitView = label(unit, 6.5f,
+                palette.color(Palette.Role.MUTED_INK), tfBody);
+        LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
+        unitLp.leftMargin = dp(2);
+        unitLp.bottomMargin = dp(1);
+        head.addView(unitView, unitLp);
+        final TextView deltaView = label("", 7,
+                palette.color(Palette.Role.MUTED_INK), tfDisplay);
+        LinearLayout.LayoutParams deltaLp = new LinearLayout.LayoutParams(-2, -2);
+        deltaLp.leftMargin = dp(8);
+        head.addView(deltaView, deltaLp);
+
+        LinearLayout barRow = new LinearLayout(this);
+        barRow.setOrientation(LinearLayout.HORIZONTAL);
+        barRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
 
         SeekBar bar = new SeekBar(this);
         bar.setMax(1000);
         bar.setProgress(Math.round((initial - lo) / (hi - lo) * 1000f));
         styleRange(bar);
+        barRow.addView(bar, new LinearLayout.LayoutParams(0, dp(32), 1f));
+
+        final TextView reset = label("重置", 7,
+                palette.color(Palette.Role.MUTED_INK), tfHan);
+        reset.setGravity(android.view.Gravity.CENTER);
+        barRow.addView(reset, new LinearLayout.LayoutParams(dp(32), dp(32)));
+        row.addView(barRow, new LinearLayout.LayoutParams(-1, dp(32)));
+
+        final OpticsRow optics = new OpticsRow(bar, valueView, deltaView, reset,
+                name, unit, lo, hi, defaultValue);
         bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
                 float v = lo + (hi - lo) * progress / 1000f;
-                value.setText(String.format(java.util.Locale.US, "%.2f", v));
+                optics.show(v);
                 apply.accept(v);
                 refreshReadoutStrip();
             }
             @Override public void onStartTrackingTouch(SeekBar sb) { }
             @Override public void onStopTrackingTouch(SeekBar sb) {
-                // The value only lived in a field until here: `apply` assigns
-                // it, nothing sent it. That is why dragging did nothing and
-                // re-picking the stock did everything (onStockChanged sends the
-                // whole set). Send on release: one JNI call per gesture, not
-                // one per hundredth of a stop.
+                // Send on release: one JNI call per gesture, not one per
+                // hundredth of a stop.
                 applyParams();
                 if (uiReady && session != null) {
                     showingOriginal = false;
@@ -2938,13 +2965,75 @@ public class MainActivity extends Activity {
                 }
             }
         });
-        // **32 dp, not 10.** A 10 dp-tall SeekBar is a 10 dp-tall touch target:
-        // the thumb is 9 dp across, so most of a finger lands outside the view
-        // and the drag never starts. The track still draws 2 px -- that is the
-        // drawable's inset, not the view's height.
-        row.addView(bar, new LinearLayout.LayoutParams(-1, dp(32)));
+        // The Δ is display-only: the reset recomputes it from the bar, and
+        // nothing here is sent to the engine beyond the normal optics values.
+        reset.setOnClickListener(v -> {
+            if (!opticsUnlocked) return;
+            final boolean moved = Math.abs(optics.currentValue() - defaultValue) > 0.0005f;
+            apply.accept(defaultValue);
+            optics.setValue(defaultValue);
+            refreshReadoutStrip();
+            if (moved && uiReady && session != null) {
+                showingOriginal = false;
+                setOriginalVisual(false);
+                applyParams();
+                renderImage();
+            }
+        });
+        optics.show(initial);
         parent.addView(row, new LinearLayout.LayoutParams(-1, 0, 1f));
-        return bar;
+        return optics;
+    }
+
+    /** One optics row's live views. The Δ is computed from the value and the
+     *  panel default every time; it is never kept as a second piece of state. */
+    private final class OpticsRow {
+        final SeekBar bar;
+        final TextView valueView, deltaView, resetView;
+        final String name, unit;
+        final float lo, hi, defaultValue;
+
+        OpticsRow(SeekBar bar, TextView valueView, TextView deltaView, TextView resetView,
+                  String name, String unit, float lo, float hi, float defaultValue) {
+            this.bar = bar;
+            this.valueView = valueView;
+            this.deltaView = deltaView;
+            this.resetView = resetView;
+            this.name = name;
+            this.unit = unit;
+            this.lo = lo;
+            this.hi = hi;
+            this.defaultValue = defaultValue;
+        }
+
+        void show(float v) {
+            final String number = String.format(java.util.Locale.US, "%.2f", v);
+            final boolean moved = Math.abs(v - defaultValue) > 0.0005f;
+            valueView.setText(number);
+            deltaView.setText("Δ " + OpticsDelta.text(v, defaultValue));
+            final int color = palette.color(moved
+                    ? Palette.Role.ACCENT : Palette.Role.MUTED_INK);
+            deltaView.setTextColor(color);
+            resetView.setTextColor(color);
+            bar.setContentDescription(name + " " + number
+                    + (unit.isEmpty() ? "" : " " + unit)
+                    + "，Δ " + OpticsDelta.text(v, defaultValue));
+            resetView.setContentDescription("重置" + name + "为 "
+                    + String.format(java.util.Locale.US, "%.2f", defaultValue));
+        }
+
+        void setValue(float v) {
+            setBarProgress(bar, lo, hi, v);
+        }
+
+        float currentValue() {
+            return lo + (hi - lo) * bar.getProgress() / 1000f;
+        }
+
+        void setEnabled(boolean on) {
+            bar.setEnabled(on);
+            resetView.setEnabled(on);
+        }
     }
 
     /** 2 px track, square 9 px thumb: input[type=range] in the page. */
@@ -3041,8 +3130,8 @@ public class MainActivity extends Activity {
         opticsUnlocked = unlocked;
         if (opticsPanel == null) return;
         opticsPanel.setAlpha(unlocked ? 1f : 0.38f);
-        SeekBar[] bars = {exposureBar, grainBar, halationBar, glareBar};
-        for (SeekBar bar : bars) if (bar != null) bar.setEnabled(unlocked);
+        OpticsRow[] rows = {exposureRow, grainRow, halationRow, glareRow};
+        for (OpticsRow row : rows) if (row != null) row.setEnabled(unlocked);
     }
 
     /** Which of the three things on the stage is showing. */
