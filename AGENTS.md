@@ -2,11 +2,11 @@
 
 Unofficial Android port of the SpektraLab film/paper simulation engine (Vulkan). RAW in, physically modelled film + paper out, on device.
 
-Java UI + JNI over an **out-of-tree C++ engine**. No Gradle, no Kotlin build, no automated tests.
+Java UI + JNI over an **out-of-tree C++ engine**. Gradle is the primary build; the Termux scripts remain for the pre-M3 tree. Pure JVM checks run with `./gradlew checkJvm`; there is no instrumentation suite.
 
-## Build: Termux, hardcoded paths
+## Build: Gradle primary, Termux legacy
 
-There is no `gradlew`. Scripts assume the repo is at `$HOME/SpektraLab-apk`, the engine at `$HOME/SpektraLab-android-adreno/engine`, Termux prefix `/data/data/com.termux/files/usr`, SDK 36, NDK `28.2.13676358`.
+The Gradle wrapper is committed; see “Gradle / Material 3” below for the current path. The Termux scripts below are the legacy/pre-M3 fallback and assume the repo is at `$HOME/SpektraLab-apk`, the engine at `$HOME/SpektraLab-android-adreno/engine`, Termux prefix `/data/data/com.termux/files/usr`, SDK 36, NDK `28.2.13676358`.
 
 Engine source: upstream `JamesQiu2005/SpektraLab` at `445e314`, then `git apply patches/engine-android.patch`.
 
@@ -40,7 +40,7 @@ On Windows without Termux, `app/build/build-apk-windows.ps1` compiles, dexes wit
 
 ## Where the code lives
 
-- `MainActivity.java` — ~4.7k lines, programmatic `View` UI in one file. No XML layouts; theme only in `app/build/values/themes.xml`.
+- `MainActivity.java` — large single-file programmatic `View` UI. No XML layouts. M3 theme, color roles, and type attrs live in `app/src/main/res/values/*` (`themes.xml`, `colors.xml`, `attrs.xml`); the rail menu is `app/src/main/res/menu/console_nav.xml` with icons in `res/drawable/`.
 - `SpektraLabEngine.java` — JNI facade. `prepare(libDir)` loads bundled `.so` by absolute path before the engine; there is intentionally no `static {}` loader, so a load failure keeps its cause. One native result buffer, serialized by `RENDER_LOCK`.
 - `spektralab_jni.cpp` — session, render, JPEG/TIFF/DNG export. `spektralab_raw_jni.cpp` — LibRaw decode.
 - The engine itself is not in this repo; only `patches/engine-android.patch` and `docs/tiling.md` are.
@@ -68,13 +68,23 @@ This checkout has a `.codegraph/` index. Prefer `codegraph explore "<symbols or 
 
 ## Verify
 
-No Gradle test suite. Pure JVM checks live in `app/src/test/java/app/spektralab/*Check.java` (Palette, ThemeMode, SpectrumSamples, SpectrumCurve, OpticsDelta, GateScale, ScanSample, ConsoleLayout, FilmBrand, SafeFileName, ReleaseUrl, SpkError). Compile them with `javac` and run `java app.spektralab.<Name>Check`; they do not need a device. `python app/build/check-manifest.py` pins permissions, exports, cleartext, and backup; `python app/build/test-gen-stock-catalog.py` covers the profile generator. Then `adb install -r`, and watch logcat tags `SpektraLabJNI` and `SpektraLabRAW`. On the device, `DebugSink` POSTs diagnostics to `127.0.0.1:8770` (Termux-side sink). Driver telemetry goes to `report.workshop.skin`. Manual device matrix: `docs/testing/manual-device-checklist.md`.
+No JUnit or instrumentation suite. Pure JVM checks live in `app/src/test/java/app/spektralab/*Check.java` (Palette, M3Tokens, ThemeMode, SpectrumSamples, SpectrumCurve, OpticsDelta, GateScale, ScanSample, ConsoleLayout, FilmBrand, StockNames, SafeFileName, ReleaseUrl, SpkError). Run them with `./gradlew checkJvm`; it compiles the checks against the app's real debug classpath and runs each one from the repository root, so `M3TokenCheck` can read `res/values/colors.xml` and `themes.xml`. They do not need a device. Plain `javac -cp android.jar` no longer compiles the main sources because `MainActivity` imports AppCompat and Material; the legacy Termux scripts are the pre-M3 fallback and do not build this tree. `python app/build/check-manifest.py` pins permissions, exports, cleartext, and backup; `python app/build/test-gen-stock-catalog.py` covers the profile generator. For Android 15/16 16 KB pages, `./gradlew align16k` and install `app-debug-16k-signed.apk`. Then install on the device and watch logcat tags `SpektraLabJNI` and `SpektraLabRAW`. On the device, `DebugSink` POSTs diagnostics to `127.0.0.1:8770` (Termux-side sink). Driver telemetry goes to `report.workshop.skin`. Manual device matrix: `docs/testing/manual-device-checklist.md`.
+
+## Device: DroidMind first
+
+Use the global `droidmind` MCP for Android device work. Do not start with raw `adb`.
+
+- `android-device` — list/connect/properties; call `list_devices` first and use the serial it returns. Wi-Fi ports change between sessions.
+- `android-screenshot`, `android-ui`, `android-app`, `android-file`, `android-log`, `android-diag`, `android-shell` — prefer these over ad-hoc `adb shell`; use `android-shell` only for commands without a dedicated tool.
+- The MCP launches `uvx --python 3.13 --from git+https://github.com/hyperb1iss/droidmind --with "mcp<2" droidmind --transport stdio --adb-path F:\android-sdk\platform-tools\adb.exe`. Keep the `mcp<2` pin (DroidMind 1.30 uses FastMCP) and the explicit ADB path.
+- Fall back to `F:\android-sdk\platform-tools\adb.exe` only when the MCP is unavailable.
+- Installing, clearing data, uninstalling, or rebooting is state-changing: name the target serial explicitly and only do it when the task calls for it.
 
 When the Termux engine toolchain is unavailable, a device build can replace `classes.dex` inside the shipped APK and re-sign it; the native libraries and assets stay from that APK. Do not hand-copy `libspektrafilm_engine.so`.
 
 ## Commits
 
-Conventional commits, one concern each: `fix(native):`, `feat:`, `chore(update):`, `release:`.
+Conventional commits, one concern each: `fix(native):`, `feat:`, `chore(update):`, `release:`. Merge commits use `merge:` and are exempt.
 
 ## Agent skills
 
