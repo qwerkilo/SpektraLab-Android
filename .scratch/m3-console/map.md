@@ -50,8 +50,15 @@ Look semantics, and the existing test seams stay intact.
   Device verification is still blocked because `10.110.67.69:35443` is offline.
 - **Implementation breakdown**: 02 tokens + phone shell, 03 rail, 04 film,
   05 optics, 06 scale/edge, 07 pickers, 08 curve, 09 scan/compare, 10 audit.
-  Tickets 01–09 are merged on `feat/m3-spec`; only ticket 10 remains. It is
-  blocked because `10.110.67.69:35443` is offline and no emulator is installed.
+  Tickets 01–09 are merged on `feat/m3-spec`; only ticket 10 remains.
+- **Ticket 10 audit (2026-11-03)**: device `25128PNA1C`, API 37, 400 dp,
+  4 KB pages, dynamic colour. JVM 8,610 checks, `ManifestPolicy` 26/26 and
+  the 16 KB APK gates pass. Phone shell in both themes, the 600 dp rail and
+  two-column layout, the 599↔600 resize (Frame/stock/tab/Scan preserved),
+  JPEG import, scan/compare and JPEG export pass. Close-out is blocked by
+  Readout-strip clipping at `font_scale 1.3`; RAW import, brand fallback,
+  TIFF/DNG export, TalkBack speech and a true 16 KB-page runtime are not
+  executable on this device. See ticket 10 for the evidence list.
 
 ## Not yet specified
 

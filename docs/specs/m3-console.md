@@ -1,6 +1,11 @@
 # Material 3 Console — implementation spec
 
-Status: `ready-for-agent`. Tracker: GitHub Issues are disabled, so this spec
+Status: `device-audit blocked`. The phone shell, themes, rail, JPEG import,
+scan/compare and JPEG export pass on `25128PNA1C` (API 37, 400 dp). Close-out
+is blocked by Readout-strip clipping at `font_scale 1.3`; RAW import, brand
+fallback, TIFF/DNG export, TalkBack speech and a true 16 KB-page runtime were
+not executable on that device. Evidence: `.scratch/m3-console/issues/10-device-audit.md`.
+Tracker: GitHub Issues are disabled, so this spec
 lives in the repository until the tracker is enabled. Decision record:
 ADR-0004 (Material 3 as the Console design system). Vocabulary: `GLOSSARY.md`.
 Map and tickets: `.scratch/m3-console/`.
