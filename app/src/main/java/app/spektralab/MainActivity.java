@@ -209,13 +209,38 @@ public class MainActivity extends AppCompatActivity {
     private String overscanFormat = "135";
     private boolean dateOn = false;
     private String dateText = null;
-    private MaterialSwitch overscanSwitch, dateSwitch;
+    /** The Rebate page's own controls. Dimming while off is presentation only:
+     *  these values stay live so re-enabling or switching Frame finds them. */
+    private boolean edgeTextOn = true;
+    private String edgeMode = "strip", edgeGate = "auto", edgeHoles = "white", edgeCarrier = "none";
+    private float edgeFog = 1f, edgeLeaks, frameNumber, edgeFNumber;
+    private int cameraSeed = 1, frameSeed = 1;
+    /** Date-back values; the page lands in a later ticket, the Look already
+     *  carries them and switching Frame must not drop them. */
+    private String datePlacement = "frame", dateCorner = "br", dateStyle = "lcd";
+    private float dateInsetX = 3f, dateInsetY = 2.4f, dateSize = 1f, dateEv = 3.5f;
+    private String dataText = "", dateTextB = "";
+    /** -1 = the two Edge entry cards, 0 = the Rebate secondary page. */
+    private int edgePageIndex = -1;
+    /** True while a Look restore fills the page; its listeners must not render. */
+    private boolean syncingRebate = false;
+    private LinearLayout edgeHome, rebatePage, rebateControls;
+    private MaterialSwitch rebateSwitch, edgeTextSwitch;
+    private MaterialCardView rebateGateCard;
+    private TextView rebateGateValue, rebateModeValue, rebateGateStyleValue;
+    private TextView rebateHolesValue, rebateCarrierValue;
+    private TextView rebateCameraSeedValue, rebateFrameSeedValue;
+    private TextView rebateFogValue, rebateLeaksValue, rebateFrameNoValue, rebateFNumberValue;
+    private Slider rebateFogSlider, rebateLeaksSlider, rebateFrameNoSlider, rebateFNumberSlider;
+    /** Each chosen row repaints its value and description from the live field. */
+    private final List<Runnable> rebateRefreshers = new ArrayList<>();
+    private MaterialSwitch dateSwitch;
     /** True while a Look restore sets switch state; the listener must not render. */
     private boolean syncingToggles = false;
     /** The date back's own line: the text shown while the imprint is on. */
     private TextView dateDetail;
-    /** The Edge toggles, kept so a Look restore can resync their checked state. */
-    private View overscanToggleRow, dateToggleRow;
+    /** The date toggle row, kept so a Look restore can resync its checked state. */
+    private View dateToggleRow;
 
     /** 片边: the Gates this Frame's shape can actually carry, in catalogue order. */
     private final List<String> edgeLabels = new ArrayList<>(), edgeIds = new ArrayList<>();
@@ -247,6 +272,7 @@ public class MainActivity extends AppCompatActivity {
             formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
         }
         rebuildFormatCards();
+        syncRebatePage();
     }
     /** The shell: `body` stacks or splits into `mainCol` and `controls`. */
     private LinearLayout body, mainCol, controls, panelHolder, formatCardStrip;
@@ -605,6 +631,7 @@ public class MainActivity extends AppCompatActivity {
         String fileName, rawNameText, status;
         float scanFraction;
         boolean scanVisible;
+        int edgePageIndex = -1;
     }
 
     private UiState captureUiState() {
@@ -623,6 +650,7 @@ public class MainActivity extends AppCompatActivity {
         s.status = statusText == null ? null : String.valueOf(statusText.getText());
         s.scanFraction = scanFraction;
         s.scanVisible = scanVisible;
+        s.edgePageIndex = edgePageIndex;
         return s;
     }
 
@@ -650,6 +678,8 @@ public class MainActivity extends AppCompatActivity {
         setTab(s.activeTab);
         setPanelCollapsed(s.panelCollapsed);
         setOpticsUnlocked(s.opticsUnlocked);
+        edgePageIndex = s.edgePageIndex;
+        openEdgePage(edgePageIndex);
         scanFraction = s.scanFraction;
         scanVisible = s.scanVisible;
         refreshFilmPanel();
@@ -1966,6 +1996,26 @@ public class MainActivity extends AppCompatActivity {
         look.overscanOn = overscanOn;
         look.overscanFormat = overscanFormat;
         look.dateOn = dateOn;
+        look.edgeTextOn = edgeTextOn;
+        look.edgeMode = edgeMode;
+        look.edgeGate = edgeGate;
+        look.edgeHoles = edgeHoles;
+        look.edgeCarrier = edgeCarrier;
+        look.edgeFog = edgeFog;
+        look.edgeLeaks = edgeLeaks;
+        look.frameNumber = frameNumber;
+        look.edgeFNumber = edgeFNumber;
+        look.cameraSeed = cameraSeed;
+        look.frameSeed = frameSeed;
+        look.datePlacement = datePlacement;
+        look.dateCorner = dateCorner;
+        look.dateStyle = dateStyle;
+        look.dateInsetX = dateInsetX;
+        look.dateInsetY = dateInsetY;
+        look.dateSize = dateSize;
+        look.dateEv = dateEv;
+        look.dataText = dataText;
+        look.dateTextB = dateTextB;
         return look;
     }
 
@@ -1985,6 +2035,26 @@ public class MainActivity extends AppCompatActivity {
         overscanOn = look.overscanOn;
         overscanFormat = look.overscanFormat;
         dateOn = look.dateOn;
+        edgeTextOn = look.edgeTextOn;
+        edgeMode = look.edgeMode;
+        edgeGate = look.edgeGate;
+        edgeHoles = look.edgeHoles;
+        edgeCarrier = look.edgeCarrier;
+        edgeFog = look.edgeFog;
+        edgeLeaks = look.edgeLeaks;
+        frameNumber = look.frameNumber;
+        edgeFNumber = look.edgeFNumber;
+        cameraSeed = look.cameraSeed;
+        frameSeed = look.frameSeed;
+        datePlacement = look.datePlacement;
+        dateCorner = look.dateCorner;
+        dateStyle = look.dateStyle;
+        dateInsetX = look.dateInsetX;
+        dateInsetY = look.dateInsetY;
+        dateSize = look.dateSize;
+        dateEv = look.dateEv;
+        dataText = look.dataText == null ? "" : look.dataText;
+        dateTextB = look.dateTextB == null ? "" : look.dateTextB;
         final GateScale.Gate pair = GateScale.pair(overscanFormat, filmFormatMm);
         // One piece of film geometry: a stored Gate and Scale that disagree are
         // pulled onto the Gate's measured edge before either control can draw.
@@ -2960,10 +3030,115 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private LinearLayout buildEdgePanel() {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
+        rebateRefreshers.clear();
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        edgeHome = buildEdgeHome();
+        rebatePage = buildRebatePage();
+        root.addView(edgeHome, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(rebatePage, new LinearLayout.LayoutParams(-1, -2));
+        openEdgePage(edgePageIndex);
+        syncRebatePage();
+        return root;
+    }
+
+    /** The Edge landing page: two cards, each a door into its own page. */
+    private LinearLayout buildEdgeHome() {
+        final LinearLayout home = new LinearLayout(this);
+        home.setOrientation(LinearLayout.VERTICAL);
+        home.addView(sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
                 new LinearLayout.LayoutParams(-1, -2));
+
+        final HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        scroll.setClipToPadding(false);
+        final LinearLayout strip = new LinearLayout(this);
+        strip.setOrientation(LinearLayout.HORIZONTAL);
+        strip.setPadding(0, dp(4), 0, dp(4));
+
+        final MaterialCardView rebateCard = edgeEntryCard("片边  REBATE",
+                this::rebateSummary, "打开片边设置", () -> openEdgePage(0));
+        strip.addView(rebateCard, edgeCardParams());
+        final MaterialCardView dateCard = edgeEntryCard("日期水印  DATE BACK",
+                this::dateSummary, "日期水印页面尚未开放",
+                () -> showSnackbar("日期水印页面将在下一张工单中提供"));
+        strip.addView(dateCard, edgeCardParams());
+
+        scroll.addView(strip, new android.widget.FrameLayout.LayoutParams(-2, -2));
+        home.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
+
+        final TextView note = m3Label("片门与尺度联动；片边只在这张图可用的片门里选",
+                M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfHan);
+        final LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
+        noteLp.topMargin = dp(8);
+        home.addView(note, noteLp);
+        return home;
+    }
+
+    private LinearLayout.LayoutParams edgeCardParams() {
+        final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(176), -2);
+        lp.rightMargin = dp(8);
+        return lp;
+    }
+
+    /**
+     * One Edge entry card: the feature name, a live summary, and a chevron.
+     * The summary is a supplier so the card never keeps a second copy of the
+     * Look; {@link #refreshEdgeCards()} repaints it after every change.
+     */
+    private MaterialCardView edgeEntryCard(String title,
+                                           java.util.function.Supplier<String> summary,
+                                           String description, Runnable onOpen) {
+        final MaterialCardView card = new MaterialCardView(this);
+        card.setCardElevation(0f);
+        card.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
+        card.setStrokeWidth(dp(1));
+        card.setCardBackgroundColor(m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerLow,
+                Palette.Role.SURFACE_ELEVATED));
+        card.setStrokeColor(m3OutlineVariant());
+        card.setClickable(true);
+        card.setFocusable(true);
+
+        final LinearLayout stack = new LinearLayout(this);
+        stack.setOrientation(LinearLayout.VERTICAL);
+        stack.setPadding(dp(12), dp(10), dp(12), dp(10));
+
+        final LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        final TextView name = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
+        name.setMaxLines(2);
+        titleRow.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+        titleRow.addView(m3Label("›", M3Tokens.TypeRole.TITLE_SMALL, m3OnSurfaceVariant(), tfBody));
+        stack.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
+
+        final TextView summaryView = m3Label(summary.get(),
+                M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfHan);
+        final LinearLayout.LayoutParams summaryLp = new LinearLayout.LayoutParams(-1, -2);
+        summaryLp.topMargin = dp(6);
+        stack.addView(summaryView, summaryLp);
+
+        card.addView(stack, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        card.setOnClickListener(v -> onOpen.run());
+        rebateRefreshers.add(() -> {
+            final String text = summary.get();
+            summaryView.setText(text);
+            card.setContentDescription(description + "，" + text);
+        });
+        return card;
+    }
+
+    /**
+     * The Rebate secondary page. Its switch owns whether the controls are
+     * enabled; they stay visible and dimmed while off, so the page explains
+     * what is available without pretending the controls work.
+     */
+    private LinearLayout buildRebatePage() {
+        final LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setVisibility(View.GONE);
+        page.addView(edgePageHead("片边 / REBATE"), new LinearLayout.LayoutParams(-1, -2));
 
         final int onSurface = m3Role(
                 com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
@@ -2971,74 +3146,415 @@ public class MainActivity extends AppCompatActivity {
                 com.google.android.material.R.attr.colorOnSurfaceVariant,
                 Palette.Role.MUTED_INK);
 
-        overscanSwitch = new MaterialSwitch(this);
-        overscanToggleRow = switchRow("片边（胶片边缘）", null, overscanSwitch,
-                () -> overscanOn, on -> {
-                    if (on && edgeIds.isEmpty()) {
-                        showSnackbar("这张图的长宽比不对应任何片门");
-                        return;
-                    }
-                    overscanOn = on;
-                    onEdgeChanged();
-                });
-        panel.addView(overscanToggleRow, new LinearLayout.LayoutParams(-1, dp(56)));
+        rebateSwitch = new MaterialSwitch(this);
+        page.addView(switchRow("开启片边", null, rebateSwitch, () -> overscanOn, on -> {
+            if (on && !GateScale.canHostRebate(sourceWidth, sourceHeight)) {
+                showSnackbar("这张图的长宽比不对应任何片门");
+                syncRebatePage();
+                return;
+            }
+            overscanOn = on;
+            syncRebatePage();
+            commitRebate();
+        }), new LinearLayout.LayoutParams(-1, dp(56)));
 
-        final MaterialCardView gateCard = new MaterialCardView(this);
-        gateCard.setCardElevation(0f);
-        gateCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
-        gateCard.setStrokeWidth(dp(1));
-        gateCard.setCardBackgroundColor(m3Role(
+        rebateControls = new LinearLayout(this);
+        rebateControls.setOrientation(LinearLayout.VERTICAL);
+
+        rebateGateValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateGateCard = new MaterialCardView(this);
+        rebateGateCard.setCardElevation(0f);
+        rebateGateCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
+        rebateGateCard.setStrokeWidth(dp(1));
+        rebateGateCard.setCardBackgroundColor(m3Role(
                 com.google.android.material.R.attr.colorSurfaceContainerLow,
                 Palette.Role.SURFACE_ELEVATED));
-        gateCard.setStrokeColor(m3Role(
-                com.google.android.material.R.attr.colorOutlineVariant,
-                Palette.Role.LINE));
-        gateCard.setClickable(true);
-        gateCard.setFocusable(true);
-        gateCard.setContentDescription("选择片门格式");
-        gateCard.setOnClickListener(v -> showEdgePicker());
-
-        LinearLayout gateRow = new LinearLayout(this);
+        rebateGateCard.setStrokeColor(m3OutlineVariant());
+        rebateGateCard.setClickable(true);
+        rebateGateCard.setFocusable(true);
+        rebateGateCard.setOnClickListener(v -> showEdgePicker());
+        final LinearLayout gateRow = new LinearLayout(this);
         gateRow.setOrientation(LinearLayout.HORIZONTAL);
         gateRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
         gateRow.setPadding(dp(14), 0, dp(14), 0);
         gateRow.addView(m3Label("片门格式", M3Tokens.TypeRole.BODY_MEDIUM,
-                        onSurfaceVariant, tfHan),
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        edgeValue = m3Label(GateScale.resolve(overscanFormat, filmFormatMm).label,
-                M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        edgeValue.setGravity(android.view.Gravity.END);
-        gateRow.addView(edgeValue, new LinearLayout.LayoutParams(-2, -2));
-        TextView edgeArrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
+                onSurfaceVariant, tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
+        rebateGateValue.setGravity(android.view.Gravity.END);
+        gateRow.addView(rebateGateValue, new LinearLayout.LayoutParams(-2, -2));
+        final TextView gateArrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
                 onSurfaceVariant, tfBody);
-        LinearLayout.LayoutParams edgeArrowLp = new LinearLayout.LayoutParams(-2, -2);
-        edgeArrowLp.leftMargin = dp(7);
-        gateRow.addView(edgeArrow, edgeArrowLp);
-        gateCard.addView(gateRow, new android.widget.FrameLayout.LayoutParams(-1, -1));
-        LinearLayout.LayoutParams gateCardLp = new LinearLayout.LayoutParams(-1, dp(52));
-        gateCardLp.topMargin = dp(4);
-        gateCardLp.bottomMargin = dp(4);
-        panel.addView(gateCard, gateCardLp);
-
-        dateSwitch = new MaterialSwitch(this);
-        dateDetail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                onSurfaceVariant, tfBody);
-        dateDetail.setVisibility(View.GONE);
-        dateToggleRow = switchRow("日期水印", dateDetail, dateSwitch, () -> dateOn, on -> {
-            dateOn = on;
-            if (dateOn && dateText == null) dateText = imprintDate();
-            syncDateDetail();
-            onEdgeChanged();
+        final LinearLayout.LayoutParams gateArrowLp = new LinearLayout.LayoutParams(-2, -2);
+        gateArrowLp.leftMargin = dp(7);
+        gateRow.addView(gateArrow, gateArrowLp);
+        rebateGateCard.addView(gateRow,
+                new android.widget.FrameLayout.LayoutParams(-1, -1));
+        rebateRefreshers.add(() -> {
+            final String label = edgeIds.isEmpty()
+                    ? "无可用片门"
+                    : GateScale.resolve(overscanFormat, filmFormatMm).label;
+            rebateGateValue.setText(label);
+            rebateGateCard.setContentDescription("片门格式，" + label);
         });
-        panel.addView(dateToggleRow, new LinearLayout.LayoutParams(-1, dp(56)));
+        final LinearLayout.LayoutParams gateLp = new LinearLayout.LayoutParams(-1, dp(52));
+        gateLp.bottomMargin = dp(4);
+        rebateControls.addView(rebateGateCard, gateLp);
 
-        TextView note = m3Label("片门与尺度联动；片边只在这张图可用的片门里选",
-                M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
-        LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
-        noteLp.topMargin = dp(8);
-        panel.addView(note, noteLp);
-        syncDateDetail();
-        return panel;
+        edgeTextSwitch = new MaterialSwitch(this);
+        rebateControls.addView(switchRow("片边文字（厂标 / 张数）", null,
+                edgeTextSwitch, () -> edgeTextOn, on -> {
+                    edgeTextOn = on;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, dp(56)));
+
+        rebateFogValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateFogSlider = rebateSliderRow(rebateControls, "片基雾",
+                "片基本身的灰雾。0 是完全透明，越大越脏",
+                RebateControls.FOG_MIN, RebateControls.FOG_MAX, 0.05f,
+                RebateControls.clampFog(edgeFog),
+                value -> String.format(java.util.Locale.US, "%.2f", value),
+                value -> edgeFog = RebateControls.clampFog(value),
+                () -> edgeFog, rebateFogValue);
+
+        rebateLeaksValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateLeaksSlider = rebateSliderRow(rebateControls, "漏光",
+                "卷轴漏进来的光，从片边渗向画面",
+                RebateControls.LEAKS_MIN, RebateControls.LEAKS_MAX, 0.05f,
+                RebateControls.clampLeaks(edgeLeaks),
+                value -> String.format(java.util.Locale.US, "%.2f", value),
+                value -> edgeLeaks = RebateControls.clampLeaks(value),
+                () -> edgeLeaks, rebateLeaksValue);
+
+        rebateFrameNoValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateFrameNoSlider = rebateSliderRow(rebateControls, "片边张数",
+                "片边上印的张数。0 = 按 seed 随机",
+                RebateControls.FRAME_NUMBER_MIN, RebateControls.FRAME_NUMBER_MAX, 1f,
+                RebateControls.clampFrameNumber(frameNumber),
+                value -> value < 0.5f ? "自动" : String.valueOf(Math.round(value)),
+                value -> frameNumber = RebateControls.clampFrameNumber(value),
+                () -> frameNumber, rebateFrameNoValue);
+
+        rebateFNumberValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateFNumberSlider = rebateSliderRow(rebateControls, "光圈值",
+                "相机记录的 f 值。决定片门边缘的虚化。0 = 未知（按 f/5.6）",
+                RebateControls.F_NUMBER_MIN, RebateControls.F_NUMBER_MAX, 1f,
+                RebateControls.clampFNumber(edgeFNumber),
+                value -> value < 0.5f
+                        ? "未知"
+                        : "f/" + String.format(java.util.Locale.US, "%.1f", value),
+                value -> edgeFNumber = RebateControls.clampFNumber(value),
+                () -> edgeFNumber, rebateFNumberValue);
+
+        rebateModeValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateControls.addView(rebateChoiceRow("片边模式", rebateModeValue, RebateControls.MODES,
+                () -> edgeMode, id -> {
+                    edgeMode = id;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateGateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateControls.addView(rebateChoiceRow("片门形状", rebateGateStyleValue,
+                RebateControls.GATE_STYLES, () -> edgeGate, id -> {
+                    edgeGate = id;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateHolesValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateControls.addView(rebateChoiceRow("齿孔", rebateHolesValue, RebateControls.HOLES,
+                () -> edgeHoles, id -> {
+                    edgeHoles = id;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateCarrierValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateControls.addView(rebateChoiceRow("片夹", rebateCarrierValue,
+                RebateControls.CARRIERS, () -> edgeCarrier, id -> {
+                    edgeCarrier = id;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateCameraSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateControls.addView(rebateValueRow("片边种子", rebateCameraSeedValue,
+                () -> String.valueOf(cameraSeed),
+                () -> askSeed("片边随机种子（0 – 2147483647）", cameraSeed, value -> {
+                    cameraSeed = value;
+                    syncRebatePage();
+                    commitRebate();
+                })), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateFrameSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
+                () -> String.valueOf(frameSeed),
+                () -> askSeed("帧随机种子（0 – 2147483647）", frameSeed, value -> {
+                    frameSeed = value;
+                    syncRebatePage();
+                    commitRebate();
+                })), new LinearLayout.LayoutParams(-1, -2));
+
+        page.addView(rebateControls, new LinearLayout.LayoutParams(-1, -2));
+        return page;
+    }
+
+    /** Back plus the page name; the two pages share one header shape. */
+    private View edgePageHead(String title) {
+        final LinearLayout head = new LinearLayout(this);
+        head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        final MaterialButton back = m3TextButton("‹ 返回", "返回边框页",
+                m3Primary(), () -> openEdgePage(-1));
+        head.addView(back, new LinearLayout.LayoutParams(-2, dp(48)));
+        final TextView name = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL,
+                m3OnSurfaceVariant());
+        final LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
+                largeText() ? -1 : 0, -2, largeText() ? 0f : 1f);
+        nameLp.leftMargin = largeText() ? 0 : dp(8);
+        head.addView(name, nameLp);
+        return head;
+    }
+
+    /** -1 = the two cards, 0 = the Rebate page. */
+    private void openEdgePage(int which) {
+        edgePageIndex = which;
+        if (edgeHome != null) {
+            edgeHome.setVisibility(which < 0 ? View.VISIBLE : View.GONE);
+        }
+        if (rebatePage != null) {
+            rebatePage.setVisibility(which == 0 ? View.VISIBLE : View.GONE);
+        }
+        if (which == 0) syncRebatePage();
+        refreshEdgeCards();
+        // The panel is one ScrollView; a page opens at its own top.
+        if (panels != null && activeTabIndex == 3 && panels[3] instanceof ScrollView) {
+            ((ScrollView) panels[3]).scrollTo(0, 0);
+        }
+    }
+
+    /** Repaint the entry cards and every chosen row from the live Look. */
+    private void refreshEdgeCards() {
+        for (int i = 0; i < rebateRefreshers.size(); ++i) rebateRefreshers.get(i).run();
+    }
+
+    private String rebateSummary() {
+        if (!overscanOn) return "未开启 · 点进去设置";
+        final String gate = edgeIds.isEmpty()
+                ? gateLabel(overscanFormat)
+                : GateScale.resolve(overscanFormat, filmFormatMm).label;
+        return gate + " · 雾 " + fmt1(edgeFog) + " · 漏光 " + fmt1(edgeLeaks)
+                + " · 张数 " + (frameNumber < 0.5f
+                        ? "自动" : String.valueOf(Math.round(frameNumber)));
+    }
+
+    private String dateSummary() {
+        if (!dateOn) return "未开启 · 点进去设置";
+        return imprintDate();
+    }
+
+    private static String fmt1(float value) {
+        return String.format(java.util.Locale.US, "%.1f", value);
+    }
+
+    /**
+     * Fill the Rebate page from the live fields. It runs after a Look restore,
+     * a Gate change, or a page open, so the page never keeps a second copy of
+     * the Look. The switch guard keeps the slider listeners from committing a
+     * render while they are being moved into place.
+     */
+    private void syncRebatePage() {
+        if (rebateSwitch == null) return;
+        syncingRebate = true;
+        syncingToggles = true;
+        try {
+            rebateSwitch.setChecked(overscanOn);
+            rebateSwitch.setContentDescription(toggleDescription("开启片边", overscanOn));
+            if (edgeTextSwitch != null) {
+                edgeTextSwitch.setChecked(edgeTextOn);
+                edgeTextSwitch.setContentDescription(
+                        toggleDescription("片边文字（厂标 / 张数）", edgeTextOn));
+            }
+            refreshEdgeCards();
+        } finally {
+            syncingRebate = false;
+            syncingToggles = false;
+        }
+        setEnabledDeep(rebateControls, overscanOn);
+    }
+
+    /** Dim and disable a whole control group without hiding what it offers. */
+    private static void setEnabledDeep(View view, boolean enabled) {
+        if (view == null) return;
+        setEnabledRecursive(view, enabled);
+        // One 38 % overlay for the group; setting it on every child too would
+        // compound the opacity and make nested labels unreadable.
+        view.setAlpha(enabled ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
+    }
+
+    private static void setEnabledRecursive(View view, boolean enabled) {
+        view.setEnabled(enabled);
+        if (view instanceof android.view.ViewGroup) {
+            final android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); ++i) {
+                setEnabledRecursive(group.getChildAt(i), enabled);
+            }
+        }
+    }
+
+    /** A slider, its label, and its live value; the page owns four of them. */
+    private Slider rebateSliderRow(LinearLayout parent, String name, String hint,
+                                   float min, float max, float step, float initial,
+                                   java.util.function.Function<Float, String> format,
+                                   java.util.function.Consumer<Float> apply,
+                                   java.util.function.Supplier<Float> current,
+                                   TextView valueView) {
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dp(4), 0, 0);
+
+        final LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        head.addView(m3Label(name, M3Tokens.TypeRole.BODY_MEDIUM,
+                m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
+                tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
+        valueView.setText(format.apply(initial));
+        applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfBody);
+        valueView.setTextColor(m3Primary());
+        head.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
+        row.addView(head, new LinearLayout.LayoutParams(-1, -2));
+
+        if (hint != null && !hint.isEmpty()) {
+            final TextView note = m3Label(hint, M3Tokens.TypeRole.LABEL_SMALL,
+                    m3OnSurfaceVariant(), tfHan);
+            note.setLineSpacing(dp(2), 1f);
+            final LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
+            noteLp.topMargin = dp(1);
+            row.addView(note, noteLp);
+        }
+
+        final Slider bar = new Slider(this);
+        bar.setId(View.generateViewId());
+        bar.setValueFrom(min);
+        bar.setValueTo(max);
+        bar.setStepSize(step);
+        bar.setValue(initial);
+        bar.setMinimumHeight(dp(48));
+        bar.setLabelFormatter(value -> format.apply(value));
+        bar.setLabelBehavior(com.google.android.material.slider.LabelFormatter.LABEL_GONE);
+        bar.setContentDescription(name);
+        valueView.setLabelFor(bar.getId());
+        bar.addOnChangeListener((slider, value, fromUser) -> {
+            valueView.setText(format.apply(value));
+            apply.accept(value);
+            if (!syncingRebate) {
+                slider.removeCallbacks(rebateCommit);
+                slider.postDelayed(rebateCommit, OPTICS_COMMIT_DELAY_MS);
+            }
+        });
+        bar.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+            @Override public void onStartTrackingTouch(Slider slider) {
+                slider.removeCallbacks(rebateCommit);
+            }
+            @Override public void onStopTrackingTouch(Slider slider) {
+                slider.removeCallbacks(rebateCommit);
+                commitRebate();
+            }
+        });
+        rebateRefreshers.add(() -> bar.setValue(clampToSlider(current.get(), min, max)));
+        row.addView(bar, new LinearLayout.LayoutParams(-1, dp(48)));
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return bar;
+    }
+
+    /** A chosen value row backed by the M3 radio sheet; the id is the Look's. */
+    private View rebateChoiceRow(String labelText, TextView valueView,
+                                 List<RebateControls.Choice> choices,
+                                 java.util.function.Supplier<String> current,
+                                 java.util.function.Consumer<String> setter) {
+        return rebateValueRow(labelText, valueView,
+                () -> String.valueOf(RebateControls.labelOf(choices, current.get())),
+                () -> {
+                    final int selected = RebateControls.indexOf(choices, current.get());
+                    showChoiceSheet(labelText, "只列出这一版支持的选项",
+                            java.util.Arrays.asList(RebateControls.labels(choices)),
+                            selected, picked -> {
+                                if (picked < 0 || picked >= choices.size()) return;
+                                setter.accept(choices.get(picked).id);
+                            });
+                });
+    }
+
+    /** A non-sheet row: a label, the live value, and a chevron-like arrow. */
+    private View rebateValueRow(String labelText, TextView valueView,
+                                java.util.function.Supplier<String> current,
+                                Runnable onClick) {
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(52));
+        row.setPadding(dp(2), 0, dp(2), 0);
+        row.addView(m3Label(labelText, M3Tokens.TypeRole.BODY_MEDIUM,
+                m3Role(com.google.android.material.R.attr.colorOnSurfaceVariant,
+                        Palette.Role.MUTED_INK), tfHan),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfHan);
+        valueView.setTextColor(m3OnSurface());
+        valueView.setGravity(android.view.Gravity.END);
+        row.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
+        final TextView arrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
+                m3OnSurfaceVariant(), tfBody);
+        final LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(-2, -2);
+        arrowLp.leftMargin = dp(7);
+        row.addView(arrow, arrowLp);
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setOnClickListener(v -> onClick.run());
+        rebateRefreshers.add(() -> {
+            final String value = current.get();
+            valueView.setText(value);
+            row.setContentDescription(labelText + "，" + value);
+        });
+        return row;
+    }
+
+    /** The seeds are arbitrary ints, so they ask for a number rather than a slider. */
+    private void askSeed(String title, int initial, java.util.function.IntConsumer onValue) {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        input.setText(String.valueOf(initial));
+        input.setSelectAllOnFocus(true);
+        input.setSingleLine(true);
+        final int pad = dp(16);
+        input.setPadding(pad, dp(8), pad, dp(8));
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(title)
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    try {
+                        onValue.accept(RebateControls.clampSeed(
+                                Long.parseLong(input.getText().toString().trim())));
+                    } catch (NumberFormatException ignored) {
+                        showSnackbar("请输入 0 到 2147483647 之间的整数");
+                    }
+                })
+                .show();
+    }
+
+    /** A switch change or a chosen row commits one render, not one per frame. */
+    private void commitRebate() {
+        if (syncingRebate) return;
+        onEdgeChanged();
+    }
+
+    private final Runnable rebateCommit = () -> {
+        if (!syncingRebate) onEdgeChanged();
+    };
+
+    private static float clampToSlider(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private void showEdgePicker() {
@@ -3573,6 +4089,26 @@ public class MainActivity extends AppCompatActivity {
     private void resetEdgePanel() {
         overscanOn = false;
         dateOn = false;
+        edgeMode = "strip";
+        edgeGate = "auto";
+        edgeHoles = "white";
+        edgeCarrier = "none";
+        edgeTextOn = true;
+        edgeFog = 1f;
+        edgeLeaks = 0f;
+        frameNumber = 0f;
+        edgeFNumber = 0f;
+        cameraSeed = 1;
+        frameSeed = 1;
+        datePlacement = "frame";
+        dateCorner = "br";
+        dateStyle = "lcd";
+        dateInsetX = 3f;
+        dateInsetY = 2.4f;
+        dateSize = 1f;
+        dateEv = 3.5f;
+        dataText = "";
+        dateTextB = "";
         syncToggleRows();
         syncDateDetail();
         if (session != null) onEdgeChanged();
@@ -3698,6 +4234,9 @@ public class MainActivity extends AppCompatActivity {
             formatFootValue.setText(mmText(filmFormatMm) + " mm");
         }
         rebuildFormatCards();
+        // The page's Gate row and switch follow the same available set: a shape
+        // no Gate can hold cannot keep the Rebate on.
+        syncRebatePage();
         try {
             DebugSink.text("overscan", "aspect=" + aspect + " gates=" + edgeIds
                     + " chosen=" + overscanFormat + " scale=" + filmFormatMm);
@@ -3823,9 +4362,32 @@ public class MainActivity extends AppCompatActivity {
         return dateOn ? imprintDate() : "";
     }
 
-    /** Re-apply a restored Look to the Edge switches' checked state. */
+    /** Quote a user-editable string for the engine's JSON delta. */
+    private static String jsonEsc(String value) {
+        if (value == null) return "";
+        final StringBuilder out = new StringBuilder(value.length() + 8);
+        for (int i = 0; i < value.length(); ++i) {
+            final char c = value.charAt(i);
+            switch (c) {
+                case '"': out.append("\\\""); break;
+                case '\\': out.append("\\\\"); break;
+                case '\n': out.append("\\n"); break;
+                case '\r': out.append("\\r"); break;
+                case '\t': out.append("\\t"); break;
+                default:
+                    if (c < 0x20) {
+                        out.append(String.format(java.util.Locale.US, "\\u%04x", (int) c));
+                    } else {
+                        out.append(c);
+                    }
+            }
+        }
+        return out.toString();
+    }
+
+    /** Re-apply a restored Look to the Edge page's switches. */
     private void syncToggleRows() {
-        syncToggleRow(overscanSwitch, "片边（胶片边缘）", overscanOn);
+        syncRebatePage();
         syncToggleRow(dateSwitch, "日期水印", dateOn);
     }
 
@@ -6260,7 +6822,15 @@ public class MainActivity extends AppCompatActivity {
             + "\"print_exposure\":%.2f,\"grain_amount\":%.3f,\"halation_amount\":%.3f,"
             + "\"glare_amount\":%.3f,\"film_format_mm\":%.1f,"
             + "\"overscan_active\":%s,\"overscan_format\":\"%s\",\"overscan_edge_text\":\"%s\","
-            + "\"date_imprint_active\":%s,\"date_imprint_text\":\"%s\",\"date_imprint_style\":\"lcd\"}",
+            + "\"overscan_fog\":%.2f,\"overscan_leaks\":%.2f,\"overscan_frame_number\":%.0f,"
+            + "\"overscan_mode\":\"%s\",\"overscan_gate\":\"%s\",\"overscan_holes\":\"%s\","
+            + "\"overscan_carrier\":\"%s\",\"overscan_f_number\":%.0f,"
+            + "\"overscan_camera_seed\":%d,\"overscan_frame_seed\":%d,"
+            + "\"date_imprint_active\":%s,\"date_imprint_text\":\"%s\",\"date_imprint_style\":\"%s\","
+            + "\"date_imprint_text_b\":\"%s\",\"date_imprint_data_text\":\"%s\","
+            + "\"date_imprint_placement\":\"%s\",\"date_imprint_corner\":\"%s\","
+            + "\"date_imprint_inset_x\":%.2f,\"date_imprint_inset_y\":%.2f,"
+            + "\"date_imprint_size\":%.2f,\"date_imprint_ev\":%.1f}",
             stock, printStock,
             isPositiveFilm(stock) ? "true" : "false",
             isRawFile ? "ProPhoto RGB" : "sRGB",
@@ -6268,8 +6838,14 @@ public class MainActivity extends AppCompatActivity {
             isRawFile ? "true" : "false",
             longEdge,
             printExposure, grainAmount, halationAmount, glareAmount, filmFormatMm,
-            overscanOn ? "true" : "false", overscanFormat, edgeTextFor(stock),
-            dateOn ? "true" : "false", dateParam()
+            overscanOn ? "true" : "false", overscanFormat,
+            edgeTextOn ? edgeTextFor(stock) : "",
+            edgeFog, edgeLeaks, frameNumber,
+            edgeMode, edgeGate, edgeHoles, edgeCarrier, edgeFNumber,
+            cameraSeed, frameSeed,
+            dateOn ? "true" : "false", jsonEsc(dateParam()), dateStyle,
+            jsonEsc(dateTextB), jsonEsc(dataText),
+            datePlacement, dateCorner, dateInsetX, dateInsetY, dateSize, dateEv
         ));
     }
 
@@ -6285,16 +6861,30 @@ public class MainActivity extends AppCompatActivity {
                     + " overscan=" + overscanOn + " date=" + dateOn + " fmt=" + filmFormatMm
                     + " long=" + longEdge);
         } catch (Throwable ignored) { }
-        session.setParams(String.format(
+        session.setParams(String.format(java.util.Locale.US,
             "{\"output_color_space\":\"sRGB\",\"preview_long_edge\":%d,"
             + "\"print_exposure\":%.2f,\"grain_amount\":%.3f,\"halation_amount\":%.3f,"
             + "\"glare_amount\":%.3f,\"film_format_mm\":%.1f,"
             + "\"overscan_active\":%s,\"overscan_format\":\"%s\",\"overscan_edge_text\":\"%s\","
-            + "\"date_imprint_active\":%s,\"date_imprint_text\":\"%s\",\"date_imprint_style\":\"lcd\"}",
+            + "\"overscan_fog\":%.2f,\"overscan_leaks\":%.2f,\"overscan_frame_number\":%.0f,"
+            + "\"overscan_mode\":\"%s\",\"overscan_gate\":\"%s\",\"overscan_holes\":\"%s\","
+            + "\"overscan_carrier\":\"%s\",\"overscan_f_number\":%.0f,"
+            + "\"overscan_camera_seed\":%d,\"overscan_frame_seed\":%d,"
+            + "\"date_imprint_active\":%s,\"date_imprint_text\":\"%s\",\"date_imprint_style\":\"%s\","
+            + "\"date_imprint_text_b\":\"%s\",\"date_imprint_data_text\":\"%s\","
+            + "\"date_imprint_placement\":\"%s\",\"date_imprint_corner\":\"%s\","
+            + "\"date_imprint_inset_x\":%.2f,\"date_imprint_inset_y\":%.2f,"
+            + "\"date_imprint_size\":%.2f,\"date_imprint_ev\":%.1f}",
             longEdge,
             printExposure, grainAmount, halationAmount, glareAmount, filmFormatMm,
-            overscanOn ? "true" : "false", overscanFormat, edgeTextFor(stock),
-            dateOn ? "true" : "false", dateParam()
+            overscanOn ? "true" : "false", overscanFormat,
+            edgeTextOn ? edgeTextFor(stock) : "",
+            edgeFog, edgeLeaks, frameNumber,
+            edgeMode, edgeGate, edgeHoles, edgeCarrier, edgeFNumber,
+            cameraSeed, frameSeed,
+            dateOn ? "true" : "false", jsonEsc(dateParam()), dateStyle,
+            jsonEsc(dateTextB), jsonEsc(dataText),
+            datePlacement, dateCorner, dateInsetX, dateInsetY, dateSize, dateEv
         ));
     }
 
