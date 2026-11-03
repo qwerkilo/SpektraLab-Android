@@ -136,6 +136,16 @@ public final class Look {
         }
     }
 
+    /** Return one parameter to its contract default; every other value stays. */
+    void reset(OpticsDelta.Param param) {
+        set(param, param.defaultValue);
+    }
+
+    /** A detached copy of this Look, with no value normalised on the way. */
+    Look copy() {
+        return fromJson(toJson());
+    }
+
     /** The Look as the keys the app has always saved; every field is present. */
     JSONObject toJson() {
         final JSONObject o = new JSONObject();

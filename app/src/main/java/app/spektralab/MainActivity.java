@@ -104,10 +104,6 @@ public class MainActivity extends AppCompatActivity {
      *  a Portra 400 session, and must not render one behind their back. */
     private String filmStock = null;
     private String printStock = "kodak_portra_endura";
-    private float printExposure = OpticsDelta.EXPOSURE_DEFAULT;
-    private float grainAmount = OpticsDelta.GRAIN_DEFAULT;      // 0..2
-    private float halationAmount = OpticsDelta.HALATION_DEFAULT; // 0..4
-    private float glareAmount = OpticsDelta.GLARE_DEFAULT;      // 0..12 shown; engine 0..30
     private float filmFormatMm = 36.0f;    // frame's long edge, 135 = 36 mm
     private boolean uiReady = false;
     private String lastImportError = null;
@@ -190,10 +186,28 @@ public class MainActivity extends AppCompatActivity {
     private Typeface tfHan;          // OPPO Sans — Chinese, and anything mixed
     private View emptyState, rawState;
     private TextView fileLabel, rawName, busyLabel, originalLabel, paperValue, edgeValue, formatFootValue;
-    private OpticsRow exposureRow, grainRow, halationRow, glareRow;
+    /**
+     * The live Optics values for the current Frame: all 22 contract
+     * parameters plus the camera filter and protection norm. The Look owns
+     * them; the strip and the one slider only read and write this object, so a
+     * capture, a preview, and a restored JSON cannot drift apart.
+     */
+    private final Look optics = new Look();
+    private int activeOptics = 0;
+    /** True while the slider is being parked on a new parameter; no commit. */
+    private boolean syncingOptics = false;
+    /** True between a real touch-down and touch-up; mid-drag never commits. */
+    private boolean trackingOpticsTouch = false;
+    private HorizontalScrollView opticsStripScroll;
+    private LinearLayout opticsStrip;
+    private final List<Chip> opticsChips = new ArrayList<>();
+    private Slider opticsSlider;
+    private TextView opticsName, opticsValue, opticsUnit, opticsDelta, opticsRange;
+    private MaterialButton opticsReset, opticsFilterButton, opticsNormButton;
     private LinearLayout opticsPanel;
     private TextView opticsLockNote;
     private boolean opticsUnlocked = false;
+    private final Runnable opticsCommitRunnable = this::commitOptics;
 
     // The Console shell's instrument readouts. The strip under the stage is
     // built from the same Look the panels edit, never from a second copy.
@@ -1536,7 +1550,8 @@ public class MainActivity extends AppCompatActivity {
      * spectrum cell only reports samples the catalogue actually carries.
      */
     private void refreshReadoutStrip() {
-        final String exposure = OpticsDelta.valueText(printExposure);
+        final String exposure = OpticsDelta.valueText(
+                optics.get(OpticsDelta.Param.EXPOSURE));
         if (stageExposureValue != null) stageExposureValue.setText(exposure);
         if (readoutExposure == null) return;
         readoutExposure.setText(exposure);
@@ -2002,24 +2017,25 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * Capture the live controls into the Frame's Look. A save from an existing
-     * Frame starts from that Frame's stored Look, so a field this build does
-     * not yet expose (an optical parameter that arrives in a later ticket) is
-     * carried through instead of being reset by a Frame switch. A brand-new
-     * photograph starts from a fresh Look and inherits nothing.
+     * Frame starts from a detached copy of that Frame's stored Look, so a field
+     * this build does not yet expose is carried through instead of being reset
+     * by a Frame switch. A brand-new photograph starts from a fresh Look and
+     * inherits nothing. Nothing is clamped on the way in.
      */
     private Look captureLook(boolean preserveHidden) {
         final Look look = preserveHidden
                 && currentFrame >= 0 && currentFrame < frames.size()
                 && frames.get(currentFrame).look != null
-                ? frames.get(currentFrame).look
+                ? frames.get(currentFrame).look.copy()
                 : new Look();
         look.filmStock = filmStock;
         look.printStock = printStock;
-        look.printExposure = printExposure;
-        look.grainAmount = grainAmount;
-        look.halationAmount = halationAmount;
-        look.glareAmount = glareAmount;
         look.filmFormatMm = filmFormatMm;
+        for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
+            look.set(param, optics.get(param));
+        }
+        look.cameraFilter = optics.cameraFilter;
+        look.sceneNorm = optics.sceneNorm;
         look.overscanOn = overscanOn;
         look.overscanFormat = overscanFormat;
         look.dateOn = dateOn;
@@ -2047,18 +2063,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** Put a frame's own look back, controls included: a slider that says 1.00
-     *  while the render used 1.40 is worse than no slider. `setValue` goes
-     *  through the slider listener, so the number and the field move
-     *  together. */
+     *  while the render used 1.40 is worse than no slider. The stored value is
+     *  restored as-is; the slider only clamps the thumb it can reach, so a
+     *  glare above its 12.0 cap still reaches the engine. */
     private void applyLook(Look look) {
         if (look == null) return;
         filmStock = look.filmStock;
         printStock = look.printStock;
-        printExposure = look.printExposure;
-        grainAmount = look.grainAmount;
-        halationAmount = look.halationAmount;
-        glareAmount = look.glareAmount;
         filmFormatMm = look.filmFormatMm;
+        for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
+            optics.set(param, look.get(param));
+        }
+        // Unknown choice ids stay on the Look so a later save does not erase
+        // them; the page shows the documented fallback until the user picks.
+        optics.cameraFilter = look.cameraFilter;
+        optics.sceneNorm = look.sceneNorm;
         overscanOn = look.overscanOn;
         overscanFormat = look.overscanFormat;
         dateOn = look.dateOn;
@@ -2087,10 +2106,8 @@ public class MainActivity extends AppCompatActivity {
         // pulled onto the Gate's measured edge before either control can draw.
         overscanFormat = pair.id;
         filmFormatMm = pair.longEdgeMm;
-        if (exposureRow != null) exposureRow.setValue(printExposure);
-        if (grainRow != null) grainRow.setValue(grainAmount);
-        if (halationRow != null) halationRow.setValue(halationAmount);
-        if (glareRow != null) glareRow.setValue(glareAmount);
+        if (opticsSlider != null) bindActiveOptics();
+        syncOpticsChoices();
         syncToggleRows();
         syncDateDetail();
         if (edgeValue != null) edgeValue.setText(pair.label);
@@ -2109,11 +2126,7 @@ public class MainActivity extends AppCompatActivity {
     private Look defaultLook() {
         final Look look = new Look();
         look.filmStock = null;
-        look.printStock = "kodak_portra_endura";
-        look.printExposure = OpticsDelta.EXPOSURE_DEFAULT;
-        look.grainAmount = OpticsDelta.GRAIN_DEFAULT;
-        look.halationAmount = OpticsDelta.HALATION_DEFAULT;
-        look.glareAmount = OpticsDelta.GLARE_DEFAULT;
+        look.printStock = Look.DEFAULT_PRINT_STOCK;
         look.filmFormatMm = GateScale.defaultGate().longEdgeMm;
         look.overscanOn = false;
         look.overscanFormat = GateScale.defaultGate().id;
@@ -2675,6 +2688,57 @@ public class MainActivity extends AppCompatActivity {
                 && "positive".equals(filmTypes.get(index));
     }
 
+    /**
+     * The frame length the rebate layout must see. With a rebate on, the Gate
+     * decides: the Scale page describes grain size, the Gate describes the film
+     * the edge is cut from, and the engine lays out the canvas by the latter.
+     */
+    private float wireFormatMm() {
+        if (!overscanOn) return filmFormatMm;
+        final GateScale.Gate gate = GateScale.byId(overscanFormat);
+        return gate != null ? gate.longEdgeMm : filmFormatMm;
+    }
+
+    /**
+     * The four black-and-white stocks the catalogue carries. The engine's
+     * grain has a colour and a monochrome form; the silver sheet gets the
+     * single-layer one.
+     */
+    private static boolean isMonochromeStock(String stock) {
+        if (stock == null) return false;
+        switch (stock) {
+            case "kodak_tri_x_400":
+            case "ilford_hp5_plus_400":
+            case "kodak_tmax_100":
+            case "fujifilm_neopan_acros_100_ii":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * What the Grain slider's 1 means on a black-and-white stock: the
+     * `grain_amount` at which the engine renders the diffuse RMS granularity
+     * the maker publishes. A colour film's is 1.
+     */
+    private static double ownGrain(String stock) {
+        if (stock == null) return 1.0;
+        switch (stock) {
+            case "kodak_tri_x_400": return 1.70;
+            case "ilford_hp5_plus_400": return 1.49;
+            case "kodak_tmax_100": return 0.74;
+            case "fujifilm_neopan_acros_100_ii": return 0.64;
+            default: return 1.0;
+        }
+    }
+
+    /** The wire's `grain_amount`: the slider times the stock's own amount. */
+    private double wireGrain(String stock) {
+        return Math.max(0.0, Math.min(2.0,
+                optics.get(OpticsDelta.Param.GRAIN) * ownGrain(stock)));
+    }
+
     /** Measured values only: a field the profile does not ship stays absent. */
     private void refreshFilmMetrics(FilmStock stock) {
         if (filmMetricsRow == null) return;
@@ -2829,29 +2893,390 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout buildOpticsPanel() {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(buildOpticsHead(),
-                new LinearLayout.LayoutParams(-1, -2));
-        opticsPanel = new LinearLayout(this);
-        opticsPanel.setOrientation(LinearLayout.VERTICAL);
+        opticsPanel = panel;
         opticsPanel.setOnClickListener(v -> {
             if (!opticsUnlocked) showSnackbar(opticsLockReason());
         });
-        exposureRow = opticsRow(opticsPanel, "EXPOSURE 曝光", OpticsDelta.Param.EXPOSURE,
-                printExposure, v -> printExposure = v);
-        grainRow = opticsRow(opticsPanel, "GRAIN 颗粒", OpticsDelta.Param.GRAIN,
-                grainAmount, v -> grainAmount = v);
-        halationRow = opticsRow(opticsPanel, "HALATION 光晕", OpticsDelta.Param.HALATION,
-                halationAmount, v -> halationAmount = v);
-        glareRow = opticsRow(opticsPanel, "GLARE 眩光", OpticsDelta.Param.GLARE,
-                glareAmount, v -> glareAmount = v);
-        panel.addView(opticsPanel, new LinearLayout.LayoutParams(-1, -2));
+        panel.addView(buildOpticsHead(),
+                new LinearLayout.LayoutParams(-1, -2));
+
+        // The strip: one M3 chip per contract parameter, in the engine's own
+        // order. It scrolls sideways instead of clipping, so 390 dp and large
+        // text both keep every parameter reachable.
+        opticsStrip = new LinearLayout(this);
+        opticsStrip.setOrientation(LinearLayout.HORIZONTAL);
+        opticsStrip.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        opticsChips.clear();
+        for (int i = 0; i < OpticsDelta.Param.values().length; ++i) {
+            final int index = i;
+            final OpticsDelta.Param spec = OpticsDelta.paramAt(i);
+            final Chip chip = new Chip(this);
+            styleOpticsChip(chip);
+            chip.setId(View.generateViewId());
+            chip.setCheckable(true);
+            chip.setSingleLine(true);
+            chip.setText(mixedText(spec.glyph + "  " + spec.label));
+            chip.setContentDescription(spec.label + "，参数 " + (i + 1) + " / "
+                    + OpticsDelta.Param.values().length);
+            chip.setMinimumHeight(dp(MIN_TOUCH_DP));
+            chip.setOnClickListener(v -> {
+                if (!opticsUnlocked) {
+                    showSnackbar(opticsLockReason());
+                    return;
+                }
+                selectOptics(index);
+            });
+            final LinearLayout.LayoutParams chipLp =
+                    new LinearLayout.LayoutParams(-2, -2);
+            chipLp.rightMargin = dp(6);
+            opticsStrip.addView(chip, chipLp);
+            opticsChips.add(chip);
+        }
+        opticsStripScroll = new HorizontalScrollView(this);
+        opticsStripScroll.setHorizontalScrollBarEnabled(false);
+        opticsStripScroll.setClipToPadding(false);
+        opticsStripScroll.setFillViewport(false);
+        opticsStripScroll.addView(opticsStrip,
+                new android.widget.FrameLayout.LayoutParams(-2, -2));
+        panel.addView(opticsStripScroll, new LinearLayout.LayoutParams(-1, -2));
+
+        // The one active row: name, value, unit, display-only Δ, and reset.
+        panel.addView(buildOpticsReadout(), new LinearLayout.LayoutParams(-1, -2));
+
+        opticsSlider = new Slider(this);
+        opticsSlider.setId(View.generateViewId());
+        opticsSlider.setMinimumHeight(dp(SLIDER_HEIGHT_DP));
+        // The head already shows the live value; a floating tooltip would be
+        // clipped by the row and repeat it.
+        opticsSlider.setLabelBehavior(
+                com.google.android.material.slider.LabelFormatter.LABEL_GONE);
+        opticsSlider.setLabelFormatter(value -> {
+            final OpticsDelta.Param spec = activeOptics();
+            return OpticsDelta.valueText(value) + " " + spec.unit;
+        });
+        opticsSlider.addOnChangeListener((slider, value, fromUser) -> {
+            if (syncingOptics) return;
+            final OpticsDelta.Param spec = activeOptics();
+            optics.set(spec, value);
+            showActiveOptics(value);
+            refreshReadoutStrip();
+            // One render per completed gesture: a touch release commits at
+            // once; keyboard, switch access, and TalkBack changes coalesce so
+            // a held arrow key does not queue a render per key. The guard at
+            // the top keeps a Look restore and a chip rebind silent.
+            if (!trackingOpticsTouch) scheduleOpticsCommit(slider);
+        });
+        opticsSlider.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+            @Override public void onStartTrackingTouch(Slider slider) {
+                trackingOpticsTouch = true;
+                slider.removeCallbacks(opticsCommitRunnable);
+            }
+            @Override public void onStopTrackingTouch(Slider slider) {
+                trackingOpticsTouch = false;
+                slider.removeCallbacks(opticsCommitRunnable);
+                commitOptics();
+            }
+        });
+        panel.addView(opticsSlider,
+                new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
+
+        // The two choices the engine models separately from the 22 numbers.
+        opticsFilterButton = opticsChoiceRow(panel, "镜头滤镜 / CAMERA FILTER",
+                this::showCameraFilterPicker);
+        opticsNormButton = opticsChoiceRow(panel, "保护基准 / PROTECTION NORM",
+                this::showProtectionNormPicker);
+
+        bindActiveOptics();
+        syncOpticsChoices();
         return panel;
     }
 
+    /** Set a chip's M3 filter style from the current theme's roles. */
+    private void styleOpticsChip(Chip chip) {
+        chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null, 0,
+                com.google.android.material.R.style.Widget_Material3_Chip_Filter));
+        final int chipSurface = m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerLow,
+                Palette.Role.SURFACE_ELEVATED);
+        final int chipSelected = m3Role(
+                com.google.android.material.R.attr.colorSecondaryContainer,
+                Palette.Role.ACCENT_SOFT);
+        final int chipText = m3Role(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+        final int chipTextSelected = m3Role(
+                com.google.android.material.R.attr.colorOnSecondaryContainer,
+                Palette.Role.ACCENT);
+        final int chipOutline = m3Role(
+                com.google.android.material.R.attr.colorOutlineVariant,
+                Palette.Role.LINE);
+        chip.setChipBackgroundColor(checkedColors(chipSelected, chipSurface));
+        chip.setChipStrokeWidth(Math.max(1, dp(1)));
+        chip.setChipStrokeColor(checkedColors(chipSelected, chipOutline));
+        chip.setTextColor(checkedColors(chipTextSelected, chipText));
+        chip.setEnsureMinTouchTargetSize(true);
+    }
+
     /**
-     * The Optics head: title, page reset, and the locked reason. The reason
-     * sits outside the dimmed row stack so it stays readable while the rows
-     * are disabled.
+     * The active parameter's readout, above the slider: name and reset on one
+     * line, then value, unit, display-only Δ, and the contract's visible range.
+     */
+    private View buildOpticsReadout() {
+        final LinearLayout block = new LinearLayout(this);
+        block.setOrientation(LinearLayout.VERTICAL);
+        block.setPadding(0, dp(6), 0, 0);
+
+        final LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        opticsName = m3Label("", M3Tokens.TypeRole.TITLE_SMALL,
+                m3OnSurface(), tfHan);
+        opticsName.setSingleLine(true);
+        opticsName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        ViewCompat.setAccessibilityHeading(opticsName, true);
+        top.addView(opticsName, new LinearLayout.LayoutParams(0, -2, 1f));
+        opticsReset = m3TextButton("重置", "重置当前参数",
+                m3OnSurfaceVariant(), this::resetActiveOptics);
+        top.addView(opticsReset, new LinearLayout.LayoutParams(-2, dp(48)));
+        block.addView(top, new LinearLayout.LayoutParams(-1, -2));
+
+        final LinearLayout values = new LinearLayout(this);
+        values.setOrientation(LinearLayout.HORIZONTAL);
+        values.setGravity(android.view.Gravity.BOTTOM);
+        opticsValue = m3Label("", M3Tokens.TypeRole.HEADLINE_SMALL,
+                m3Primary(), tfDisplay);
+        values.addView(opticsValue);
+        opticsUnit = m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurfaceVariant(), tfBody);
+        final LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
+        unitLp.leftMargin = dp(4);
+        unitLp.bottomMargin = dp(4);
+        values.addView(opticsUnit, unitLp);
+        opticsDelta = m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurfaceVariant(), tfDisplay);
+        final LinearLayout.LayoutParams deltaLp = new LinearLayout.LayoutParams(-2, -2);
+        deltaLp.leftMargin = dp(10);
+        deltaLp.bottomMargin = dp(4);
+        values.addView(opticsDelta, deltaLp);
+        block.addView(values, new LinearLayout.LayoutParams(-1, -2));
+
+        opticsRange = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfHan);
+        opticsRange.setSingleLine(false);
+        block.addView(opticsRange, new LinearLayout.LayoutParams(-1, -2));
+        return block;
+    }
+
+    /** A label + current choice + arrow, the same shape as the paper picker. */
+    private MaterialButton opticsChoiceRow(LinearLayout parent, String title,
+                                           Runnable open) {
+        final boolean stacked = largeText();
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(MIN_TOUCH_DP));
+        final TextView titleView = m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurfaceVariant(), tfHan);
+        row.addView(titleView, stacked
+                ? new LinearLayout.LayoutParams(-1, -2)
+                : new LinearLayout.LayoutParams(0, -2, 1f));
+        final MaterialButton button = m3TextButton("", title, m3Primary(), open);
+        button.setGravity(stacked
+                ? (android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL)
+                : (android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL));
+        button.setSingleLine(false);
+        button.setMaxLines(2);
+        row.addView(button, stacked
+                ? new LinearLayout.LayoutParams(-1, dp(MIN_TOUCH_DP))
+                : new LinearLayout.LayoutParams(-2, dp(MIN_TOUCH_DP)));
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return button;
+    }
+
+    private OpticsDelta.Param activeOptics() {
+        return OpticsDelta.paramAt(activeOptics);
+    }
+
+    /** Bind the one slider and the readout to the strip's active parameter. */
+    private void bindActiveOptics() {
+        if (opticsSlider == null) return;
+        final OpticsDelta.Param spec = activeOptics();
+        final float stored = optics.get(spec);
+        syncingOptics = true;
+        try {
+            // Every contract range contains 1.0, so parking the thumb there is
+            // always inside the previous range. The step is cleared, the upper
+            // bound widened, and only then are the real bounds stated: this
+            // survives every transition, including one into a range whose
+            // lower bound equals the previous upper bound (switch -> filter
+            // strength). The real value is restored below.
+            opticsSlider.setValue(1.0f);
+            opticsSlider.setStepSize(0f);
+            opticsSlider.setValueTo(200.0f);
+            opticsSlider.setValueFrom(spec.min);
+            opticsSlider.setValueTo(spec.max);
+            opticsSlider.setStepSize(spec.step);
+            opticsSlider.setValue(spec.snap(stored));
+        } finally {
+            syncingOptics = false;
+        }
+        showActiveOptics(stored);
+        refreshOpticsChips();
+    }
+
+    /** Show a value in the head without moving the slider or committing. */
+    private void showActiveOptics(float value) {
+        final OpticsDelta.Param spec = activeOptics();
+        final String number = OpticsDelta.valueText(value);
+        final String delta = OpticsDelta.text(value, spec.defaultValue);
+        final boolean moved = !spec.isDefault(value);
+        final int color = moved ? m3Primary() : m3OnSurfaceVariant();
+        opticsName.setText(spec.label);
+        opticsValue.setText(number);
+        opticsUnit.setText(spec.unit);
+        opticsDelta.setText("Δ " + delta);
+        opticsDelta.setTextColor(color);
+        opticsReset.setTextColor(color);
+        opticsRange.setText("范围 " + OpticsDelta.valueText(spec.min) + " – "
+                + OpticsDelta.valueText(spec.max) + " " + spec.unit
+                + " · 步进 " + stepText(spec.step)
+                + outsideRangeNote(spec, value));
+        opticsSlider.setContentDescription(spec.label);
+        // The slider's own RangeInfo carries the real float range; the state
+        // description carries the value the Look actually holds, which may be
+        // outside the M3 slider's cap on an older Look.
+        ViewCompat.setStateDescription(opticsSlider,
+                number + " " + spec.unit + "，Δ " + delta + outsideRangeNote(spec, value));
+        opticsReset.setContentDescription("重置" + spec.label + "为 "
+                + OpticsDelta.valueText(spec.defaultValue) + " " + spec.unit);
+    }
+
+    private static String outsideRangeNote(OpticsDelta.Param spec, float value) {
+        if (value > spec.max + 0.0005f) {
+            return "，高于滑杆上限 " + OpticsDelta.valueText(spec.max) + " " + spec.unit;
+        }
+        if (value < spec.min - 0.0005f) {
+            return "，低于滑杆下限 " + OpticsDelta.valueText(spec.min) + " " + spec.unit;
+        }
+        return "";
+    }
+
+    private static String stepText(float step) {
+        return Math.abs(step - Math.round(step)) < 0.001f
+                ? String.format(java.util.Locale.US, "%.0f", step)
+                : String.format(java.util.Locale.US, "%.2f", step);
+    }
+
+    /** Select a strip chip: one UI selection, no Look change and no render. */
+    private void selectOptics(int index) {
+        final OpticsDelta.Param spec = OpticsDelta.paramAt(index);
+        if (activeOptics == spec.ordinal() && opticsSlider != null) {
+            // A checkable chip toggles itself on click; the strip has exactly
+            // one selection, so put the check back where it belongs.
+            refreshOpticsChips();
+            return;
+        }
+        activeOptics = spec.ordinal();
+        bindActiveOptics();
+    }
+
+    private void refreshOpticsChips() {
+        for (int i = 0; i < opticsChips.size(); ++i) {
+            final Chip chip = opticsChips.get(i);
+            final boolean active = i == activeOptics;
+            chip.setChecked(active);
+            chip.setContentDescription(OpticsDelta.paramAt(i).label + "，参数 "
+                    + (i + 1) + " / " + opticsChips.size()
+                    + (active ? "，已选中" : "，未选中"));
+        }
+        if (opticsStripScroll != null && activeOptics >= 0
+                && activeOptics < opticsChips.size()) {
+            final Chip active = opticsChips.get(activeOptics);
+            opticsStripScroll.post(() -> opticsStripScroll.smoothScrollTo(
+                    Math.max(0, active.getLeft() - dp(24)), 0));
+        }
+    }
+
+    /** One render after a settled keyboard/TalkBack change. */
+    private void scheduleOpticsCommit(Slider slider) {
+        slider.removeCallbacks(opticsCommitRunnable);
+        slider.postDelayed(opticsCommitRunnable, OPTICS_COMMIT_DELAY_MS);
+    }
+
+    /** Reset only the active parameter; already at default is a no-op. */
+    private void resetActiveOptics() {
+        if (!opticsUnlocked) {
+            showSnackbar(opticsLockReason());
+            return;
+        }
+        final OpticsDelta.Param spec = activeOptics();
+        if (spec.isDefault(optics.get(spec))) return;
+        optics.reset(spec);
+        bindActiveOptics();
+        refreshReadoutStrip();
+        commitOptics();
+    }
+
+    private void showCameraFilterPicker() {
+        if (!opticsUnlocked) {
+            showSnackbar(opticsLockReason());
+            return;
+        }
+        final OpticsDelta.CameraFilter[] all = OpticsDelta.CameraFilter.values();
+        final List<String> labels = new ArrayList<>();
+        for (OpticsDelta.CameraFilter filter : all) labels.add(filter.label);
+        final int selected = OpticsDelta.CameraFilter.fromWire(optics.cameraFilter).ordinal();
+        showChoiceSheet("镜头滤镜 / CAMERA FILTER",
+                "Wratten 滤镜在镜头前；放大机的滤色片属于相纸阶段",
+                labels, selected, picked -> {
+                    if (picked < 0 || picked >= all.length) return;
+                    final OpticsDelta.CameraFilter chosen = all[picked];
+                    if (chosen.wire.equals(optics.cameraFilter)) return;
+                    optics.cameraFilter = chosen.wire;
+                    syncOpticsChoices();
+                    commitOptics();
+                });
+    }
+
+    private void showProtectionNormPicker() {
+        if (!opticsUnlocked) {
+            showSnackbar(opticsLockReason());
+            return;
+        }
+        final OpticsDelta.ProtectionNorm[] all = OpticsDelta.ProtectionNorm.values();
+        final List<String> labels = new ArrayList<>();
+        for (OpticsDelta.ProtectionNorm norm : all) labels.add(norm.label);
+        final int selected = OpticsDelta.ProtectionNorm.fromWire(optics.sceneNorm).ordinal();
+        showChoiceSheet("保护基准 / PROTECTION NORM",
+                "高光与暗部保护按这个场景测量计算，不改变保护量",
+                labels, selected, picked -> {
+                    if (picked < 0 || picked >= all.length) return;
+                    final OpticsDelta.ProtectionNorm chosen = all[picked];
+                    if (chosen.wire.equals(optics.sceneNorm)) return;
+                    optics.sceneNorm = chosen.wire;
+                    syncOpticsChoices();
+                    commitOptics();
+                });
+    }
+
+    private void syncOpticsChoices() {
+        if (opticsFilterButton != null) {
+            final String label = OpticsDelta.CameraFilter.fromWire(optics.cameraFilter).label;
+            opticsFilterButton.setText(label + "  ↓");
+            opticsFilterButton.setContentDescription(
+                    "镜头滤镜，当前 " + label + "，双击选择");
+        }
+        if (opticsNormButton != null) {
+            final String label = OpticsDelta.ProtectionNorm.fromWire(optics.sceneNorm).label;
+            opticsNormButton.setText(label + "  ↓");
+            opticsNormButton.setContentDescription(
+                    "保护基准，当前 " + label + "，双击选择");
+        }
+    }
+
+    /**
+     * The Optics head: title and the locked reason. The reset lives on the
+     * active parameter's row, so it can only touch the one parameter in view.
      */
     private View buildOpticsHead() {
         final LinearLayout head = new LinearLayout(this);
@@ -2874,15 +3299,6 @@ public class MainActivity extends AppCompatActivity {
         head.addView(titles, largeText()
                 ? new LinearLayout.LayoutParams(-1, -2)
                 : new LinearLayout.LayoutParams(0, -2, 1f));
-
-        MaterialButton resetView = m3TextButton("重置当前页", "重置当前页",
-                m3OnSurfaceVariant(), this::resetOpticsPanel);
-        LinearLayout actions = new LinearLayout(this);
-        actions.setGravity(android.view.Gravity.END);
-        actions.addView(resetView, new LinearLayout.LayoutParams(-2, dp(48)));
-        head.addView(actions, largeText()
-                ? new LinearLayout.LayoutParams(-1, -2)
-                : new LinearLayout.LayoutParams(-2, -2));
         return head;
     }
 
@@ -4272,28 +4688,6 @@ public class MainActivity extends AppCompatActivity {
         refreshFilmPanel(true);
     }
 
-    private void resetOpticsPanel() {
-        if (!opticsUnlocked) {
-            showSnackbar(opticsLockReason());
-            return;
-        }
-        final boolean moved =
-                !OpticsDelta.isDefault(printExposure, OpticsDelta.EXPOSURE_DEFAULT)
-                        || !OpticsDelta.isDefault(grainAmount, OpticsDelta.GRAIN_DEFAULT)
-                        || !OpticsDelta.isDefault(halationAmount, OpticsDelta.HALATION_DEFAULT)
-                        || !OpticsDelta.isDefault(glareAmount, OpticsDelta.GLARE_DEFAULT);
-        printExposure = OpticsDelta.EXPOSURE_DEFAULT;
-        grainAmount = OpticsDelta.GRAIN_DEFAULT;
-        halationAmount = OpticsDelta.HALATION_DEFAULT;
-        glareAmount = OpticsDelta.GLARE_DEFAULT;
-        if (exposureRow != null) exposureRow.setValue(printExposure);
-        if (grainRow != null) grainRow.setValue(grainAmount);
-        if (halationRow != null) halationRow.setValue(halationAmount);
-        if (glareRow != null) glareRow.setValue(glareAmount);
-        // The whole page is already neutral: no parameter delta, no render.
-        if (moved) commitOptics();
-    }
-
     private void resetFormatPanel() {
         // The page's default is a Gate, not a bare number: resetting the Scale
         // must not leave the Edge claiming a different piece of film.
@@ -4612,192 +5006,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * One calibrated optics row: label, value, unit, display-only Δ, a reset,
-     * and a real M3 slider exposing the Look's float range.
-     */
-    private OpticsRow opticsRow(LinearLayout parent, String name,
-                                final OpticsDelta.Param spec, float initial,
-                                final java.util.function.Consumer<Float> apply) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView nameView = mixedM3Label(name, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
-        nameView.setSingleLine(true);
-        nameView.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        final TextView valueView = m3Label("", M3Tokens.TypeRole.LABEL_LARGE,
-                m3Primary(), tfDisplay);
-        final TextView deltaView = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                m3OnSurfaceVariant(), tfDisplay);
-        // The four rows are useless without their names: the head carries the
-        // parameter, live value, unit, and Δ.
-        head.addView(nameView, new LinearLayout.LayoutParams(0, -2, 1f));
-        head.addView(valueView);
-        TextView unitView = m3Label(spec.unit, M3Tokens.TypeRole.LABEL_SMALL,
-                m3OnSurfaceVariant(), tfBody);
-        LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
-        unitLp.leftMargin = dp(2);
-        unitLp.bottomMargin = dp(1);
-        head.addView(unitView, unitLp);
-        LinearLayout.LayoutParams deltaLp = new LinearLayout.LayoutParams(-2, -2);
-        deltaLp.leftMargin = dp(8);
-        head.addView(deltaView, deltaLp);
-        row.addView(head, new LinearLayout.LayoutParams(-1, dp(20)));
-
-        LinearLayout barRow = new LinearLayout(this);
-        barRow.setOrientation(LinearLayout.HORIZONTAL);
-        barRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-
-        final Slider bar = new Slider(this);
-        bar.setId(View.generateViewId());
-        bar.setValueFrom(spec.min);
-        bar.setValueTo(spec.max);
-        bar.setValue(spec.clamp(initial));
-        bar.setMinimumHeight(dp(SLIDER_HEIGHT_DP));
-        // The visible head is the label. The formatter still gives TalkBack the
-        // unit with the value it appends, and the real float range comes from
-        // the slider's own RangeInfo.
-        bar.setLabelFormatter(new com.google.android.material.slider.LabelFormatter() {
-            @Override public String getFormattedValue(float value) {
-                return OpticsDelta.valueText(value) + " " + spec.unit;
-            }
-        });
-        // The head already shows the live value; a floating tooltip would be
-        // clipped by the 48 dp row and repeat it.
-        bar.setLabelBehavior(com.google.android.material.slider.LabelFormatter.LABEL_GONE);
-        bar.setContentDescription(name);
-        valueView.setLabelFor(bar.getId());
-        barRow.addView(bar, new LinearLayout.LayoutParams(0, dp(SLIDER_HEIGHT_DP), 1f));
-
-        final MaterialButton reset = new MaterialButton(this);
-        reset.setText("重置");
-        reset.setAllCaps(false);
-        applyTypeRole(reset, M3Tokens.TypeRole.LABEL_MEDIUM, tfHan);
-        reset.setMinWidth(0);
-        reset.setMinimumWidth(0);
-        reset.setMinimumHeight(dp(MIN_TOUCH_DP));
-        reset.setInsetTop(0);
-        reset.setInsetBottom(0);
-        reset.setPadding(0, 0, 0, 0);
-        reset.setGravity(android.view.Gravity.CENTER);
-        reset.setSingleLine(true);
-        reset.setStateListAnimator(null);
-        barRow.addView(reset, new LinearLayout.LayoutParams(
-                dp(56), dp(MIN_TOUCH_DP)));
-        row.addView(barRow, new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
-
-        final OpticsRow optics = new OpticsRow(row, bar, valueView, deltaView, reset,
-                name, spec);
-
-        // One commit per completed gesture. A touch release commits at once;
-        // keyboard, switch access, and TalkBack changes coalesce for a moment
-        // so a held arrow key does not queue a render per key event.
-        final Runnable commit = () -> {
-            if (!bar.isAttachedToWindow()) return;
-            commitOptics();
-        };
-        final boolean[] trackingTouch = {false};
-        bar.addOnChangeListener((slider, value, fromUser) -> {
-            optics.show(value);
-            apply.accept(value);
-            refreshReadoutStrip();
-            if (fromUser && !trackingTouch[0]) {
-                slider.removeCallbacks(commit);
-                slider.postDelayed(commit, OPTICS_COMMIT_DELAY_MS);
-            }
-        });
-        bar.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
-            @Override public void onStartTrackingTouch(Slider slider) {
-                trackingTouch[0] = true;
-                slider.removeCallbacks(commit);
-            }
-            @Override public void onStopTrackingTouch(Slider slider) {
-                trackingTouch[0] = false;
-                slider.removeCallbacks(commit);
-                commit.run();
-            }
-        });
-        // The Δ is display-only: reset recomputes it from the slider, and at
-        // the default there is no render to ask for.
-        reset.setOnClickListener(v -> {
-            if (!opticsUnlocked) return;
-            final boolean moved = !optics.isAtDefault();
-            optics.setValue(spec.defaultValue);
-            refreshReadoutStrip();
-            if (moved) commit.run();
-        });
-        optics.show(bar.getValue());
-        parent.addView(row, new LinearLayout.LayoutParams(-1, 0, 1f));
-        return optics;
-    }
-
-    /**
      * One render for a completed optics gesture. The render thread sends the
      * parameter delta under the same lock as the draw, so a gesture produces
      * one update and one picture.
      */
     private void commitOptics() {
+        if (opticsSlider != null) opticsSlider.removeCallbacks(opticsCommitRunnable);
         if (uiReady && session != null) {
             showingOriginal = false;
             setOriginalVisual(false);
             renderImage();
-        }
-    }
-
-    /** One optics row's live views. The Δ is computed from the value and the
-     *  panel default every time; it is never kept as a second piece of state. */
-    private final class OpticsRow {
-        final View row;
-        final Slider bar;
-        final TextView valueView, deltaView;
-        final MaterialButton resetView;
-        final String name;
-        final OpticsDelta.Param spec;
-
-        OpticsRow(View row, Slider bar, TextView valueView, TextView deltaView,
-                  MaterialButton resetView, String name, OpticsDelta.Param spec) {
-            this.row = row;
-            this.bar = bar;
-            this.valueView = valueView;
-            this.deltaView = deltaView;
-            this.resetView = resetView;
-            this.name = name;
-            this.spec = spec;
-        }
-
-        void show(float v) {
-            final String number = OpticsDelta.valueText(v);
-            final boolean moved = !spec.isDefault(v);
-            final String delta = OpticsDelta.text(v, spec.defaultValue);
-            valueView.setText(number);
-            deltaView.setText("Δ " + delta);
-            final int color = moved ? m3Primary() : m3OnSurfaceVariant();
-            deltaView.setTextColor(color);
-            resetView.setTextColor(color);
-            // Slider's accessibility helper appends its formatted value and
-            // RangeInfo to this description; state carries value, unit, and Δ
-            // without repeating the number twice.
-            bar.setContentDescription(name);
-            ViewCompat.setStateDescription(bar, number + " " + spec.unit + "，Δ " + delta);
-            resetView.setContentDescription("重置" + name + "为 "
-                    + OpticsDelta.valueText(spec.defaultValue) + " " + spec.unit);
-        }
-
-        void setValue(float v) {
-            bar.setValue(spec.clamp(v));
-        }
-
-        boolean isAtDefault() {
-            return spec.isDefault(bar.getValue());
-        }
-
-        void setEnabled(boolean on) {
-            row.setAlpha(on ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
-            bar.setEnabled(on);
-            resetView.setEnabled(on);
         }
     }
 
@@ -4869,12 +5087,20 @@ public class MainActivity extends AppCompatActivity {
         return new int[]{top, bottom};
     }
 
-    /** The optics sliders only mean something once there is a frame to change. */
+    /** The optics controls only mean something once there is a frame to change. */
     private void setOpticsUnlocked(boolean unlocked) {
         opticsUnlocked = unlocked;
         if (opticsPanel == null) return;
-        OpticsRow[] rows = {exposureRow, grainRow, halationRow, glareRow};
-        for (OpticsRow row : rows) if (row != null) row.setEnabled(unlocked);
+        final float alpha = unlocked ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA;
+        if (opticsStripScroll != null) {
+            opticsStripScroll.setAlpha(alpha);
+            opticsStripScroll.setEnabled(unlocked);
+        }
+        for (Chip chip : opticsChips) chip.setEnabled(unlocked);
+        if (opticsSlider != null) opticsSlider.setEnabled(unlocked);
+        if (opticsReset != null) opticsReset.setEnabled(unlocked);
+        if (opticsFilterButton != null) opticsFilterButton.setEnabled(unlocked);
+        if (opticsNormButton != null) opticsNormButton.setEnabled(unlocked);
         if (opticsLockNote != null) {
             opticsLockNote.setText(unlocked ? "" : "LOCKED · " + opticsLockReason());
             opticsLockNote.setVisibility(unlocked ? View.GONE : View.VISIBLE);
@@ -6373,7 +6599,8 @@ public class MainActivity extends AppCompatActivity {
                             : String.format("\"film_stock\":\"%s\",", filmStock);
                     String params = String.format(
                         "{%s\"print_stock\":\"%s\",\"input_color_space\":\"ProPhoto RGB\",\"input_cctf_decoding\":false,\"output_color_space\":\"sRGB\",\"print_exposure\":%.2f,\"preview_long_edge\":2048}",
-                        filmField, printStock, printExposure
+                        filmField, printStock,
+                        optics.get(OpticsDelta.Param.EXPOSURE)
                     );
                     
                     try { DebugSink.text("open-params", "path=" + filePath + "\n" + params); } catch (Throwable ignored) {}
@@ -7031,8 +7258,22 @@ public class MainActivity extends AppCompatActivity {
             // the stock, which has already asked for a rebuild.
             + "\"input_color_space\":\"%s\",\"input_cctf_decoding\":%s,\"auto_exposure\":%s,"
             + "\"output_color_space\":\"sRGB\",\"preview_long_edge\":%d,"
-            + "\"print_exposure\":%.2f,\"grain_amount\":%.3f,\"halation_amount\":%.3f,"
+            + "\"print_exposure\":%.2f,\"grain_amount\":%.3f,\"grain_sublayers_active\":%s,"
+            + "\"halation_amount\":%.3f,\"halation_boost_ev\":%.2f,"
+            + "\"halation_scatter_amount\":%.3f,"
+            + "\"halation_active\":%s,\"antihalation_removed\":%s,\"grain_active\":%s,"
+            + "\"dir_couplers_active\":%s,\"scanner_white_correction\":%s,"
+            + "\"scanner_black_correction\":%s,\"extended_dynamic_range\":%s,"
+            + "\"camera_filter\":\"%s\","
+            + "\"scene_latitude_active\":%s,\"scene_latitude_norm\":\"%s\","
+            + "\"scene_latitude_highlight_knee\":1.0,"
+            + "\"scene_latitude_highlight_room\":%.2f,\"scene_latitude_shadow_knee\":-2.0,"
+            + "\"scene_latitude_shadow_room\":%.2f,"
+            + "\"scene_latitude_rolloff\":%.2f,\"scene_latitude_max_lift\":%.2f,"
             + "\"glare_amount\":%.3f,\"film_format_mm\":%.1f,"
+            + "\"lens_blur_um\":%.1f,"
+            + "\"m_filter_shift\":%.3f,\"y_filter_shift\":%.3f,\"filter_shift_scale\":%.1f,"
+            + "\"preflash_exposure\":%.4f,"
             + "\"overscan_active\":%s,\"overscan_format\":\"%s\",\"overscan_edge_text\":\"%s\","
             + "\"overscan_fog\":%.2f,\"overscan_leaks\":%.2f,\"overscan_frame_number\":%.0f,"
             + "\"overscan_mode\":\"%s\",\"overscan_gate\":\"%s\",\"overscan_holes\":\"%s\","
@@ -7049,7 +7290,33 @@ public class MainActivity extends AppCompatActivity {
             isRawFile ? "false" : "true",
             isRawFile ? "true" : "false",
             longEdge,
-            printExposure, grainAmount, halationAmount, glareAmount, filmFormatMm,
+            optics.get(OpticsDelta.Param.EXPOSURE), wireGrain(stock),
+            isMonochromeStock(stock) ? "false" : "true",
+            optics.get(OpticsDelta.Param.HALATION),
+            optics.get(OpticsDelta.Param.HALATION_BOOST),
+            optics.get(OpticsDelta.Param.HALATION_SCATTER),
+            optics.get(OpticsDelta.Param.HALATION_ON) > 0.5f ? "true" : "false",
+            optics.get(OpticsDelta.Param.ANTIHALATION_REMOVED) > 0.5f ? "true" : "false",
+            optics.get(OpticsDelta.Param.GRAIN_ON) > 0.5f ? "true" : "false",
+            optics.get(OpticsDelta.Param.COUPLERS_ON) > 0.5f ? "true" : "false",
+            optics.get(OpticsDelta.Param.SCANNER_WHITE) > 0.5f ? "true" : "false",
+            optics.get(OpticsDelta.Param.SCANNER_BLACK) > 0.5f ? "true" : "false",
+            optics.get(OpticsDelta.Param.EDR_ON) > 0.5f ? "true" : "false",
+            OpticsDelta.CameraFilter.fromWire(optics.cameraFilter).wire,
+            OpticsDelta.sceneLatitudeActive(
+                    optics.get(OpticsDelta.Param.HIGHLIGHT_ROOM),
+                    optics.get(OpticsDelta.Param.SHADOW_ROOM)) ? "true" : "false",
+            OpticsDelta.ProtectionNorm.fromWire(optics.sceneNorm).wire,
+            OpticsDelta.highlightRoomWire(optics.get(OpticsDelta.Param.HIGHLIGHT_ROOM)),
+            optics.get(OpticsDelta.Param.SHADOW_ROOM),
+            optics.get(OpticsDelta.Param.SHADOW_ROLLOFF),
+            optics.get(OpticsDelta.Param.MAX_LIFT),
+            optics.get(OpticsDelta.Param.GLARE), wireFormatMm(),
+            optics.get(OpticsDelta.Param.LENS_BLUR),
+            optics.get(OpticsDelta.Param.M_FILTER),
+            optics.get(OpticsDelta.Param.Y_FILTER),
+            optics.get(OpticsDelta.Param.FILTER_SCALE),
+            optics.get(OpticsDelta.Param.PREFLASH),
             overscanOn ? "true" : "false", overscanFormat,
             edgeTextOn ? edgeTextFor(stock) : "",
             edgeFog, edgeLeaks, frameNumber,
@@ -7068,36 +7335,7 @@ public class MainActivity extends AppCompatActivity {
         if (session == null) return;
         final String stock = filmStock;
         if (stock == null) return;            // nothing chosen yet: no look
-        try {
-            DebugSink.text("params", "render=" + rendering + " film=" + stock + " print=" + printStock
-                    + " overscan=" + overscanOn + " date=" + dateOn + " fmt=" + filmFormatMm
-                    + " long=" + longEdge);
-        } catch (Throwable ignored) { }
-        session.setParams(String.format(java.util.Locale.US,
-            "{\"output_color_space\":\"sRGB\",\"preview_long_edge\":%d,"
-            + "\"print_exposure\":%.2f,\"grain_amount\":%.3f,\"halation_amount\":%.3f,"
-            + "\"glare_amount\":%.3f,\"film_format_mm\":%.1f,"
-            + "\"overscan_active\":%s,\"overscan_format\":\"%s\",\"overscan_edge_text\":\"%s\","
-            + "\"overscan_fog\":%.2f,\"overscan_leaks\":%.2f,\"overscan_frame_number\":%.0f,"
-            + "\"overscan_mode\":\"%s\",\"overscan_gate\":\"%s\",\"overscan_holes\":\"%s\","
-            + "\"overscan_carrier\":\"%s\",\"overscan_f_number\":%.0f,"
-            + "\"overscan_camera_seed\":%d,\"overscan_frame_seed\":%d,"
-            + "\"date_imprint_active\":%s,\"date_imprint_text\":\"%s\",\"date_imprint_style\":\"%s\","
-            + "\"date_imprint_text_b\":\"%s\",\"date_imprint_data_text\":\"%s\","
-            + "\"date_imprint_placement\":\"%s\",\"date_imprint_corner\":\"%s\","
-            + "\"date_imprint_inset_x\":%.2f,\"date_imprint_inset_y\":%.2f,"
-            + "\"date_imprint_size\":%.2f,\"date_imprint_ev\":%.1f}",
-            longEdge,
-            printExposure, grainAmount, halationAmount, glareAmount, filmFormatMm,
-            overscanOn ? "true" : "false", overscanFormat,
-            edgeTextOn ? edgeTextFor(stock) : "",
-            edgeFog, edgeLeaks, frameNumber,
-            edgeMode, edgeGate, edgeHoles, edgeCarrier, edgeFNumber,
-            cameraSeed, frameSeed,
-            dateOn ? "true" : "false", jsonEsc(dateParam()), dateStyle,
-            jsonEsc(dateTextB), jsonEsc(dataText),
-            datePlacement, dateCorner, dateInsetX, dateInsetY, dateSize, dateEv
-        ));
+        applyParams(stock, longEdge);
     }
 
     /**
@@ -7426,7 +7664,8 @@ public class MainActivity extends AppCompatActivity {
                 // same delta the preview renders with, which is the point.
                 try {
                     DebugSink.text("export-params", "film=" + filmStock + " print=" + printStock
-                            + " pex=" + printExposure + " (no delta sent)");
+                            + " pex=" + optics.get(OpticsDelta.Param.EXPOSURE)
+                            + " (no delta sent)");
                 } catch (Throwable ignored) {}
 
                 final long t0 = System.currentTimeMillis();
