@@ -57,7 +57,8 @@ On Windows without Termux, `app/build/build-apk-windows.ps1` compiles, dexes wit
 
 ## Release
 
-- Version is duplicated in `AndroidManifest.xml` (`versionCode` + `versionName`) and `update.json`.
+- Version is duplicated in `AndroidManifest.xml` (`versionCode` + `versionName`), `app/build.gradle` (`defaultConfig`), and `update.json`; `VersionCheck` fails `checkJvm` if they disagree.
+- A stable announcement is gated by `docs/known-issues.md`: while KI-1 reads `Release gate: open`, `update.json` must not use the `stable` channel and no stable release is announced. Change it to `Release gate: accepted` only after an explicit acceptance in ADR-0005 or a fixed engine plus a >16.7 MP rebate export verified on a device.
 - `CF_TOKEN=... ./scripts/announce.sh <code> <name> <apk|-> "note"...` rewrites/commits/pushes `update.json`, purges jsDelivr, uploads the APK to KV (24 MiB limit), and creates a GitHub Release.
 - **Identity split**: `announce.sh`, `UpdateCheck`, and README target `SAINTTaiYi/SpektraLab-Android`; this checkout's `origin` is `qwerkilo/SpektraLab-Android`. Pushing here does not update the channel users read. Confirm the target before announcing.
 - Default branch `master`; jsDelivr and raw.githubusercontent both read `@master`.
