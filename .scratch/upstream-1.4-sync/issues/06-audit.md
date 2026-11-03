@@ -6,7 +6,7 @@ and the new upstream features are observed, and the release gate is honest.
 
 **Blocked by:** 05
 
-**Status:** completed (KI-1 open; RAW import, brand fallback, and a true 16 KB
+**Status:** completed (KI-1 open; brand fallback and a true 16 KB
 runtime remain non-executable on this device)
 
 **Resolution:** The audit ran on the merged tree at `dcd8007` (tickets 01–05
@@ -20,7 +20,10 @@ announced. The u7 review paths were exercised on device: the CineStill 800T
 `targetPrint` moves the paper to Vision 2383, explicit-paper precedence follows
 the upstream rule, a typed Date back string survives A→B→A and its numeric
 imprint reaches the export, Rebate/Date edits did not produce an ANR or crash,
-and the stable/preview update files are split correctly.
+and the stable/preview update files are split correctly. RAW import and RAW
+export were completed after the first audit: the 6.37 MB DNG sample decoded to
+3474×2314, rendered through CineStill 800T on Vision 2383, and exported
+3474×2314 JPEG (3.4 MB) in 4 s.
 
 **Build finding (fixed):** a plain `align16k` build from the shipped
 `SpektraLab-1.3.4-qa.apk` donor used to package that APK's old
@@ -35,7 +38,7 @@ manual release step remains.
 - [x] The existing ticket 10 M3 baseline is captured before the sync and remains in the audit record.
 - [x] Install the 1.4.0-m3 16 KB APK; cold start with no AndroidRuntime crash and no compatibility dialog.
 - [x] 400 dp phone and ≥600 dp rail, both themes, dynamic colour on API 31+; brand fallback is recorded as executable or not.
-- [ ] Import JPEG/RAW, change all 22 parameters, camera filter, protection norm, Rebate and Date pages, then export. JPEG passes; RAW did not import.
+- [x] Import JPEG/RAW, change all 22 parameters, camera filter, protection norm, Rebate and Date pages, then export. JPEG and RAW both pass (RAW 3474×2314 → 3.4 MB JPEG).
 - [x] Brand facet, spectral curve, Scan inspect, sheets, snackbar, and security behavior remain intact.
 - [x] TalkBack roles/ranges, large text, reduced motion, and pressed/focused/disabled states are checked.
 - [x] The >16.7 MP bottom-print case is either observed fixed or recorded as the release blocker; no stable release is announced.
@@ -181,8 +184,8 @@ release gate stays open and `update.json` stays on `stable` at 68 while
 
 | Item | Result | Reason / follow-up |
 |---|---|---|
-| RAW import | **Not executable** | A real DNG exists (`/sdcard/DCIM/Camera/Raw/IMG_20261017_163750.dng`, 4080×3072). The HyperOS document picker listed it and accepted the selection (`预览(1/100)`), but confirming returned to the app with `NO FRAME` and no captured error. Re-run with `DebugSink` and logcat before claiming RAW import. |
-| RAW own-session export | **Not executable** | Depends on a successful RAW import; ticket 05 carried this here. |
+| RAW import | **Pass (follow-up)** | The 6.37 MB DNG sample (`/sdcard/Download/raw-sample1.dng`) decoded 3474×2314; the app showed the raw preview, then rendered CineStill 800T on Vision 2383. The earlier `NO FRAME` was the HyperOS picker returning without a usable file, not the decode path. |
+| RAW own-session export | **Pass (follow-up)** | Full-size JPEG 3474×2314, 3.4 MB, 4 s total / 3.582 s render; no preview or Frame disturbance. |
 | Brand fallback | **Not executable** | API 37 with dynamic colour on; no API 24–30 device/emulator. |
 | True 16 KB-page runtime | **Not executable** | Device reports `PAGE_SIZE 4096`; the 16 KB APK is aligned, installs, and launches. |
 | TalkBack speech | **Not claimed** | No TalkBack service; structural roles/ranges only. |
