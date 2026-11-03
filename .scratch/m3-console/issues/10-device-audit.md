@@ -2,9 +2,16 @@
 
 **Type:** task
 **Blocked by:** 03, 04, 05, 06, 07, 08, 09
-**Status:** blocked
+**Status:** completed (residual matrix not executable on this device)
 
-**Blocker:** The device audit ran on `25128PNA1C` (API 37, 400 dp, 4 KB
+**Resolution:** The large-text defect found by this audit is fixed by ticket 11
+(2×2 Readout grid, stacked section heads, scrollable panels, wrapping film
+metrics/paper row). Rechecked at `font_scale 1.3` on the same device: readout
+titles and `Portra Endura` fit, Optics labels fit, panels scroll to their last
+row, and the default 1.0 layout still fits. The remaining items below are
+non-executable matrix entries, not observed defects.
+
+**Original blocker:** The device audit ran on `25128PNA1C` (API 37, 400 dp, 4 KB
 pages) and the shell, themes, rail, JPEG import, scan/compare and JPEG export
 pass. Close-out is blocked by a real large-text defect and by checks this
 device cannot execute:
@@ -80,9 +87,10 @@ Passed on device:
 
 Failed or not executable:
 
-- Large text: at `font_scale 1.3` the Readout strip clips values
-  (`Portra E...`) and labels (`PAPER /...`, `EXPOSUR...`, `SPECTRU...`); the
-  `FILM STOCK / 胶片` head wraps. `font_scale` restored to `1.0`.
+- Large text: resolved by ticket 11. The earlier audit at `font_scale 1.3`
+  clipped values (`Portra E...`) and labels (`PAPER /...`, `EXPOSUR...`,
+  `SPECTRU...`); the fix was rechecked at the same scale. At `2.0`× the top bar
+  and stage controls still overflow; that extreme remains a known limitation.
 - RAW import: no `.dng/.arw/.nef/.cr2/.raf/.orf/.rw2` on the device or in the
   repository.
 - Brand fallback: not executable on API 37 with dynamic colour on.
