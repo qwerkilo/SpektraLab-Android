@@ -122,8 +122,10 @@ its release channel:
   over them.
 - **Known engine defect.** The >16.7 MP rebate bottom-print loss is an engine
   issue; this spec does not change the out-of-tree engine. The app-side trim
-  is included, the known issue is documented, and a stable release is blocked
-  until the engine is fixed or the issue is explicitly accepted.
+  is included, the issue and its workaround are recorded in
+  `docs/known-issues.md` (KI-1), and a stable release is blocked until the
+  engine is fixed or the issue is explicitly accepted there. While the gate is
+  open, `update.json` must not use the `stable` channel.
 - **Assets.** The upstream adaptive launcher icon may be adopted, but the M3
   colour roles stay the control source; the icon's plate colour is an asset,
   not a Palette/M3 role.

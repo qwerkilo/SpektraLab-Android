@@ -39,6 +39,14 @@ Android version, and Theme mode.
 - [ ] Corrupt `update.json` on a scratch build; manual update check reports E-2002 and does not open a browser.
 - [ ] Reversal stock (Provia 100F): preview and export both say direct scan; paper is not used.
 
+## Upstream 1.4.0 export and release gate
+
+- [ ] Change the Film stock, Print stock, camera filter, protection norm, all 22 optics, a Rebate field, and a Date back field; export a JPEG and confirm each changed value is in the file (compare with the preview, and check `export-params` in the debug sink).
+- [ ] Export a RAW, then switch Frame A→B→A: the preview keeps its picture and the exported file matches the Look it was started with.
+- [ ] Export a TIFF after changing a Date back text with a quote and a line break; the engine must not see a malformed delta.
+- [ ] Set a Gate/Scale whose exported canvas is over 16,776,960 px with the Rebate on; record whether the bottom edge print is present. While KI-1 is open, record it as the release blocker, not as a pass.
+- [ ] Confirm `update.json` reports 1.4.0-m3 / 69 and is not on the `stable` channel while KI-1 is open.
+
 ## Regression
 
 - [ ] Import a JPEG, enable Scan, switch Frame A→B→A; Scan fraction and visibility return.
