@@ -163,6 +163,9 @@ with zipfile.ZipFile(base) as old, zipfile.ZipFile(resources) as res, zipfile.Zi
         --ks-key-alias $Alias --v1-signing-enabled true --out $Output $aligned
     if ($LASTEXITCODE -ne 0) { throw "apksigner failed with $LASTEXITCODE" }
 
+    & $Python (Join-Path $buildDir 'check-apk.py') $Output
+    if ($LASTEXITCODE -ne 0) { throw "APK policy check failed with $LASTEXITCODE" }
+
     $hash = (Get-FileHash $Output -Algorithm SHA256).Hash
     $size = (Get-Item $Output).Length
     Write-Host "APK: $Output"

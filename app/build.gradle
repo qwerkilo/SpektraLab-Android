@@ -223,5 +223,10 @@ tasks.register('align16k') {
         } else {
             logger.lifecycle("16 KB APK (unsigned): ${aligned}")
         }
+        def checkedApk = keystore ? signed : aligned
+        exec {
+            commandLine 'python', file('build/check-apk.py').absolutePath,
+                    checkedApk.absolutePath
+        }
     }
 }

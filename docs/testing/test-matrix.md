@@ -1,7 +1,7 @@
 # Test matrix
 
 The project has no Gradle or JUnit. Checks are plain `main` classes under
-`app/src/test/java/app/spektralab/`, plus two Python checks. Run them with the
+`app/src/test/java/app/spektralab/`, plus three Python checks. Run them with the
 commands in `AGENTS.md`; the manual matrix is
 `docs/testing/manual-device-checklist.md`.
 
@@ -10,9 +10,9 @@ commands in `AGENTS.md`; the manual matrix is
 | Normal | `ConsoleLayoutCheck`, `FilmBrandCheck`, `GateScaleCheck`, `OpticsDeltaCheck`, `PaletteCheck`, `ScanSampleCheck`, `SpectrumCurveCheck`, `SpectrumSamplesCheck`, `ThemeModeCheck` | Width decision, brand shelf, gate/scale pairing, slider deltas, palette contrast, scan samples, spectra, theme round-trip |
 | Boundary | `ConsoleLayoutCheck` (320/360/390/480/599/600/800 dp), `OpticsDeltaCheck` (min/max), `ScanSampleCheck` (clamp, 0/1), `SafeFileNameCheck` (`.`, `..`, empty, NUL), `GateScaleCheck` (frame aspect) | Edges do not spill into the next state or crash |
 | Exception | `SpectrumCurveCheck` (null, NaN, gaps, ragged rows), `SpectrumSamplesCheck`, `ScanSampleCheck` (null/short/zero width), `SafeFileNameCheck`, `SpkErrorCheck`, `ReleaseUrlCheck` | Missing or hostile input degrades to an explicit unavailable/fallback state |
-| Permission | `app/build/check-manifest.py` (29 checks), manual checklist | Only `READ_EXTERNAL_STORAGE` (maxSdk 32) + `INTERNET`; one exported launcher; cleartext loopback only; backup off; Gradle and manifest SDK agree |
+| Permission | `app/build/check-manifest.py` (29 checks), `app/build/check-apk.py`, manual checklist | Only `READ_EXTERNAL_STORAGE` (maxSdk 32) + `INTERNET`; one exported launcher; cleartext loopback only; backup off; Gradle and manifest SDK agree; merged APK target 36 |
 | Data | `app/build/test-gen-stock-catalog.py`, `SpectrumCurveCheck`, `SpectrumSamplesCheck`, `FilmBrandCheck` | Profile generator keeps wavelengths/series, gaps stay gaps, brand counts match ids |
-| Regression | `SafeFileNameCheck` (path traversal), `ReleaseUrlCheck` (update URL allowlist), `check-manifest.py` (dead VIEW, cleartext, backup), `GateScaleCheck` (legacy scale pairs) | The QA fixes and earlier gate bugs stay fixed |
+| Regression | `SafeFileNameCheck` (path traversal), `ReleaseUrlCheck` (update URL allowlist), `check-manifest.py` (dead VIEW, cleartext, backup), `check-apk.py` (merged target/backup/cleartext), `GateScaleCheck` (legacy scale pairs) | The QA fixes and earlier gate bugs stay fixed |
 
 ## Not covered automatically
 
