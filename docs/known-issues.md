@@ -41,13 +41,17 @@ cannot be used to decide whether the file is good: inspect the exported
 file's bottom edge.
 
 **Release gate:** a build with this defect may not be announced as `stable`.
-`update.json` must stay off the `stable` channel while this line reads
-`Release gate: open`. Change it to `Release gate: accepted` only after an
-explicit acceptance is recorded in ADR-0005, or after the engine fix ships and
-a >16.7 MP rebate export with the bottom band present has been verified on a
-device. `VersionCheck` fails the build if the channel and this line disagree.
-`scripts/announce.sh` writes `"channel": "stable"` unconditionally, so do not
-run it while this gate is open.
+The stable announcement (`update.json`, the file 1.3.4 clients read) must keep
+the last stable build while this line reads `Release gate: open`; the gated
+build is announced only in `preview.json`, which a stable client never reads.
+Change the line to `Release gate: accepted` only after an explicit acceptance
+is recorded in ADR-0005, or after the engine fix ships and a >16.7 MP rebate
+export with the bottom band present has been verified on a device.
+`VersionCheck` fails the build if the two channel files, the version, and this
+line disagree. `scripts/announce.sh` refuses to write or announce a `stable`
+release while this line reads `Release gate: open`; a pre-release name is
+published to `preview.json`, and its APK goes out as a GitHub Release asset
+rather than the channel-agnostic KV download URL.
 
 **Verification for the eventual fix:** import a frame, enable the Rebate, set a
 Gate/Scale whose exported canvas is over 16,776,960 px, export, and confirm the
