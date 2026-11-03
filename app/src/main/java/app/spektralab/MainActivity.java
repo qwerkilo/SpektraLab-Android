@@ -3051,6 +3051,7 @@ public class MainActivity extends AppCompatActivity {
             final View target = formatCards.get(index);
             formatScroll.post(() -> formatScroll.smoothScrollTo(Math.max(0, target.getLeft() - dp(8)), 0));
         }
+        syncRebatePage();
         onEdgeChanged();
     }
 
@@ -3067,7 +3068,8 @@ public class MainActivity extends AppCompatActivity {
         return root;
     }
 
-    /** The Edge landing page: two cards, each a door into its own page. */
+    /** The Edge landing page: one card per edge feature. The Rebate card opens
+     *  its page in this ticket; the Date back card is reserved for ticket 04. */
     private LinearLayout buildEdgeHome() {
         final LinearLayout home = new LinearLayout(this);
         home.setOrientation(LinearLayout.VERTICAL);
@@ -3364,6 +3366,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String rebateSummary() {
+        if (!GateScale.canHostRebate(sourceWidth, sourceHeight)) return "这张图没有可用片门";
         if (!overscanOn) return "未开启 · 点进去设置";
         final String gate = edgeIds.isEmpty()
                 ? gateLabel(overscanFormat)
