@@ -3364,8 +3364,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String dateSummary() {
-        if (!dateOn) return "未开启 · 点进去设置";
-        return imprintDate();
+        return dateOn ? "已开启 · 编辑即将开放" : "未开启 · 即将开放";
     }
 
     private static String fmt1(float value) {
