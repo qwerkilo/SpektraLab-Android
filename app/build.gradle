@@ -6,12 +6,12 @@ def userKeystore = System.getenv('SPK_KEYSTORE')
 
 android {
     namespace 'app.spektralab'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId 'app.spektralab'
         minSdk 24
-        targetSdk 34
+        targetSdk 36
         versionCode 69
         versionName '1.4.0-m3'
     }
