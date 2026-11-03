@@ -30,7 +30,7 @@ On Windows without Termux, `app/build/build-apk-windows.ps1` compiles, dexes wit
 
 ## Gradle / Material 3
 
-`./gradlew assembleDebug` is the primary build for the M3 migration. It uses the installed JDK 17 via `gradle.properties`, compiles and targets SDK 36, and stages `assets/` plus `arm64-v8a` libraries from `app/build/SpektraLab-1.3.4-qa.apk` (override with `-PbaseApk=<path>`). The donor's `stock_catalog.json` is deliberately excluded; `generateStockCatalog` rebuilds it from the staged profiles into `build/generated/stockAssets`, so `targetPrint` and the spectral series match the shipped profiles. Set the same `SPK_*` variables to sign with the release key; without them Gradle uses its debug key and the APK will not update an installed release build. For Android 15/16 devices with 16 KB pages, run `./gradlew align16k` (needs build-tools 36) and install `app/build/outputs/apk/debug/app-debug-16k-signed.apk`; the plain debug APK is only 4 KB zip-aligned. The legacy scripts remain the fallback for the pre-M3 tree.
+`./gradlew assembleDebug` is the primary build for the M3 migration. It uses `JAVA_HOME` (CI sets JDK 17; local JDK 17 or 21 works), compiles and targets SDK 36, and stages `assets/` plus `arm64-v8a` libraries from `app/build/SpektraLab-1.3.4-qa.apk` (override with `-PbaseApk=<path>`). The donor's `stock_catalog.json` is deliberately excluded; `generateStockCatalog` rebuilds it from the staged profiles into `build/generated/stockAssets`, so `targetPrint` and the spectral series match the shipped profiles. Set the same `SPK_*` variables to sign with the release key; without them Gradle uses its debug key and the APK will not update an installed release build. For Android 15/16 devices with 16 KB pages, run `./gradlew align16k` (needs build-tools 36) and install `app/build/outputs/apk/debug/app-debug-16k-signed.apk`; the plain debug APK is only 4 KB zip-aligned. The legacy scripts remain the fallback for the pre-M3 tree.
 
 ## Upstreams
 
@@ -84,6 +84,8 @@ Use the global `droidmind` MCP for Android device work. Do not start with raw `a
 
 When the Termux engine toolchain is unavailable, a device build can replace `classes.dex` inside the shipped APK and re-sign it; the native libraries and assets stay from that APK. Do not hand-copy `libspektrafilm_engine.so`.
 
+GitHub Actions (`.github/workflows/android.yml`) runs `checkJvm`, lint, the manifest/APK gates, and builds a signed 16 KB APK on `windows-latest`. It downloads the donor APK from upstream release `v1.4.0`; that download replaces the local `app/build/SpektraLab-1.3.4-qa.apk`.
+
 ## Commits
 
 Conventional commits, one concern each: `fix(native):`, `feat:`, `chore(update):`,
@@ -95,7 +97,7 @@ subject names the joined work, not a new concern.
 
 ### Issue tracker
 
-Issues live in this repo's GitHub Issues (`qwerkilo/SpektraLab-Android`), managed with the `gh` CLI. See `docs/agents/issue-tracker.md`. Issues are currently disabled; use the local fallback described there.
+Issues live in this repo's GitHub Issues (`qwerkilo/SpektraLab-Android`), managed with the `gh` CLI. See `docs/agents/issue-tracker.md`. Issues are enabled; publish new tickets with `gh issue create`.
 
 ### Triage labels
 
