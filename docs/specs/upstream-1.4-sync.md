@@ -1,6 +1,8 @@
 # Upstream 1.4.0 sync into the M3 Console
 
-Status: `ready-for-agent`. Tracker: GitHub Issues are disabled, so this spec
+Status: `implemented / release blocked by KI-1`. Tickets 01–06 are complete;
+the merged tree passed the device audit on `10.110.67.69:39613`. Build 69 /
+1.4.0-m3 is a preview build, not a stable announcement. Tracker: GitHub Issues are disabled, so this spec
 lives in the repository. Decision record: ADR-0005 (upstream 1.4.0 sync into
 the M3 line). Vocabulary: `GLOSSARY.md`.
 
