@@ -789,6 +789,16 @@ public class MainActivity extends AppCompatActivity {
 
     /** Rotations and foldable resizes arrive here because the manifest keeps
      *  the Activity alive; no Frame, Look, or render is touched. */
+    /** System Back leaves a secondary page before it leaves the Console. */
+    @Override
+    public void onBackPressed() {
+        if (activeTabIndex == 3 && edgePageIndex >= 0) {
+            openEdgePage(-1);
+            return;
+        }
+        super.onBackPressed();
+    }
+
     @Override
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
