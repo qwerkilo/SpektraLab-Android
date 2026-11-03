@@ -130,10 +130,7 @@ Adopt Material 3 as the control system while keeping the Console's identity:
 - **16 KB pages.** The Gradle `align16k` task uses build-tools 36
   `zipalign -P 16` and re-signs the APK. The plain debug APK is not sufficient
   on Android 15/16.
-- **SDK.** Gradle compiles and targets SDK 34 for this phase; platform 36 is
-  not installed and AGP 8.2 does not support it. The manifest still declares
-  target 36 for the legacy scripts, and Gradle overrides it. This is recorded
-  as an interim build constraint.
+- **SDK.** Gradle compiles and targets SDK 36; platform 36 and build-tools 36 are installed, and the manifest declares the same target so the built APK matches. The earlier SDK 34 interim is closed.
 - **Assets and native libraries.** Gradle stages them from a base APK
   (`-PbaseApk` override). A clean checkout without a donor APK cannot assemble
   a runnable package. The native engine itself remains out of tree.

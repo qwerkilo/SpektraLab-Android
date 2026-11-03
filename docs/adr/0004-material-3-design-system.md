@@ -56,8 +56,9 @@ wallpaper.
   leave a 220 dp Frame column. `ConsoleLayout.STAGE_MIN_DP` is therefore 220,
   and `ConsoleLayoutCheck` pins that value; a 280 dp stage would require a
   600 dp window to give up either the rail or the control minimum.
-- The migration temporarily targets SDK 34 because platform 36 and a matching
-  AGP are not installed. This is a build constraint, not a product decision.
+- The migration originally targeted SDK 34 because platform 36 and a matching
+  AGP were not installed; that interim is closed. `compileSdk` and `targetSdk`
+  are now 36, and the manifest declares the same target.
 
 ## Considered options
 
