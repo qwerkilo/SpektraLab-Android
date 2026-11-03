@@ -15,6 +15,7 @@ public final class LookCheck {
         defaults();
         oldJson();
         roundTrip();
+        disabledRebateKeepsItsValues();
         wireNames();
 
         System.out.println("LookCheck: " + checks + " checks passed");
@@ -194,6 +195,65 @@ public final class LookCheck {
 
         // A second pass must not drift: the wire form is stable.
         eq(look.toJson().toString(), copy.toJson().toString());
+    }
+
+    /**
+     * The Rebate page dims its controls while the switch is off; dimming is
+     * not clearing. A disabled rebate keeps every value it was set to, so
+     * switching Frame or re-enabling the switch finds the same edge.
+     */
+    private static void disabledRebateKeepsItsValues() {
+        final Look look = new Look();
+        look.overscanOn = false;
+        look.overscanFormat = "120_6x7";
+        look.filmFormatMm = 69.5f;
+        look.edgeMode = "filed";
+        look.edgeGate = "shouldered";
+        look.edgeHoles = "black";
+        look.edgeCarrier = "open";
+        look.edgeTextOn = false;
+        look.edgeFog = 3.25f;
+        look.edgeLeaks = 1.75f;
+        look.frameNumber = 27f;
+        look.edgeFNumber = 8f;
+        look.cameraSeed = 91;
+        look.frameSeed = 92;
+        look.dateOn = false;
+        look.datePlacement = "rebate";
+        look.dateCorner = "tl";
+        look.dateStyle = "dots";
+        look.dateInsetX = 6f;
+        look.dateInsetY = 5f;
+        look.dateSize = 1.4f;
+        look.dateEv = 1.5f;
+        look.dataText = "1/125 f/8";
+        look.dateTextB = "'26 11 03";
+
+        final Look copy = Look.fromJson(look.toJson());
+        ok(!copy.overscanOn);
+        ok(!copy.dateOn);
+        eq("120_6x7", copy.overscanFormat);
+        eq(69.5f, copy.filmFormatMm);
+        eq("filed", copy.edgeMode);
+        eq("shouldered", copy.edgeGate);
+        eq("black", copy.edgeHoles);
+        eq("open", copy.edgeCarrier);
+        ok(!copy.edgeTextOn);
+        eq(3.25f, copy.edgeFog);
+        eq(1.75f, copy.edgeLeaks);
+        eq(27f, copy.frameNumber);
+        eq(8f, copy.edgeFNumber);
+        eq(91, copy.cameraSeed);
+        eq(92, copy.frameSeed);
+        eq("rebate", copy.datePlacement);
+        eq("tl", copy.dateCorner);
+        eq("dots", copy.dateStyle);
+        eq(6f, copy.dateInsetX);
+        eq(5f, copy.dateInsetY);
+        eq(1.4f, copy.dateSize);
+        eq(1.5f, copy.dateEv);
+        eq("1/125 f/8", copy.dataText);
+        eq("'26 11 03", copy.dateTextB);
     }
 
     private static void wireNames() {
