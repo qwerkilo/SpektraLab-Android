@@ -3139,7 +3139,8 @@ public class MainActivity extends AppCompatActivity {
         opticsReset.setTextColor(color);
         opticsRange.setText("范围 " + OpticsDelta.valueText(spec.min) + " – "
                 + OpticsDelta.valueText(spec.max) + " " + spec.unit
-                + " · 步进 " + stepText(spec.step));
+                + " · 步进 " + stepText(spec.step)
+                + outsideRangeNote(spec, value));
         opticsSlider.setContentDescription(spec.label);
         // The slider's own RangeInfo carries the real float range; the state
         // description carries the value the Look actually holds, which may be
