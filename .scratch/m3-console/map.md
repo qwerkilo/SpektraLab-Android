@@ -48,6 +48,13 @@ Look semantics, and the existing test seams stay intact.
   pickers with StockNames, SpectrumCurveView, and the scan/compare M3 controls.
   Final JVM gate is 8,583 checks; ManifestPolicy 26/26; the 16 KB APK is signed.
   Device verification is still blocked because `10.110.67.69:35443` is offline.
+- **Ticket 11 large text (2026-11-03)**: fixed the 1.3× clipping with a 2×2
+  Readout grid, stacked section heads, scrollable panels, and wrapping film
+  metrics/paper row. Rechecked on the same device; 2.0× remains a known
+  limitation.
+- **Ticket 12 brand facet theme (2026-11-03)**: the brand filter chips kept
+  their dark `ChipDrawable` after Dark → Light; explicit M3 colour state lists
+  now resolve at build time. Rechecked on the device.
 - **Implementation breakdown**: 02 tokens + phone shell, 03 rail, 04 film,
   05 optics, 06 scale/edge, 07 pickers, 08 curve, 09 scan/compare, 10 audit.
   Tickets 01–09 are merged on `feat/m3-spec`; only ticket 10 remains.
