@@ -55,6 +55,9 @@ Look semantics, and the existing test seams stay intact.
 - **Ticket 12 brand facet theme (2026-11-03)**: the brand filter chips kept
   their dark `ChipDrawable` after Dark → Light; explicit M3 colour state lists
   now resolve at build time. Rechecked on the device.
+- **Ticket 13 2.0× polish (2026-11-03)**: top-bar tagline and English theme
+  word drop at 2.0×, empty-stage import pill clears the exposure readout,
+  Readout titles wrap, and 1.3× keeps the wider film cards. Verified on device.
 - **Implementation breakdown**: 02 tokens + phone shell, 03 rail, 04 film,
   05 optics, 06 scale/edge, 07 pickers, 08 curve, 09 scan/compare, 10 audit.
   Tickets 01–09 are merged on `feat/m3-spec`; only ticket 10 remains.

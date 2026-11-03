@@ -1134,7 +1134,11 @@ public class MainActivity extends AppCompatActivity {
         load.setBackground(pressableFill(Palette.Role.SURFACE_ELEVATED));
         load.setPadding(dp(18), 0, dp(18), 0);
         load.setOnClickListener(v -> showImportMenu());
-        load.addView(m3Label("选择照片", M3Tokens.TypeRole.LABEL_LARGE,
+        // At 2.0× the centred pill runs into the PRINT EXPOSURE readout at the
+        // stage's right edge; bias it left rather than shrinking the label.
+        if (veryLargeText()) load.setTranslationX(-dp(44));
+        load.addView(m3Label("选择照片",
+                veryLargeText() ? M3Tokens.TypeRole.LABEL_MEDIUM : M3Tokens.TypeRole.LABEL_LARGE,
                 m3Primary(), tfHan));
         ArrowView loadArrow = new ArrowView(this, palette.color(Palette.Role.ACCENT));
         LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(14), dp(14));
@@ -1336,7 +1340,10 @@ public class MainActivity extends AppCompatActivity {
 
         final MaterialToolbar toolbar = new MaterialToolbar(this);
         toolbar.setTitle(typed("SpektraLab", tfDisplay));
-        toolbar.setSubtitle(mixedText("/ CONSOLE"));
+        // At very large text the wordmark and the two actions compete for one
+        // 48 dp row; the subtitle is the first thing to go so the name and
+        // the actions both stay legible. At 1.3× the tagline still fits.
+        if (!veryLargeText()) toolbar.setSubtitle(mixedText("/ CONSOLE"));
         toolbar.setLongClickable(true);
         toolbar.setOnLongClickListener(v -> { showAbout(); return true; });
 
@@ -1350,7 +1357,9 @@ public class MainActivity extends AppCompatActivity {
         actions.addView(sharePill, actionButtonParams());
 
         final MaterialButton themeButton = actionButton(
-                mixedText(dark ? "暗 DARK" : "亮 LIGHT"),
+                mixedText(veryLargeText()
+                        ? (dark ? "暗" : "亮")
+                        : (dark ? "暗 DARK" : "亮 LIGHT")),
                 dark ? "当前深色主题，点击切换到浅色" : "当前浅色主题，点击切换到深色");
         themeButton.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(
@@ -1508,8 +1517,15 @@ public class MainActivity extends AppCompatActivity {
 
         TextView title = m3Label(titleText, M3Tokens.TypeRole.LABEL_SMALL,
                 m3OnSurfaceVariant(), tfHan);
-        title.setSingleLine(true);
-        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        // At 2.0× the bilingual title is wider than half the phone; let it
+        // wrap instead of ending in an ellipsis that hides the parameter name.
+        if (veryLargeText()) {
+            title.setSingleLine(false);
+            title.setMaxLines(2);
+        } else {
+            title.setSingleLine(true);
+            title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        }
         cell.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout valueRow = new LinearLayout(this);
@@ -1549,9 +1565,14 @@ public class MainActivity extends AppCompatActivity {
         return cell;
     }
 
-    /** True when the system font scale makes four readout columns too narrow. */
+    /** True when the system font scale needs the wider film cards and stacked heads. */
     private boolean largeText() {
         return getResources().getConfiguration().fontScale >= 1.15f;
+    }
+
+    /** True when the 48 dp top app bar must drop its tagline and English theme word. */
+    private boolean veryLargeText() {
+        return getResources().getConfiguration().fontScale >= 1.6f;
     }
 
     /**
@@ -1870,6 +1891,10 @@ public class MainActivity extends AppCompatActivity {
         scanToggleChip.setChecked(scanVisible);
         scanToggleChip.setEnabled(enabled);
         scanToggleChip.setAlpha(enabled ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
+        // The empty stage has no preview to inspect; leaving the pill visible
+        // lets it collide with the central import button at 2.0× text.
+        scanToggleChip.setVisibility(enabled || (scanVisible && sourceUri != null)
+                ? View.VISIBLE : View.GONE);
         final String state = scanVisible
                 ? (enabled ? "扫描检视已开启，点击关闭"
                         : "扫描检视已开启，等待预览")
@@ -2674,7 +2699,7 @@ public class MainActivity extends AppCompatActivity {
             else pickFilmChip(id);
         });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                dp(FILM_CARD_WIDTH_DP), dp(FILM_CARD_HEIGHT_DP));
+                dp(FILM_CARD_WIDTH_DP + (largeText() ? 20 : 0)), dp(FILM_CARD_HEIGHT_DP));
         lp.rightMargin = dp(FILM_CARD_GAP_DP);
         filmChipRow.addView(card, lp);
     }
