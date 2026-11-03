@@ -48,7 +48,8 @@ android {
             manifest.srcFile 'src/main/AndroidManifest.xml'
             java.srcDirs = ['src/main/java']
             res.srcDirs = ['src/main/res']
-            assets.srcDirs = ['src/main/assets', "$buildDir/generated/base/assets"]
+            assets.srcDirs = ['src/main/assets', "$buildDir/generated/base/assets",
+                               "$buildDir/generated/stockAssets"]
             jniLibs.srcDirs = ["$buildDir/generated/base/jniLibs"]
         }
     }
@@ -123,6 +124,7 @@ afterEvaluate {
 def baseApk = file(project.findProperty('baseApk')
         ?: "$buildDir/SpektraLab-1.3.4-qa.apk")
 def stagedBase = "$buildDir/generated/base"
+def stockAssets = "$buildDir/generated/stockAssets"
 
 tasks.register('stageBase') {
     inputs.file(baseApk)
@@ -136,6 +138,10 @@ tasks.register('stageBase') {
         copy {
             from zipTree(baseApk)
             include 'assets/**'
+            // The catalogue is regenerated from the profiles below, so a donor
+            // APK from 1.3.4 cannot silently ship a catalogue without
+            // targetPrint. Profiles and the rest of the assets stay staged.
+            exclude 'assets/resources/stock_catalog.json'
             into "$stagedBase/assets"
             eachFile { it.path = it.path.replaceFirst('^assets/', '') }
         }
@@ -148,11 +154,39 @@ tasks.register('stageBase') {
     }
 }
 
+/**
+ * The bundled catalogue is built from the profiles in the donor APK, not from
+ * the donor's own catalogue. This is required for targetPrint and for the
+ * spectral series to match the profiles actually shipped.
+ */
+tasks.register('generateStockCatalog') {
+    dependsOn tasks.named('stageBase')
+    def profiles = file("$stagedBase/assets/resources/profiles")
+    def script = file('build/gen-stock-catalog.py')
+    def catalog = file("$stockAssets/resources/stock_catalog.json")
+    inputs.dir(profiles)
+    inputs.file(script)
+    outputs.file(catalog)
+    doLast {
+        if (!profiles.isDirectory()) {
+            throw new GradleException("No stock profiles at ${profiles}; "
+                    + "the base APK must carry assets/resources/profiles.")
+        }
+        exec {
+            commandLine 'python', script.absolutePath,
+                    '--profiles', profiles.absolutePath,
+                    '--out', catalog.absolutePath
+        }
+    }
+}
+
 // Only packaging consumes the staged assets and native libraries. Keeping the
 // staging out of preBuild lets a Java-only task (`checkJvm`) run without the
 // donor APK.
 tasks.matching { it.name == 'mergeDebugAssets' || it.name == 'mergeDebugJniLibFolders' }
         .configureEach { dependsOn tasks.named('stageBase') }
+tasks.matching { it.name == 'mergeDebugAssets' }
+        .configureEach { dependsOn tasks.named('generateStockCatalog') }
 /**
  * Android 15/16 devices with 16 KB pages reject an APK whose uncompressed
  * libraries are only 4 KB aligned. AGP 8.2 does not add the extra zip

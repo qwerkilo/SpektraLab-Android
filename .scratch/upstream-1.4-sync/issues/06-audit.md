@@ -22,14 +22,15 @@ the upstream rule, a typed Date back string survives A→B→A and its numeric
 imprint reaches the export, Rebate/Date edits did not produce an ANR or crash,
 and the stable/preview update files are split correctly.
 
-**Important build finding:** a plain `align16k` build from the shipped
-`SpektraLab-1.3.4-qa.apk` donor packages that APK's old
+**Build finding (fixed):** a plain `align16k` build from the shipped
+`SpektraLab-1.3.4-qa.apk` donor used to package that APK's old
 `assets/resources/stock_catalog.json`, which has **zero** `targetPrint`
-records. The new `PrintTarget` code is then inert on device. The audit
-regenerated the catalogue from the donor APK's own profiles and rebuilt; the
-installed audit APK carries **21** `targetPrint` records. The release build must
-run `python app/build/gen-stock-catalog.py` and package the result before
-`align16k`; this is a release step, not a device defect.
+records, so the new `PrintTarget` code was inert. The audit regenerated the
+catalogue from the donor's own profiles; the installed audit APK carries **21**
+`targetPrint` records. Gradle now runs the generator on every packaging build:
+`stageBase` excludes the donor catalogue, `generateStockCatalog` rebuilds it
+into `build/generated/stockAssets`, and `mergeDebugAssets` depends on it. No
+manual release step remains.
 
 - [x] The existing ticket 10 M3 baseline is captured before the sync and remains in the audit record.
 - [x] Install the 1.4.0-m3 16 KB APK; cold start with no AndroidRuntime crash and no compatibility dialog.
@@ -189,7 +190,7 @@ release gate stays open and `update.json` stays on `stable` at 68 while
 | Large text 2.0× | **Not run** | 1.3× passes; 2.0× is the known ticket 10 limitation. |
 | 600 dp Readout labels | **Cosmetic residual** | `EXPOSURE / 曝…` and `SPECTRUM /…` ellipsize at 600 dp/1.0×. No overlap; values remain readable. |
 | Film card titles at 1.3× | **Cosmetic residual** | `Kodak Ek…` ellipsizes inside the fixed card width. |
-| targetPrint in release assets | **Release step** | Plain build from the 1.3.4 donor has 0 `targetPrint`; regenerate `stock_catalog.json` before the release build. |
+| targetPrint in release assets | **Fixed** | Gradle excludes the donor catalogue and regenerates it from the staged profiles; the built APK contains 21 `targetPrint` records. |
 
 ## Screenshots (gitignored)
 
