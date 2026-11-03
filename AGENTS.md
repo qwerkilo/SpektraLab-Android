@@ -115,4 +115,4 @@ It does not run the Android build.
 
 ## Git workflow
 
-Never commit directly to `master`. Create a feature branch, verify the change, then merge into `master`.
+Never commit directly to `master`. Create a feature branch, verify the change, then merge into `master`. `master` is protected: the `build` Android check is required, force pushes and deletions are blocked, and admins are included. Land changes through a pull request.
