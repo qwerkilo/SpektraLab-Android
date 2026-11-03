@@ -30,6 +30,18 @@ OUT_STAGED = os.path.join(PROJECT, 'app/build/apk/assets/resources/stock_catalog
 
 SCALAR_INFO = (str, int, float, bool)
 
+# The paper a film is declared to print on. The profile carries it for most
+# stocks (`target_print`); CineStill and the Vision3 negatives are aliases
+# whose profile is a stub, and the macOS/iOS catalogue names 2383 for them.
+FALLBACK_TARGET = {
+    'cinestill_800t': 'kodak_2383',
+    'kodak_verita_200d': 'kodak_2383',
+    'kodak_vision3_200t': 'kodak_2383',
+    'kodak_vision3_250d': 'kodak_2383',
+    'kodak_vision3_500t': 'kodak_2383',
+    'kodak_vision3_50d': 'kodak_2383',
+}
+
 
 def sanitize(value):
     """JSON that strict readers accept: non-finite floats become null."""
@@ -107,6 +119,9 @@ def build_record(path):
         'name': info.get('name') or info.get('stock') or fallback,
     }
     rec.update(scalar_info(info))
+    target = info.get('target_print') or FALLBACK_TARGET.get(rec['id'])
+    if target:
+        rec['targetPrint'] = target
     for key, default in (('type', 'negative'), ('use', 'still'),
                          ('support', 'film'), ('stage', 'filming')):
         if not rec.get(key):

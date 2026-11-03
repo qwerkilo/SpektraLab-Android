@@ -60,10 +60,18 @@ android {
     }
 }
 
+configurations {
+    checkJson
+}
+
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.core:core:1.13.1'
     implementation 'com.google.android.material:material:1.12.0'
+    // The `*Check` classes run on the JVM, where android.jar's org.json is a
+    // stub. The real reference implementation lets the Look JSON contract be
+    // exercised as json, not as a hand-built map.
+    checkJson 'org.json:json:20240303'
 }
 
 afterEvaluate {
@@ -79,7 +87,8 @@ afterEvaluate {
     def checkJvmCompile = tasks.register('checkJvmCompile', JavaCompile) {
         dependsOn debugCompile
         source = fileTree('src/test/java') { include '**/*.java' }
-        classpath = files(debugCompile.get().destinationDirectory,
+        classpath = files(configurations.checkJson,
+                debugCompile.get().destinationDirectory,
                 debugCompile.get().classpath)
         destinationDirectory = file("$buildDir/checkJvm/classes")
         sourceCompatibility = '17'
@@ -90,7 +99,8 @@ afterEvaluate {
     tasks.register('checkJvm') {
         dependsOn checkJvmCompile
         doLast {
-            def runtime = files("$buildDir/checkJvm/classes",
+            def runtime = files(configurations.checkJson,
+                    "$buildDir/checkJvm/classes",
                     debugCompile.get().destinationDirectory, debugCompile.get().classpath)
             def java = new File(System.getProperty('java.home'), 'bin/java').absolutePath
             def checks = fileTree('src/test/java') { include '**/*Check.java' }.files

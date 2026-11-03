@@ -290,20 +290,6 @@ public class MainActivity extends AppCompatActivity {
      * the live source is replaced on every import, and a list holding those
      * would pin one 1024-px ARGB buffer per photograph.
      */
-    /** Everything the film page and the optics page own.
-     *
-     *  <p>A look belongs to the photograph it was chosen on. It used to be one
-     *  set of fields for the whole session, so re-opening the first frame after
-     *  picking a film on the second one developed the *second* film onto the
-     *  first: the shelf was a memory of photographs but only one memory of a
-     *  look. */
-    private static final class Look {
-        String filmStock;
-        String printStock;
-        float printExposure, grainAmount, halationAmount, glareAmount, filmFormatMm;
-        boolean overscanOn, dateOn;
-        String overscanFormat;
-    }
     private static final class Frame {
         final Uri uri;
         final boolean raw;
