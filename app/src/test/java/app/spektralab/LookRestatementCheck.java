@@ -23,6 +23,7 @@ public final class LookRestatementCheck {
         formatFollowsTheGate();
         grainFollowsTheStock();
         escapingKeepsJsonValid();
+        emptyTypedDateUsesTheFrameDefault();
         noFilmHasNothingToState();
 
         System.out.println("LookRestatementCheck: " + checks + " checks passed");
@@ -304,12 +305,36 @@ public final class LookRestatementCheck {
         look.dateOn = true;
         look.dataText = "100 ISO \"sun\\rain\"" + (char) 10 + "second line";
         look.dateTextB = "'26 11 03";
+        look.dateText = "\"typed\" date";
         final org.json.JSONObject json = parse(LookRestatement.json(
                 look, context(false, false, "EDGE", "2026 11 07")));
         eq("100 ISO \"sun\\rain\"" + (char) 10 + "second line",
                 json.optString("date_imprint_data_text"));
         eq("'26 11 03", json.optString("date_imprint_text_b"));
-        eq("2026 11 07", json.optString("date_imprint_text"));
+        // The Look's typed date wins over the Frame's EXIF default.
+        eq("\"typed\" date", json.optString("date_imprint_text"));
+
+        // Catalog and edge-print names reach the wire through the same escape:
+        // a quote in any of them may not break the delta.
+        final Look quoted = fullLook();
+        quoted.filmStock = "kodak\"portra";
+        quoted.printStock = "kodak\\endura";
+        quoted.edgeTextOn = true;
+        final org.json.JSONObject edge = parse(LookRestatement.json(quoted,
+                context(false, false, "KODAK \"400\"", "")));
+        eq("kodak\"portra", edge.optString("film_stock"));
+        eq("kodak\\endura", edge.optString("print_stock"));
+        eq("KODAK \"400\"", edge.optString("overscan_edge_text"));
+    }
+
+    /** An empty typed text follows the file's EXIF date, not a stale one. */
+    private static void emptyTypedDateUsesTheFrameDefault() {
+        final Look look = fullLook();
+        look.dateOn = true;
+        look.dateText = "";
+        eq("2026 11 07", parse(LookRestatement.json(
+                look, context(false, false, "EDGE", "2026 11 07")))
+                .optString("date_imprint_text"));
     }
 
     private static void noFilmHasNothingToState() {
@@ -353,6 +378,7 @@ public final class LookRestatementCheck {
         look.dateEv = 3.5f;
         look.dataText = "";
         look.dateTextB = "";
+        look.dateText = "";
         for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
             look.set(param, param.defaultValue);
         }

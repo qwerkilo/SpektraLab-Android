@@ -21,22 +21,24 @@ public final class LookRestatement {
     /**
      * The facts a Look does not carry: the source kind, the render's long
      * edge, whether the selected Film stock is a Reversal stock, the edge
-     * print's text for that stock, and the Date back's imprint text.
+     * print's text for that stock, and the Date back's *default* imprint text
+     * (the Frame's EXIF date). A typed text lives on the Look itself and wins
+     * over this fallback.
      */
     public static final class Context {
         public final boolean raw;
         public final int longEdge;
         public final boolean positiveFilm;
         public final String edgePrint;
-        public final String dateText;
+        public final String defaultDateText;
 
         public Context(boolean raw, int longEdge, boolean positiveFilm,
-                       String edgePrint, String dateText) {
+                       String edgePrint, String defaultDateText) {
             this.raw = raw;
             this.longEdge = longEdge;
             this.positiveFilm = positiveFilm;
             this.edgePrint = edgePrint == null ? "" : edgePrint;
-            this.dateText = dateText == null ? "" : dateText;
+            this.defaultDateText = defaultDateText == null ? "" : defaultDateText;
         }
     }
 
@@ -55,7 +57,10 @@ public final class LookRestatement {
         if (context == null) throw new IllegalArgumentException("context is null");
 
         final String edgePrint = look.edgeTextOn ? context.edgePrint : "";
-        final String dateText = look.dateOn ? context.dateText : "";
+        // A typed Date back text is part of the Frame's Look; only an empty one
+        // asks for the file's own EXIF date.
+        final String dateText = look.dateOn
+                ? orDefault(look.dateText, context.defaultDateText) : "";
         final boolean monochrome = isMonochromeStock(look.filmStock);
         final float highlight = look.get(OpticsDelta.Param.HIGHLIGHT_ROOM);
         final float shadow = look.get(OpticsDelta.Param.SHADOW_ROOM);
@@ -90,7 +95,8 @@ public final class LookRestatement {
             + "\"date_imprint_placement\":\"%s\",\"date_imprint_corner\":\"%s\","
             + "\"date_imprint_inset_x\":%.2f,\"date_imprint_inset_y\":%.2f,"
             + "\"date_imprint_size\":%.2f,\"date_imprint_ev\":%.1f}",
-            look.filmStock, orDefault(look.printStock, Look.DEFAULT_PRINT_STOCK),
+            escape(look.filmStock),
+            escape(orDefault(look.printStock, Look.DEFAULT_PRINT_STOCK)),
             context.positiveFilm ? "true" : "false",
             context.raw ? "ProPhoto RGB" : "sRGB",
             context.raw ? "false" : "true",
@@ -123,7 +129,7 @@ public final class LookRestatement {
             look.preflash,
             look.overscanOn ? "true" : "false",
             orDefault(look.overscanFormat, Look.DEFAULT_OVERSCAN_FORMAT),
-            edgePrint,
+            escape(edgePrint),
             look.edgeFog, look.edgeLeaks, look.frameNumber,
             orDefault(look.edgeMode, "strip"),
             orDefault(look.edgeGate, "auto"),

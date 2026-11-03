@@ -71,6 +71,12 @@ public final class Look {
     boolean edgeTextOn = true;
     /** Free text: the shooting data, and a pair's second frame's date. */
     String dataText = "", dateTextB = "";
+    /**
+     * The Date back's editable imprint text. Empty means "use the Frame's own
+     * EXIF date"; the resolved default is supplied by the caller, not stored
+     * here, so a Frame without a typed date keeps following its file.
+     */
+    String dateText = "";
     /** The rebate's own draws. */
     int cameraSeed = 1, frameSeed = 1;
     boolean overscanOn, dateOn;
@@ -172,6 +178,7 @@ public final class Look {
             o.put("dev", (double) dateEv);
             o.put("dtext", dataText == null ? "" : dataText);
             o.put("dtextb", dateTextB == null ? "" : dateTextB);
+            o.put("dtextm", dateText == null ? "" : dateText);
             o.put("fog", (double) edgeFog);
             o.put("leaks", (double) edgeLeaks);
             o.put("frameno", (double) frameNumber);
@@ -213,6 +220,7 @@ public final class Look {
         l.dateEv = (float) o.optDouble("dev", 3.5);
         l.dataText = o.optString("dtext", "");
         l.dateTextB = o.optString("dtextb", "");
+        l.dateText = o.optString("dtextm", "");
         l.edgeFog = (float) o.optDouble("fog", 1.0);
         l.edgeLeaks = (float) o.optDouble("leaks", 0.0);
         l.frameNumber = (float) o.optDouble("frameno", 0.0);
