@@ -25,6 +25,13 @@ export buffer. The app-side canvas trim (ticket 01) crops to the engine's
 top-left canvas and does not fix the lost rows. The engine is out of tree;
 this sync does not change it (ADR-0005, `docs/specs/upstream-1.4-sync.md`).
 
+**Reproduced:** 2026-11-03 on `10.110.67.69:39613` (Android 17) with
+`1.4.0-m3` (code 69): CineStill 800T, 135 full frame, a 4500×3000 JPEG
+source exported as **4704×4345 (20.44 MP)**. The top band prints
+`CINESTILL 800T`; the bottom band has its sprocket holes but neither the frame
+number nor the `2A` edge print. The same Look at 3156×2897 (9.14 MP) keeps the
+bottom print, so this is the >16.7 MP case, not a general rebate loss.
+
 **Workaround:** keep the exported rebate canvas at or under 16,776,960 px.
 The export snackbar prints the canvas as `画布 WxH` — if that product is over
 the ceiling, either turn the Rebate off for this export (the picture is
