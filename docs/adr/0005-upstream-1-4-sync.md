@@ -34,10 +34,12 @@ upstream 1.4.0 release also has a known engine-side export defect above
 - **Look compatibility.** New fields default on read; old Looks keep their
   existing values and are never reset because a field is absent.
 - **Export re-states the full Look.** Preview and export share one parameter
-  builder; RAW export opens its own session.
+  builder (`LookRestatement`); RAW export opens its own session so the preview
+  and another Frame are untouched.
 - **Engine defect stays out of tree.** The app-side canvas trim is included,
-  the known >16.7 MP bottom-print loss is documented, and a stable release is
-  blocked until the engine fix lands or the issue is explicitly accepted.
+  the known >16.7 MP bottom-print loss is documented in
+  `docs/known-issues.md` with its workaround, and a stable release is blocked
+  until the engine fix lands or the issue is explicitly accepted there.
 
 ## Consequences
 
@@ -48,7 +50,9 @@ upstream 1.4.0 release also has a known engine-side export defect above
 - The fork's version name advertises its lineage without claiming the upstream
   release.
 - A release can be built and installed for testing, but cannot be announced as
-  stable while the engine export defect remains.
+  stable while the engine export defect remains: the gate is recorded in
+  `docs/known-issues.md` (KI-1) and `update.json` stays off the `stable`
+  channel until it is fixed or explicitly accepted.
 - The upstream old UI and release channel are deliberately left behind; future
   upstream syncs will need the same capability-level port rather than a merge.
 

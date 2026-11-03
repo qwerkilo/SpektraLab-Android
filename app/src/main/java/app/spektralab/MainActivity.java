@@ -73,6 +73,10 @@ public class MainActivity extends AppCompatActivity {
     private SpektraLabEngine.Session session;
     private boolean isRawFile = false;
     private String rawFilePath = null;
+    /** The caps the current RAW was opened with: an export re-decodes the
+     *  same frame in its own session instead of a differently capped one. */
+    private volatile int rawImportMaxPixels = 0;
+    private volatile int rawImportLongEdge = 0;
     // The last file that reached the gallery, so it can be handed straight to
     // another app. A picker that filters by MIME will not show a TIFF on a ROM
     // whose picture list does not know the type; an explicit ACTION_SEND does,
@@ -2688,57 +2692,6 @@ public class MainActivity extends AppCompatActivity {
                 && "positive".equals(filmTypes.get(index));
     }
 
-    /**
-     * The frame length the rebate layout must see. With a rebate on, the Gate
-     * decides: the Scale page describes grain size, the Gate describes the film
-     * the edge is cut from, and the engine lays out the canvas by the latter.
-     */
-    private float wireFormatMm() {
-        if (!overscanOn) return filmFormatMm;
-        final GateScale.Gate gate = GateScale.byId(overscanFormat);
-        return gate != null ? gate.longEdgeMm : filmFormatMm;
-    }
-
-    /**
-     * The four black-and-white stocks the catalogue carries. The engine's
-     * grain has a colour and a monochrome form; the silver sheet gets the
-     * single-layer one.
-     */
-    private static boolean isMonochromeStock(String stock) {
-        if (stock == null) return false;
-        switch (stock) {
-            case "kodak_tri_x_400":
-            case "ilford_hp5_plus_400":
-            case "kodak_tmax_100":
-            case "fujifilm_neopan_acros_100_ii":
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    /**
-     * What the Grain slider's 1 means on a black-and-white stock: the
-     * `grain_amount` at which the engine renders the diffuse RMS granularity
-     * the maker publishes. A colour film's is 1.
-     */
-    private static double ownGrain(String stock) {
-        if (stock == null) return 1.0;
-        switch (stock) {
-            case "kodak_tri_x_400": return 1.70;
-            case "ilford_hp5_plus_400": return 1.49;
-            case "kodak_tmax_100": return 0.74;
-            case "fujifilm_neopan_acros_100_ii": return 0.64;
-            default: return 1.0;
-        }
-    }
-
-    /** The wire's `grain_amount`: the slider times the stock's own amount. */
-    private double wireGrain(String stock) {
-        return Math.max(0.0, Math.min(2.0,
-                optics.get(OpticsDelta.Param.GRAIN) * ownGrain(stock)));
-    }
-
     /** Measured values only: a field the profile does not ship stays absent. */
     private void refreshFilmMetrics(FilmStock stock) {
         if (filmMetricsRow == null) return;
@@ -4971,34 +4924,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** The one value both preview and export hand to the engine. */
-    private String dateParam() {
-        return dateOn ? imprintDate() : "";
-    }
-
-    /** Quote a user-editable string for the engine's JSON delta. */
-    private static String jsonEsc(String value) {
-        if (value == null) return "";
-        final StringBuilder out = new StringBuilder(value.length() + 8);
-        for (int i = 0; i < value.length(); ++i) {
-            final char c = value.charAt(i);
-            switch (c) {
-                case '"': out.append("\\\""); break;
-                case '\\': out.append("\\\\"); break;
-                case '\n': out.append("\\n"); break;
-                case '\r': out.append("\\r"); break;
-                case '\t': out.append("\\t"); break;
-                default:
-                    if (c < 0x20) {
-                        out.append(String.format(java.util.Locale.US, "\\u%04x", (int) c));
-                    } else {
-                        out.append(c);
-                    }
-            }
-        }
-        return out.toString();
-    }
-
     /** Re-apply a restored Look to the Edge pages' switches and controls. */
     private void syncToggleRows() {
         syncRebatePage();
@@ -6614,9 +6539,12 @@ public class MainActivity extends AppCompatActivity {
                     if (nativeSize) {
                         try { DebugSink.text("import-mode", "native size, no cap"); } catch (Throwable ignored) { }
                     }
+                    // Keep the caps so a RAW export can decode the same frame
+                    // in its own session.
+                    rawImportMaxPixels = nativeSize ? 0 : maxImportPixels();
+                    rawImportLongEdge = nativeSize ? 0 : IMPORT_LONG_EDGE;
                     session = engine.openRawSession(filePath, params,
-                            nativeSize ? 0 : maxImportPixels(),
-                            nativeSize ? 0 : IMPORT_LONG_EDGE);
+                            rawImportMaxPixels, rawImportLongEdge);
                     lastImportError = null;
                     // **The session's own parameters, which this path never sent.**
                     // `openRawSession` carries the film, the paper and the decode
@@ -7247,85 +7175,34 @@ public class MainActivity extends AppCompatActivity {
             DebugSink.text("params", "draw film=" + stock + " print=" + printStock
                     + " render=" + rendering + " long=" + longEdge);
         } catch (Throwable ignored) { }
-        session.setParams(String.format(java.util.Locale.US,
-            "{\"film_stock\":\"%s\",\"print_stock\":\"%s\",\"scan_film\":%s,"
-            // The file's own colour space and transfer function. A camera
-            // JPEG is sRGB *already encoded*: read as ProPhoto linear (the
-            // engine default, which is right for a decoded RAW) its mid-tones
-            // print about 1.5 stops down with the top 5% flattened from 193
-            // to 126 -- the "grey and flat after the update" report. These
-            // are not `is_live` fields, so they must ride the same delta as
-            // the stock, which has already asked for a rebuild.
-            + "\"input_color_space\":\"%s\",\"input_cctf_decoding\":%s,\"auto_exposure\":%s,"
-            + "\"output_color_space\":\"sRGB\",\"preview_long_edge\":%d,"
-            + "\"print_exposure\":%.2f,\"grain_amount\":%.3f,\"grain_sublayers_active\":%s,"
-            + "\"halation_amount\":%.3f,\"halation_boost_ev\":%.2f,"
-            + "\"halation_scatter_amount\":%.3f,"
-            + "\"halation_active\":%s,\"antihalation_removed\":%s,\"grain_active\":%s,"
-            + "\"dir_couplers_active\":%s,\"scanner_white_correction\":%s,"
-            + "\"scanner_black_correction\":%s,\"extended_dynamic_range\":%s,"
-            + "\"camera_filter\":\"%s\","
-            + "\"scene_latitude_active\":%s,\"scene_latitude_norm\":\"%s\","
-            + "\"scene_latitude_highlight_knee\":1.0,"
-            + "\"scene_latitude_highlight_room\":%.2f,\"scene_latitude_shadow_knee\":-2.0,"
-            + "\"scene_latitude_shadow_room\":%.2f,"
-            + "\"scene_latitude_rolloff\":%.2f,\"scene_latitude_max_lift\":%.2f,"
-            + "\"glare_amount\":%.3f,\"film_format_mm\":%.1f,"
-            + "\"lens_blur_um\":%.1f,"
-            + "\"m_filter_shift\":%.3f,\"y_filter_shift\":%.3f,\"filter_shift_scale\":%.1f,"
-            + "\"preflash_exposure\":%.4f,"
-            + "\"overscan_active\":%s,\"overscan_format\":\"%s\",\"overscan_edge_text\":\"%s\","
-            + "\"overscan_fog\":%.2f,\"overscan_leaks\":%.2f,\"overscan_frame_number\":%.0f,"
-            + "\"overscan_mode\":\"%s\",\"overscan_gate\":\"%s\",\"overscan_holes\":\"%s\","
-            + "\"overscan_carrier\":\"%s\",\"overscan_f_number\":%.0f,"
-            + "\"overscan_camera_seed\":%d,\"overscan_frame_seed\":%d,"
-            + "\"date_imprint_active\":%s,\"date_imprint_text\":\"%s\",\"date_imprint_style\":\"%s\","
-            + "\"date_imprint_text_b\":\"%s\",\"date_imprint_data_text\":\"%s\","
-            + "\"date_imprint_placement\":\"%s\",\"date_imprint_corner\":\"%s\","
-            + "\"date_imprint_inset_x\":%.2f,\"date_imprint_inset_y\":%.2f,"
-            + "\"date_imprint_size\":%.2f,\"date_imprint_ev\":%.1f}",
-            stock, printStock,
-            isPositiveFilm(stock) ? "true" : "false",
-            isRawFile ? "ProPhoto RGB" : "sRGB",
-            isRawFile ? "false" : "true",
-            isRawFile ? "true" : "false",
-            longEdge,
-            optics.get(OpticsDelta.Param.EXPOSURE), wireGrain(stock),
-            isMonochromeStock(stock) ? "false" : "true",
-            optics.get(OpticsDelta.Param.HALATION),
-            optics.get(OpticsDelta.Param.HALATION_BOOST),
-            optics.get(OpticsDelta.Param.HALATION_SCATTER),
-            optics.get(OpticsDelta.Param.HALATION_ON) > 0.5f ? "true" : "false",
-            optics.get(OpticsDelta.Param.ANTIHALATION_REMOVED) > 0.5f ? "true" : "false",
-            optics.get(OpticsDelta.Param.GRAIN_ON) > 0.5f ? "true" : "false",
-            optics.get(OpticsDelta.Param.COUPLERS_ON) > 0.5f ? "true" : "false",
-            optics.get(OpticsDelta.Param.SCANNER_WHITE) > 0.5f ? "true" : "false",
-            optics.get(OpticsDelta.Param.SCANNER_BLACK) > 0.5f ? "true" : "false",
-            optics.get(OpticsDelta.Param.EDR_ON) > 0.5f ? "true" : "false",
-            OpticsDelta.CameraFilter.fromWire(optics.cameraFilter).wire,
-            OpticsDelta.sceneLatitudeActive(
-                    optics.get(OpticsDelta.Param.HIGHLIGHT_ROOM),
-                    optics.get(OpticsDelta.Param.SHADOW_ROOM)) ? "true" : "false",
-            OpticsDelta.ProtectionNorm.fromWire(optics.sceneNorm).wire,
-            OpticsDelta.highlightRoomWire(optics.get(OpticsDelta.Param.HIGHLIGHT_ROOM)),
-            optics.get(OpticsDelta.Param.SHADOW_ROOM),
-            optics.get(OpticsDelta.Param.SHADOW_ROLLOFF),
-            optics.get(OpticsDelta.Param.MAX_LIFT),
-            optics.get(OpticsDelta.Param.GLARE), wireFormatMm(),
-            optics.get(OpticsDelta.Param.LENS_BLUR),
-            optics.get(OpticsDelta.Param.M_FILTER),
-            optics.get(OpticsDelta.Param.Y_FILTER),
-            optics.get(OpticsDelta.Param.FILTER_SCALE),
-            optics.get(OpticsDelta.Param.PREFLASH),
-            overscanOn ? "true" : "false", overscanFormat,
-            edgeTextOn ? edgeTextFor(stock) : "",
-            edgeFog, edgeLeaks, frameNumber,
-            edgeMode, edgeGate, edgeHoles, edgeCarrier, edgeFNumber,
-            cameraSeed, frameSeed,
-            dateOn ? "true" : "false", jsonEsc(dateParam()), dateStyle,
-            jsonEsc(dateTextB), jsonEsc(dataText),
-            datePlacement, dateCorner, dateInsetX, dateInsetY, dateSize, dateEv
-        ));
+        session.setParams(restatedParams(stock, longEdge));
+    }
+
+    /**
+     * The Look re-statement builder preview and export both call.
+     *
+     * <p>It snapshots the live controls into a {@link Look} and hands that to
+     * {@link LookRestatement}, so every value the UI shows -- the Film stock,
+     * the Print stock, all 22 optical parameters, the camera filter, the
+     * protection norm, and every Rebate and Date back field -- is in the
+     * delta. The only facts added here are the ones a Look does not own: the
+     * source kind, the render's long edge, whether the stock is a Reversal
+     * stock, its edge print, and the Date back's imprint text.
+     *
+     * <p>The old inline format string lived only in the preview path and the
+     * export re-called it with the preview's stock; a parameter that reached
+     * one and not the other was invisible until a file disagreed with the
+     * screen. There is now one string, built in one place.
+     */
+    private String restatedParams(String stock, int longEdge) {
+        final Look look = captureLook();
+        look.filmStock = stock;
+        return LookRestatement.json(look, new LookRestatement.Context(
+                isRawFile,
+                longEdge,
+                isPositiveFilm(stock),
+                edgeTextFor(stock),
+                look.dateOn ? imprintDate() : ""));
     }
 
     /** Same set, at whatever long edge the caller is rendering. A small edge
@@ -7620,9 +7497,9 @@ public class MainActivity extends AppCompatActivity {
      *  Printed next to the export's own size: when the two disagree the file
      *  carries a band that was never drawn, and that is the whole of the
      *  "the rebate flies in the export but not in the preview" report. */
-    private String overscanCanvasLabel() {
+    private String overscanCanvasLabel(SpektraLabEngine.Session source) {
         try {
-            final String g = session == null ? null : session.overscanGeometry();
+            final String g = source == null ? null : source.overscanGeometry();
             if (g == null) return "";
             final int wAt = g.indexOf("\"canvas_w\":");
             final int hAt = g.indexOf("\"canvas_h\":");
@@ -7648,8 +7525,14 @@ public class MainActivity extends AppCompatActivity {
             showSnackbar("先选一张胶片，再导出");
             return;
         }
-        // The preview and the export share one session; the render lock below
-        // keeps a later stock change out of the full-size pass.
+        // The export states the Look it was started with, not whatever the
+        // controls say by the time the render thread picks it up: a Frame
+        // switch or a slider drag during a long export must not move the file.
+        final String exportStock = filmStock;
+        final String exportParams = restatedParams(exportStock, PREVIEW_LONG_EDGE);
+        final String rawExportPath = isRawFile ? (rawFilePath == null ? "" : rawFilePath) : null;
+        // A bitmap export renders from the preview session; a RAW export opens
+        // its own below. The render lock keeps a stock change out of either.
         new Thread(() -> {
             java.io.File tmp = new java.io.File(getCacheDir(), "export_" + System.currentTimeMillis() + ext);
             try {
@@ -7663,9 +7546,8 @@ public class MainActivity extends AppCompatActivity {
                 // 102.4 std 12481 after, and the two hashes differ). It is the
                 // same delta the preview renders with, which is the point.
                 try {
-                    DebugSink.text("export-params", "film=" + filmStock + " print=" + printStock
-                            + " pex=" + optics.get(OpticsDelta.Param.EXPOSURE)
-                            + " (no delta sent)");
+                    DebugSink.text("export-params", "film=" + exportStock + " print=" + printStock
+                            + " raw=" + (rawExportPath != null) + " " + exportParams);
                 } catch (Throwable ignored) {}
 
                 final long t0 = System.currentTimeMillis();
@@ -7682,30 +7564,54 @@ public class MainActivity extends AppCompatActivity {
                 };
                 runOnUiThread(tick);
                 int[] info;
+                final String canvas;
                 try {
                     synchronized (renderMutex) {
                         // Everything the preview drew with, re-stated: a stock,
                         // a paper, a gate, an edge text or a date that moved
                         // since the last render would otherwise be exported as
                         // the *preview* had it, or not at all.
-                        applyParams(filmStock, PREVIEW_LONG_EDGE);
+                        SpektraLabEngine.Session target = session;
+                        SpektraLabEngine.Session rawExport = null;
                         try {
-                            DebugSink.text("overscan-geom", "tier=" + tier + " before "
-                                    + session.overscanGeometry());
-                            // The whole parameter set this export is about to use.
-                            // "the export disagrees with the preview" is a question
-                            // about which of these two numbers changed.
-                            DebugSink.text("export-params", "tier=" + tier + " " + session.getParams());
-                        } catch (Throwable ignored) { }
-                        info = dng
-                                ? session.exportDng(tmp.getAbsolutePath(), tier)
-                                : tiff
-                                ? session.exportTiff(tmp.getAbsolutePath(), tier)
-                                : session.exportJpeg(tmp.getAbsolutePath(), 95, 512, tier);
-                        try {
-                            DebugSink.text("overscan-geom", "tier=" + tier + " " + info[0] + "x" + info[1]
-                                    + " " + session.overscanGeometry());
-                        } catch (Throwable ignored) { }
+                            if (rawExportPath != null) {
+                                if (rawExportPath.isEmpty()) {
+                                    throw new RuntimeException("RAW 文件路径不可用，无法导出");
+                                }
+                                // A RAW export decodes the file into its own
+                                // session. Re-stating the preview session used
+                                // to change the picture on screen and left the
+                                // export sharing the preview's preview-sized
+                                // decode. This session is opened with the caps
+                                // the import chose, gets the same Look, and is
+                                // closed before the gallery write.
+                                rawExport = engine.openRawSession(rawExportPath, exportParams,
+                                        rawImportMaxPixels, rawImportLongEdge);
+                                target = rawExport;
+                            }
+                            target.setParams(exportParams);
+                            try {
+                                DebugSink.text("overscan-geom", "tier=" + tier + " before "
+                                        + target.overscanGeometry());
+                                // The whole parameter set this export is about to use.
+                                // "the export disagrees with the preview" is a question
+                                // about which of these two numbers changed.
+                                DebugSink.text("export-params", "tier=" + tier
+                                        + " raw=" + (rawExport != null) + " " + target.getParams());
+                            } catch (Throwable ignored) { }
+                            info = dng
+                                    ? target.exportDng(tmp.getAbsolutePath(), tier)
+                                    : tiff
+                                    ? target.exportTiff(tmp.getAbsolutePath(), tier)
+                                    : target.exportJpeg(tmp.getAbsolutePath(), 95, 512, tier);
+                            canvas = overscanCanvasLabel(target);
+                            try {
+                                DebugSink.text("overscan-geom", "tier=" + tier + " " + info[0] + "x" + info[1]
+                                        + " " + target.overscanGeometry());
+                            } catch (Throwable ignored) { }
+                        } finally {
+                            if (rawExport != null) rawExport.close();
+                        }
                     }
                 } finally {
                     spinning.set(false);
@@ -7771,7 +7677,6 @@ public class MainActivity extends AppCompatActivity {
                     // Dimensions and file size together: "3.3 MB" alone reads as
                     // a bug when the frame is 16 MP, and the reason is worth
                     // saying out loud rather than guessing at later.
-                    final String canvas = overscanCanvasLabel();
                     final String canvasNote = canvas.isEmpty() ? "" : " · 画布 " + canvas;
                     final String tiffHint = tiff
                             ? "（TIFF：点导出旁边的「分享」发给手机版 Lightroom 即可使用）"
