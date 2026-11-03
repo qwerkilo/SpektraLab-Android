@@ -54,6 +54,17 @@ public final class SpkErrorCheck {
         ok(!SpkError.isPermissionFailure(null));
         ok(!SpkError.isPermissionFailure("plain render failure"));
 
+        // A MediaStore write denial is not the picker's grant: E-1305, not
+        // E-1304 with "re-import the photo" advice.
+        final String mediaDenial = "java.lang.SecurityException: Permission Denial: writing "
+                + "com.android.providers.media.MediaProvider uri content://media/external/"
+                + "images/media from pid=1, uid=2";
+        ok(SpkError.isMediaStoreFailure(mediaDenial));
+        ok(!SpkError.isPermissionFailure(mediaDenial));
+        ok(SpkError.format(mediaDenial).startsWith("[E-1305] "));
+        ok(SpkError.shortForm(mediaDenial).startsWith("[E-1305] "));
+        ok(SpkError.explain(1305).contains("相册"));
+
         final String formatted = SpkError.format(denial);
         ok(formatted.startsWith("[E-1304] "));
         ok(formatted.contains("重新选择"));

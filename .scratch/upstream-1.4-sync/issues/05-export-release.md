@@ -19,8 +19,9 @@ and the duplicate grain/monochrome/JSON helpers are gone. A RAW export opens a
 second `openRawSession` with the caps stored at import, sets the same Look on
 it, exports, and closes it inside the render lock; the preview session and
 another Frame are untouched. Version is 69 / `1.4.0-m3` in the manifest,
-Gradle, and `update.json`; the fork URL is kept, the notes are fork-written,
-and the channel is `preview`. `docs/known-issues.md` records the >16.7 MP
+Gradle, and `preview.json`; the fork URL is kept, the notes are fork-written,
+and the preview channel is `preview`, while `update.json` stays on the last
+stable build. `docs/known-issues.md` records the >16.7 MP
 rebate bottom-print loss, its canvas workaround, and `Release gate: open`;
 `VersionCheck` pins the four version strings and refuses a `stable` channel
 while the gate is open. `checkJvm` adds `LookRestatementCheck` (183) and
@@ -40,3 +41,22 @@ remains device-unverified (no RAW sample on the device); ticket 06 carries it.
 - [x] The >16.7 MP rebate bottom-print defect is documented with the workaround and a release-blocking note.
 - [x] `checkJvm`, `check-manifest.py`, the generator fixture, and the 16 KB APK build pass.
 - [x] Device check: preview/export comparison after changing every parameter group, plus the known-issue size case or a recorded block.
+
+**U7 review fixes:** The catalogue's `targetPrint` is now consumed: `PrintTarget`
+resolves the record's declaration (legacy `target_print` is the fallback) and a
+Film selection moves the Print stock to it, as upstream's `selectFilmStock`
+does; an explicit paper chosen afterwards stays until the next different Film,
+and a restored Look keeps its stored pair. The film note reads the same
+declaration. The Look now carries the typed Date back text (`dtextm`), so
+capture/apply restores it across A → B → A and export uses the restored text;
+the EXIF default is cached separately and is only cleared when a new image
+opens. The UI no longer writes the Look on an Edge change: `renderImage`
+snapshots the whole Look on the UI thread and the render thread is the only
+full-Look writer. Programmatic slider parks no longer write snapped values
+back. The release gate is now two files: `preview.json` carries build 69 and
+`update.json` stays on stable 1.3.4, `UpdateCheck` compares channel and only
+reads the fork's endpoints, `ReleaseUrl` accepts `spektralab.workshop.skin`,
+`Announcement` parses the channel, and `announce.sh` refuses stable while the
+gate is open. Pure checks: `PrintTargetCheck` (12), `UpdateGateCheck` (57),
+`ReleaseUrlCheck` (16), `VersionCheck` (29), `LookCheck` (241),
+`LookRestatementCheck` (187), `SpkErrorCheck` (47).

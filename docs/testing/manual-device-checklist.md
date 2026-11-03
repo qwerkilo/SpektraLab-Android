@@ -45,7 +45,7 @@ Android version, and Theme mode.
 - [ ] Export a RAW, then switch Frame A→B→A: the preview keeps its picture and the exported file matches the Look it was started with.
 - [ ] Export a TIFF after changing a Date back text with a quote and a line break; the engine must not see a malformed delta.
 - [ ] Set a Gate/Scale whose exported canvas is over 16,776,960 px with the Rebate on; record whether the bottom edge print is present. While KI-1 is open, record it as the release blocker, not as a pass.
-- [ ] Confirm `update.json` reports 1.4.0-m3 / 69 and is not on the `stable` channel while KI-1 is open.
+- [ ] Confirm `preview.json` reports 1.4.0-m3 / 69 on the `preview` channel, `update.json` still reports the last stable build, and a stable client is not offered the preview build.
 
 ## Regression
 

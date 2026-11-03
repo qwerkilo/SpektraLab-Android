@@ -86,8 +86,14 @@ its release channel:
   current device audit has captured a baseline. Do not merge the upstream UI
   wholesale.
 - **Version.** The fork becomes `versionCode` 69 and `versionName` `1.4.0-m3`;
-  `update.json` is updated to match only when the fork release is prepared.
-  The upstream `stable` channel and announce origin are not adopted.
+  the gated build is announced only in `preview.json`, and `update.json` keeps
+  the last stable build until the release gate is accepted. The upstream
+  `stable` channel and announce origin are not adopted.
+- **Update channel.** A build reads `preview.json` only when its own version
+  name is a pre-release; a stable build reads `update.json`. Eligibility
+  compares the version code **and** the announcement's channel, and only the
+  fork's endpoints are read. `ReleaseUrl` accepts the fork's
+  `spektralab.workshop.skin` URL.
 - **Optics surface.** A parameter strip of M3 chips selects one of the 22
   parameters. One 48 dp M3 slider edits the active parameter; the row shows
   name, value, unit, display-only Δ, and reset. Camera filter and protection
@@ -125,7 +131,9 @@ its release channel:
   is included, the issue and its workaround are recorded in
   `docs/known-issues.md` (KI-1), and a stable release is blocked until the
   engine is fixed or the issue is explicitly accepted there. While the gate is
-  open, `update.json` must not use the `stable` channel.
+  open, the gated build is published only to the `preview` channel
+  (`preview.json`); `update.json` stays on the last stable build so 1.3.4
+  clients are not offered it.
 - **Assets.** The upstream adaptive launcher icon may be adopted, but the M3
   colour roles stay the control source; the icon's plate colour is an asset,
   not a Palette/M3 role.

@@ -51,8 +51,9 @@ upstream 1.4.0 release also has a known engine-side export defect above
   release.
 - A release can be built and installed for testing, but cannot be announced as
   stable while the engine export defect remains: the gate is recorded in
-  `docs/known-issues.md` (KI-1) and `update.json` stays off the `stable`
-  channel until it is fixed or explicitly accepted.
+  `docs/known-issues.md` (KI-1), the gated build is announced only in
+  `preview.json`, and `update.json` stays on the last stable build until the
+  gate is fixed or explicitly accepted.
 - The upstream old UI and release channel are deliberately left behind; future
   upstream syncs will need the same capability-level port rather than a merge.
 

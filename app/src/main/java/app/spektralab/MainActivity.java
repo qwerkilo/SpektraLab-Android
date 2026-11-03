@@ -226,7 +226,10 @@ public class MainActivity extends AppCompatActivity {
     private boolean overscanOn = false;
     private String overscanFormat = "135";
     private boolean dateOn = false;
+    /** A typed Date back text; null/empty means "follow the Frame's EXIF date". */
     private String dateText = null;
+    /** The current file's own imprint date, cached until another image opens. */
+    private String defaultDateText = null;
     /** The Rebate page's own controls. Dimming while off is presentation only:
      *  these values stay live so re-enabling or switching Frame finds them. */
     private boolean edgeTextOn = true;
@@ -356,13 +359,16 @@ public class MainActivity extends AppCompatActivity {
         /** "LOG SENSITIVITY", "DENSITY", or "" when nothing was shipped. */
         final String seriesLabel;
         final java.util.Map<String, String> info;
+        /** The paper this film declares it prints on; null when it declares none. */
+        final String targetPrint;
 
         FilmStock(SpectrumSamples samples, SpectrumCurve curve, String seriesLabel,
-                  java.util.Map<String, String> info) {
+                  java.util.Map<String, String> info, String targetPrint) {
             this.samples = samples;
             this.curve = curve;
             this.seriesLabel = seriesLabel;
             this.info = info;
+            this.targetPrint = targetPrint;
         }
     }
     private final java.util.List<Frame> frames = new java.util.ArrayList<>();
@@ -2063,6 +2069,9 @@ public class MainActivity extends AppCompatActivity {
         look.dateEv = dateEv;
         look.dataText = dataText;
         look.dateTextB = dateTextB;
+        // Only a *typed* text is part of the Look; the EXIF default stays with
+        // the Frame's file, so a Frame with no typed date keeps following it.
+        look.dateText = dateText == null ? "" : dateText;
         return look;
     }
 
@@ -2105,6 +2114,7 @@ public class MainActivity extends AppCompatActivity {
         dateEv = look.dateEv;
         dataText = look.dataText == null ? "" : look.dataText;
         dateTextB = look.dateTextB == null ? "" : look.dateTextB;
+        dateText = look.dateText == null || look.dateText.isEmpty() ? null : look.dateText;
         final GateScale.Gate pair = GateScale.pair(overscanFormat, filmFormatMm);
         // One piece of film geometry: a stored Gate and Scale that disagree are
         // pulled onto the Gate's measured edge before either control can draw.
@@ -2675,8 +2685,15 @@ public class MainActivity extends AppCompatActivity {
         if (index < 0) return;
         if (id.equals(filmStock) && !showingOriginal) return;
         filmStock = id;
+        // Upstream's `selectFilmStock` rule: the Film the user picks brings its
+        // own paper. An explicit paper chosen afterwards stays until the next
+        // Film selection; a Frame restore keeps its stored Film/paper pair.
+        final FilmStock chosen = filmStocks.get(id);
+        printStock = PrintTarget.choose(printStock,
+                chosen == null ? null : chosen.targetPrint, printIds);
         showingOriginal = false;
         refreshFilmPanel();
+        refreshPaperLabel();
         onStockChanged();
     }
 
@@ -2755,7 +2772,9 @@ public class MainActivity extends AppCompatActivity {
         }
         if (description != null && !description.isEmpty()) return description;
         final java.util.List<String> parts = new java.util.ArrayList<>();
-        final String target = stock.info.get("target_print");
+        // The same declaration the Film choice applies, so the note cannot
+        // claim a paper the Look would not move to.
+        final String target = stock.targetPrint;
         if (target != null && !target.isEmpty()) {
             parts.add("TARGET " + stockLabel(target, printIds, printLabels)
                     .toUpperCase(java.util.Locale.US));
@@ -3999,6 +4018,10 @@ public class MainActivity extends AppCompatActivity {
         valueView.setLabelFor(bar.getId());
         bar.addOnChangeListener((slider, value, fromUser) -> {
             valueView.setText(format.apply(value));
+            // A programmatic park (a Look restore, a page refresh) moves the
+            // thumb only. Writing the snapped step back would replace a stored
+            // 2.43 mm with 2.4 before the user touched anything.
+            if (!fromUser) return;
             apply.accept(value);
             if (!syncingRebate) {
                 slider.removeCallbacks(rebateCommit);
@@ -4806,12 +4829,22 @@ public class MainActivity extends AppCompatActivity {
         } catch (Throwable ignored) { }
     }
 
+    /**
+     * A rebate or date change is an edge-only edit: the UI never states the
+     * Look itself. The render thread is the single full-Look writer, so a page
+     * change cannot re-state the whole Look twice or park the UI behind a long
+     * render's lock. When there is nothing to draw, the next render states
+     * everything anyway.
+     */
     private void onEdgeChanged() {
-        applyParams();
-        if (uiReady && session != null) {
-            showingOriginal = false;
-            setOriginalVisual(false);
+        if (!uiReady || session == null || filmStock == null) return;
+        showingOriginal = false;
+        setOriginalVisual(false);
+        try {
             renderImage();
+        } catch (Throwable t) {
+            // A rejected render must not take the UI down with it.
+            showErrorSnackbar("片边没有更新", describe(t));
         }
     }
 
@@ -4822,10 +4855,18 @@ public class MainActivity extends AppCompatActivity {
         return name.toUpperCase(java.util.Locale.US);
     }
 
-    /** "'26 10 31" — a date back's format, from the frame's own EXIF date when
-     *  the file has one, from today when it does not. */
+    /** "'26 10 31" — a typed imprint, or the frame's own EXIF date. */
     private String imprintDate() {
         if (dateText != null && !dateText.isEmpty()) return dateText;
+        return defaultImprintDate();
+    }
+
+    /**
+     * The Frame's own default: its EXIF capture date, or today when the file
+     * has none. Cached for the open image; a typed text never overwrites it.
+     */
+    private String defaultImprintDate() {
+        if (defaultDateText != null && !defaultDateText.isEmpty()) return defaultDateText;
         String exif = null;
         try {
             if (sourceUri != null) {
@@ -4847,8 +4888,8 @@ public class MainActivity extends AppCompatActivity {
                     c.get(java.util.Calendar.MONTH) + 1,
                     c.get(java.util.Calendar.DAY_OF_MONTH));
         }
-        dateText = text;
-        return dateText;
+        defaultDateText = text;
+        return defaultDateText;
     }
 
     /** A custom imprint, or the Frame's own EXIF date until the user writes one. */
@@ -5969,8 +6010,12 @@ public class MainActivity extends AppCompatActivity {
             final String seriesLabel = !curve.available() ? ""
                     : "channel_density".equals(source) ? "DENSITY" : "LOG SENSITIVITY";
             final org.json.JSONObject info = o.optJSONObject("info");
+            // `targetPrint` is the generator's record-level field; the profile's
+            // `target_print` is the same fact under the older spelling.
+            final String targetPrint = PrintTarget.declared(
+                    o.optString("targetPrint", ""), o.optString("target_print", ""));
             filmStocks.put(id, new FilmStock(SpectrumSamples.of(wavelengths, rows),
-                    curve, seriesLabel, readStockInfo(info == null ? o : info)));
+                    curve, seriesLabel, readStockInfo(info == null ? o : info), targetPrint));
         }
     }
 
@@ -6170,6 +6215,7 @@ public class MainActivity extends AppCompatActivity {
         // A new import works out its own imprint date; the previous frame's
         // cached text must not travel with the new Source.
         dateText = null;
+        defaultDateText = null;
         // The frame's own look, stated before any session is built: a chip
         // returns to a photograph *and* to what was done to it; a pick from ＋
         // starts with no film at all. Scan inspect belongs to the same Frame,
@@ -6347,7 +6393,9 @@ public class MainActivity extends AppCompatActivity {
                 if (session != null) { session.close(); session = null; }
             }
             session = engine.openSession(sourcePixels, sourceWidth, sourceHeight, 3);
-            applySessionParams();
+            // No parameter write here: a fresh session is stated by the render
+            // that produces the picture (see `renderImage`), on the render
+            // thread, so the UI never waits behind the engine's lock.
             lastImportError = null;
             // An import is not a look. The frame lands unrendered with no film
             // chosen; the first render happens when the user picks a stock.
@@ -6480,6 +6528,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void loadRawImage(Uri uri) {
         final boolean reopening = reopeningFrame;
+        // The Look the RAW session must carry, snapshotted here on the UI
+        // thread: `solve` below meters with it, and the worker never reads a
+        // control.
+        final String importParams = filmStock == null
+                ? null : snapshotRestatement(filmStock, PREVIEW_LONG_EDGE);
         try {
             String filePath = getFilePathFromUri(uri);
             rawFilePath = filePath;
@@ -6499,7 +6552,6 @@ public class MainActivity extends AppCompatActivity {
             if (compare != null) compare.clear();
             lastRenderedBitmap = null;
             setOpticsUnlocked(false);
-            dateText = null;
             setStage(2, getFileName(uri));
 
             new Thread(() -> {
@@ -6549,13 +6601,10 @@ public class MainActivity extends AppCompatActivity {
                     // **The session's own parameters, which this path never sent.**
                     // `openRawSession` carries the film, the paper and the decode
                     // colour space; it does not carry grain, halation, glare, the
-                    // format or the rebate, and those live in `applyParams()`. The
-                    // bitmap path has always called this pair; the raw path did
-                    // not, so a raw kept the engine's defaults for every optical
-                    // control until the user moved a slider -- and a rebate or a
-                    // date back chosen before the import never reached the render
-                    // at all.
-                    applySessionParams();
+                    // format or the rebate. The Look was snapshotted on the UI
+                    // thread, so `solve` below meters with the same values the
+                    // first preview will render.
+                    if (importParams != null) session.setParams(importParams);
 
                     // **The raw itself**, which is the "before" side of every
                     // comparison and the only honest thing to show on import:
@@ -7118,10 +7167,10 @@ public class MainActivity extends AppCompatActivity {
             showSnackbar("选择一张胶片开始渲染");
             return;
         }
-        // No `applySessionParams()` here any more: it wrote the engine from the
-        // UI thread, which could park the UI behind a long render's lock.
-        // `renderImage` applies the stock under the same lock it renders
-        // under -- one writer, one order.
+        // No UI-thread parameter write here any more: writing the engine from
+        // the UI could park it behind a long render's lock. `renderImage`
+        // snapshots the Look on the UI thread and the render thread sends it
+        // under the same lock it renders under -- one writer, one order.
         showingOriginal = false;
         setOriginalVisual(false);
         refreshFilmPanel();
@@ -7130,121 +7179,47 @@ public class MainActivity extends AppCompatActivity {
 
 
     /**
-     * The cheap half: what a slider owns.
-     *
-     * No stock, no colour space, no preview size -- those describe the file and
-     * live in `applySessionParams`. Sending them on every drag tick made the
-     * engine rebuild the pipeline once per step (the presence of `film_stock`
-     * in a delta *is* a stock change), which is what made the sliders feel
-     * dead rather than merely slow.
-     */
-    private void applyParams() {
-        if (session == null) return;
-        // Every delta, with the frame it is being sent for: the engine treats a
-        // stock change as a rebuild, and a render that follows one has to be
-        // read next to the delta that caused it.
-        try {
-            DebugSink.text("params", "render=" + rendering + " film=" + filmStock + " print=" + printStock
-                    + " overscan=" + overscanOn + " date=" + dateOn + " fmt=" + filmFormatMm);
-        } catch (Throwable ignored) { }
-        applyParams(PREVIEW_LONG_EDGE);
-    }
-
-    /**
-     * The same delta **plus the film and the paper**, for every call that is
-     * about to produce a picture.
-     *
-     * <p>This is the one thing that has to be true before `renderBegin`: the
-     * session carries the stock the user is looking at. It used to be kept by
-     * a Java-side `sessionSignature` -- a field written by the render thread
-     * and by the UI thread, compared against the engine's *assumed*
-     * state. One write out of order and the signature claimed a stock the
-     * session never got, so every film rendered the same picture while the
-     * rebate text (which the app draws from its own field) kept changing.
-     *
-     * <p>Stating the stock in the delta costs ~10 ms on the host (26 ms
-     * against 19 ms for the delta without it, measured at 900x600 with
-     * `stock_cost`); a render is two orders of magnitude more. So there is no
-     * bookkeeping left to get wrong: whoever draws, says what to draw.
-     */
-    private void applyParams(String stock, int longEdge) {
-        if (session == null || stock == null) return;
-        // The line a "every film looks the same" report needs: what this render
-        // actually told the engine, next to what the UI thinks is selected.
-        try {
-            DebugSink.text("params", "draw film=" + stock + " print=" + printStock
-                    + " render=" + rendering + " long=" + longEdge);
-        } catch (Throwable ignored) { }
-        session.setParams(restatedParams(stock, longEdge));
-    }
-
-    /**
      * The Look re-statement builder preview and export both call.
      *
-     * <p>It snapshots the live controls into a {@link Look} and hands that to
-     * {@link LookRestatement}, so every value the UI shows -- the Film stock,
-     * the Print stock, all 22 optical parameters, the camera filter, the
-     * protection norm, and every Rebate and Date back field -- is in the
-     * delta. The only facts added here are the ones a Look does not own: the
-     * source kind, the render's long edge, whether the stock is a Reversal
-     * stock, its edge print, and the Date back's imprint text.
+     * <p>It snapshots the live controls into a {@link Look} **on the calling
+     * thread** and hands that detached copy to {@link LookRestatement}, so every
+     * value the UI shows -- the Film stock, the Print stock, all 22 optical
+     * parameters, the camera filter, the protection norm, and every Rebate and
+     * Date back field -- is in the delta. The render thread only ever sends a
+     * string that was built here; it never reads a control or a Frame.
+     *
+     * <p>The only facts added here are the ones a Look does not own: the source
+     * kind, the render's long edge, whether the stock is a Reversal stock, its
+     * edge print, and the Date back's EXIF default.
      *
      * <p>The old inline format string lived only in the preview path and the
      * export re-called it with the preview's stock; a parameter that reached
      * one and not the other was invisible until a file disagreed with the
      * screen. There is now one string, built in one place.
      */
-    private String restatedParams(String stock, int longEdge) {
+    private String snapshotRestatement(String stock, int longEdge) {
         final Look look = captureLook();
         look.filmStock = stock;
+        // The typed text is on the Look; this is only the Frame's default.
         return LookRestatement.json(look, new LookRestatement.Context(
                 isRawFile,
                 longEdge,
                 isPositiveFilm(stock),
                 edgeTextFor(stock),
-                look.dateOn ? imprintDate() : ""));
+                look.dateOn ? defaultImprintDate() : ""));
     }
 
-    /** Same set, at whatever long edge the caller is rendering. A small edge
-     *  is for a cheap pass; a look that is about to be exported goes out at the
-     *  preview size. */
-    private void applyParams(int longEdge) {
-        if (session == null) return;
-        final String stock = filmStock;
-        if (stock == null) return;            // nothing chosen yet: no look
-        applyParams(stock, longEdge);
-    }
-
-    /**
-     * The half that describes the file: once per session, and after a stock
-     * change.
+    /*
+     * The file facts in that context, and why each is what it is:
      *
-     * <p>`auto_exposure` is off for everything that is not a RAW. The engine's
-     * default meter is `center_weighted`: an **arithmetic** mean of luminance
-     * under a Gaussian centred on the frame, sigma 0.2 of the long edge (see
-     * `exposure_evs_from` in the pipeline). An arithmetic mean is dominated by
-     * whatever is brightest, so a frame whose middle is open sky meters about
-     * three times mid-grey and the whole picture prints 1.7 stops down -- a
-     * user sent exactly that screenshot: bright blue sky rendered as slate,
-     * sunlit leaves rendered black.
-     *
-     * <p>A camera JPEG has already been metered once, by the camera, and that
-     * decision is what the user sees in their gallery. Metering it a second
-     * time is double-counting, and the two meters disagree by more than a stop
-     * on exactly the pictures people take: sky, backlight, snow. With the
-     * meter off the render starts from the file's own exposure, which is what
-     * "import this photo" has to mean.
-     *
-     * <p>A RAW is scene-referred and has no exposure decision baked in, so it
-     * keeps the meter. (`auto_exposure: false` makes the engine apply no EV at
-     * all -- `pipeline.cpp` returns the input untouched.)
+     * `auto_exposure` is off for everything that is not a RAW. The engine's
+     * default meter is `center_weighted`: an arithmetic mean of luminance
+     * under a Gaussian centred on the frame. An arithmetic mean is dominated
+     * by whatever is brightest, so a sky-lit frame meters about three times
+     * mid-grey and prints dark. A camera JPEG has already been metered once,
+     * by the camera; metering it again is double-counting. A RAW is
+     * scene-referred and keeps the meter.
      */
-    private void applySessionParams() {
-        if (session == null) return;
-        final String stock = filmStock;
-        if (stock == null) return;
-        applyParams(stock, PREVIEW_LONG_EDGE);
-    }
 
     private void renderImage() {
         // Every branch says something. The foot is one thin line, too quiet to
@@ -7273,6 +7248,19 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         final String renderedStock = filmStock;
+        // Snapshot the whole Look here, on the UI thread: the render thread gets
+        // one finished string and never reads a control or a Frame.
+        final String previewParams;
+        try {
+            previewParams = snapshotRestatement(renderedStock, PREVIEW_LONG_EDGE);
+            // The line a "every film looks the same" report needs: what this
+            // render is about to tell the engine, next to the UI selection.
+            DebugSink.text("params", "draw film=" + renderedStock + " print=" + printStock
+                    + " render=" + rendering + " long=" + PREVIEW_LONG_EDGE);
+        } catch (Throwable t) {
+            showErrorSnackbar("渲染参数有误", describe(t));
+            return;
+        }
         rendering = true;
         progressBar.setVisibility(View.VISIBLE);
         busyLabel.setVisibility(View.VISIBLE);
@@ -7284,9 +7272,9 @@ public class MainActivity extends AppCompatActivity {
             try {
                 synchronized (renderMutex) {
                 if (session == null) throw new RuntimeException("session closed before render");
-                // Take the film the user picked, under the same lock the render
-                // runs under, so the picture and the edge text cannot disagree.
-                applyParams(renderedStock, PREVIEW_LONG_EDGE);
+                // The finished Look snapshot, taken on the UI thread before
+                // this thread started. Under the render lock it is one writer.
+                session.setParams(previewParams);
                 int[] dims = session.renderBegin("live");
                 int w = dims[0], h = dims[1];
                 if (w <= 0 || h <= 0) throw new RuntimeException("engine returned empty frame");
@@ -7529,7 +7517,7 @@ public class MainActivity extends AppCompatActivity {
         // controls say by the time the render thread picks it up: a Frame
         // switch or a slider drag during a long export must not move the file.
         final String exportStock = filmStock;
-        final String exportParams = restatedParams(exportStock, PREVIEW_LONG_EDGE);
+        final String exportParams = snapshotRestatement(exportStock, PREVIEW_LONG_EDGE);
         final String rawExportPath = isRawFile ? (rawFilePath == null ? "" : rawFilePath) : null;
         // A bitmap export renders from the preview session; a RAW export opens
         // its own below. The render lock keeps a stock change out of either.

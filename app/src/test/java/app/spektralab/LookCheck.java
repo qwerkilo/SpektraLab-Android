@@ -19,6 +19,7 @@ public final class LookCheck {
         wireNames();
         resetOne();
         copyPreserves();
+        frameSwitchRestoresTheTypedDate();
 
         System.out.println("LookCheck: " + checks + " checks passed");
     }
@@ -60,6 +61,7 @@ public final class LookCheck {
         eq(3.5f, look.dateEv);
         eq("", look.dataText);
         eq("", look.dateTextB);
+        eq("", look.dateText);
     }
 
     /** An 1.3.x Look has none of the new fields; none of its values may move. */
@@ -106,6 +108,9 @@ public final class LookCheck {
         eq(1f, look.edgeFog);
         eq(1f, look.dateSize);
         ok(look.edgeTextOn);
+        // A 1.3.x Look has the shooting-data line but no editable imprint text;
+        // the empty default means "follow this Frame's EXIF date".
+        eq("", look.dateText);
 
         // A missing paper is the default paper, and a missing film is no film.
         final Look bare = Look.fromJson(new org.json.JSONObject());
@@ -155,6 +160,7 @@ public final class LookCheck {
         look.dateEv = 2.2f;
         look.dataText = "100 ISO \"sun\\rain\"\nsecond line";
         look.dateTextB = "2026 11 03";
+        look.dateText = "'26 11 03 · 400";
         for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
             final float value = param.defaultValue == param.max
                     ? param.min
@@ -191,6 +197,7 @@ public final class LookCheck {
         eq(look.dateEv, copy.dateEv);
         eq(look.dataText, copy.dataText);
         eq(look.dateTextB, copy.dateTextB);
+        eq(look.dateText, copy.dateText);
         for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
             eq(look.get(param), copy.get(param));
         }
@@ -266,7 +273,7 @@ public final class LookCheck {
         for (String key : new String[] {"film", "print", "mm", "overscan", "format", "date",
                 "cfilter", "snorm", "emode", "egate", "eholes", "ecarrier", "fog", "leaks",
                 "frameno", "etext", "efnum", "dplace", "dcorn", "dstyle", "dinsx", "dinsy",
-                "dsize", "dev", "dtext", "dtextb", "cseed", "fseed"}) {
+                "dsize", "dev", "dtext", "dtextb", "dtextm", "cseed", "fseed"}) {
             ok(json.has(key));
         }
         eq(OpticsDelta.Param.GLARE.defaultValue, (float) json.optDouble("glare"));
@@ -318,6 +325,32 @@ public final class LookCheck {
         copy.set(OpticsDelta.Param.GLARE, 1f);
         eq(20f, look.glareAmount);
         eq(1f, copy.glareAmount);
+    }
+
+    /**
+     * A typed Date back text belongs to the Frame it was typed on. Storing A,
+     * switching to B (whose Look has none), and coming back to A must bring the
+     * typed text back rather than the default date.
+     */
+    private static void frameSwitchRestoresTheTypedDate() {
+        final Look a = new Look();
+        a.filmStock = "kodak_portra_400";
+        a.dateOn = true;
+        a.dateText = "'26 11 03 400";
+
+        final org.json.JSONObject storedA = a.toJson();
+        final Look b = Look.fromJson(new org.json.JSONObject());
+        eq("", b.dateText);
+
+        final Look restoredA = Look.fromJson(storedA);
+        eq("'26 11 03 400", restoredA.dateText);
+        eq("", restoredA.dataText);
+        eq("", restoredA.dateTextB);
+
+        // Clearing the typed text is "follow the Frame's EXIF date", and it
+        // round-trips as an empty string, not as the previous text.
+        a.dateText = "";
+        eq("", Look.fromJson(a.toJson()).dateText);
     }
 
     private static void put(org.json.JSONObject json, String key, Object value) {

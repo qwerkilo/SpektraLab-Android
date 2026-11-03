@@ -33,8 +33,26 @@ public final class SpkError {
     private static final String IMPORT_PERMISSION =
             "照片的读取权限已失效（系统收回了文件选择器给的临时授权）。请点「导入」重新选择这张照片";
 
-    static boolean isPermissionFailure(String raw) {
+    /** The render succeeded; the gallery write did not. Not an import grant. */
+    private static final String GALLERY_WRITE =
+            "导出已经渲染完成，但写入相册被系统拒绝。请检查相册/存储权限和剩余空间，"
+            + "或换一个相册目录后再导出";
+
+    /**
+     * A MediaStore write failure can also arrive as a SecurityException, but
+     * the cure is not "re-import the photo". Identify it before the picker
+     * branch so E-1304 keeps meaning the picker's grant.
+     */
+    static boolean isMediaStoreFailure(String raw) {
         if (raw == null) return false;
+        return raw.contains("MediaStore") || raw.contains("MediaProvider")
+                || raw.contains("IS_PENDING") || raw.contains("RELATIVE_PATH")
+                || raw.contains("无法创建媒体文件") || raw.contains("无法打开输出流")
+                || raw.contains("openOutputStream");
+    }
+
+    static boolean isPermissionFailure(String raw) {
+        if (raw == null || isMediaStoreFailure(raw)) return false;
         return raw.contains("SecurityException") || raw.contains("Permission Denial")
                 || raw.contains("that is not exported") || raw.contains("not exported from UID");
     }
@@ -42,6 +60,7 @@ public final class SpkError {
     /** "[E-1001] 中文说明" plus the engine's own text, which carries the numbers. */
     public static String format(String raw) {
         if (raw == null || raw.isEmpty()) return "[E-0000] 未知错误";
+        if (isMediaStoreFailure(raw)) return "[E-1305] " + GALLERY_WRITE + "（" + raw + "）";
         if (isPermissionFailure(raw)) return "[E-1304] " + IMPORT_PERMISSION + "（" + raw + "）";
         int code = codeOf(raw);
         if (code == 0) code = 9000;
@@ -75,6 +94,7 @@ public final class SpkError {
 
     /** Short form for a status line, without the engine text. */
     public static String shortForm(String raw) {
+        if (isMediaStoreFailure(raw)) return "[E-1305] 写入相册失败，请检查存储权限";
         if (isPermissionFailure(raw)) return "[E-1304] 照片权限已失效，请重新导入";
         int code = codeOf(raw);
         if (code == 0) code = 9000;
@@ -146,6 +166,9 @@ public final class SpkError {
             case 1302: return "参数超出允许范围";
             case 1303: return "会话状态异常，请重新导入照片";
             case 1304: return IMPORT_PERMISSION;
+            // The export rendered; only the gallery write was refused. Same
+            // code family as the request errors, not the picker's grant.
+            case 1305: return GALLERY_WRITE;
             // 2xxx — the update channel
             case 2001: return "检查更新失败：网络不可用，或公告地址被当前网络拦截";
             case 2002: return "更新公告格式错误";
