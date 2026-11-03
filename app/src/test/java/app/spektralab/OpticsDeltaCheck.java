@@ -24,6 +24,8 @@ public final class OpticsDeltaCheck {
         extrema();
         parameterContract();
         choices();
+        stripSelection();
+        wireMapping();
 
         System.out.println("OpticsDeltaCheck: " + checks + " checks passed");
     }
@@ -201,6 +203,70 @@ public final class OpticsDeltaCheck {
         }
         require("unknown norm falls back to power",
                 OpticsDelta.ProtectionNorm.fromWire("nope") == OpticsDelta.ProtectionNorm.POWER);
+    }
+
+    /**
+     * The strip is a stable list of the contract's own parameters: index 0 is
+     * exposure, the last index is EDR, and an out-of-range selection lands on an
+     * end rather than crashing a chip tap.
+     */
+    private static void stripSelection() {
+        require("the strip starts on exposure",
+                OpticsDelta.paramAt(0) == OpticsDelta.Param.EXPOSURE);
+        require("a selection below the strip lands on exposure",
+                OpticsDelta.paramAt(-4) == OpticsDelta.Param.EXPOSURE);
+        require("the strip keeps the contract order at index 7",
+                OpticsDelta.paramAt(7) == OpticsDelta.Param.GLARE);
+        require("the strip ends on EDR", OpticsDelta.paramAt(21) == OpticsDelta.Param.EDR_ON);
+        require("a selection beyond the strip lands on EDR",
+                OpticsDelta.paramAt(200) == OpticsDelta.Param.EDR_ON);
+        for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
+            require(param.name() + " round-trips through its strip index",
+                    OpticsDelta.paramAt(OpticsDelta.indexOf(param)) == param);
+        }
+
+        // Material Slider rejects a step that does not divide the range; the
+        // contract is also what the strip's range announcement means.
+        for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
+            final double steps = (param.max - param.min) / (double) param.step;
+            require(param.name() + " step divides its range",
+                    Math.abs(steps - Math.round(steps)) < 0.001);
+            require(param.name() + " default lands on a slider tick",
+                    param.snap(param.defaultValue) == param.defaultValue);
+            require(param.name() + " snaps an out-of-range value to its cap",
+                    param.snap(param.max + 50f) == param.max);
+            require(param.name() + " snaps a low value into its range",
+                    param.snap(param.min - 50f) == param.min);
+            final float offGrid = param.min + 3.5f * param.step;
+            final float snapped = param.snap(offGrid);
+            final double ticks = (snapped - param.min) / (double) param.step;
+            require(param.name() + " snaps a between-step value onto a tick",
+                    Math.abs(ticks - Math.round(ticks)) < 0.001);
+        }
+        require("a glare above the M3 cap lands on the cap",
+                OpticsDelta.Param.GLARE.snap(20f) == 12f);
+        require("a switch between 0 and 1 lands on 1",
+                OpticsDelta.Param.HALATION_ON.snap(0.7f) == 1f);
+    }
+
+    /** The two wire values whose UI meaning is not the engine's own number. */
+    private static void wireMapping() {
+        require("no highlight protection leaves the stage off",
+                OpticsDelta.highlightRoomWire(0f) == 0f);
+        require("the tightest protection is the 0.5-stop room floor",
+                Math.abs(OpticsDelta.highlightRoomWire(3f) - 0.5f) < 0.0001f);
+        require("half protection is half the room",
+                Math.abs(OpticsDelta.highlightRoomWire(1.5f) - 1.75f) < 0.0001f);
+        require("protection above the contract clamps to the floor",
+                Math.abs(OpticsDelta.highlightRoomWire(9f) - 0.5f) < 0.0001f);
+        require("the stage is off with both rooms at zero",
+                !OpticsDelta.sceneLatitudeActive(0f, 0f));
+        require("rounding noise does not switch the stage on",
+                !OpticsDelta.sceneLatitudeActive(0.01f, 0f));
+        require("a visible highlight room switches the stage on",
+                OpticsDelta.sceneLatitudeActive(0.02f, 0f));
+        require("a visible shadow room switches the stage on",
+                OpticsDelta.sceneLatitudeActive(0f, 0.02f));
     }
 
     private static void require(String message, boolean ok) {

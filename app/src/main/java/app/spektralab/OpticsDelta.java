@@ -93,6 +93,18 @@ public final class OpticsDelta {
         public float clamp(float value) {
             return Math.max(min, Math.min(max, value));
         }
+
+        /**
+         * The nearest value the slider may legally hold: clamped to the range
+         * and snapped to the step. A Look value outside the range or between
+         * steps is still shown as it is, but the thumb has to land on a tick or
+         * Material Slider refuses to lay out.
+         */
+        public float snap(float value) {
+            final float clamped = clamp(value);
+            final float ticks = Math.round((clamped - min) / step);
+            return Math.max(min, Math.min(max, min + ticks * step));
+        }
     }
 
     /** The Wratten filters the engine carries, plus the taking lens unfiltered. */
@@ -153,6 +165,36 @@ public final class OpticsDelta {
             }
             return POWER;
         }
+    }
+
+    /** The parameter at a strip index; an out-of-range tap lands on an end. */
+    public static Param paramAt(int index) {
+        final Param[] all = Param.values();
+        return all[Math.max(0, Math.min(all.length - 1, index))];
+    }
+
+    /** The strip index of a parameter, in the contract's own order. */
+    public static int indexOf(Param param) {
+        return param == null ? 0 : param.ordinal();
+    }
+
+    /**
+     * The engine's `scene_latitude_highlight_room` for a protection slider
+     * value. The slider says "how much protection", the engine field says "how
+     * many stops of headroom are left"; bigger room is less compression, so the
+     * two run opposite ways. Zero turns the stage off; 3 is the tightest room
+     * (0.5 stop) the curvature floor permits.
+     */
+    public static float highlightRoomWire(float protection) {
+        if (protection <= 0.01f) return 0f;
+        final float clamped = Math.max(0f, Math.min(3f, protection));
+        return 3.0f - (clamped / 3.0f) * 2.5f;
+    }
+
+    /** True when either protection side asks the engine for the stage at all. */
+    public static boolean sceneLatitudeActive(float highlightProtection,
+                                              float shadowProtection) {
+        return highlightProtection > 0.01f || shadowProtection > 0.01f;
     }
 
     /**

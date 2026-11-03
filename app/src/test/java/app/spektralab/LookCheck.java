@@ -16,6 +16,8 @@ public final class LookCheck {
         oldJson();
         roundTrip();
         wireNames();
+        resetOne();
+        copyPreserves();
 
         System.out.println("LookCheck: " + checks + " checks passed");
     }
@@ -210,6 +212,52 @@ public final class LookCheck {
         eq(OpticsDelta.Param.GLARE.defaultValue, (float) json.optDouble("glare"));
         eq(OpticsDelta.CameraFilter.NONE.wire, json.optString("cfilter"));
         eq(OpticsDelta.ProtectionNorm.POWER.wire, json.optString("snorm"));
+    }
+
+    /** Reset is per parameter: the other twenty-one values stay where they are. */
+    private static void resetOne() {
+        final Look look = new Look();
+        look.set(OpticsDelta.Param.GLARE, 6f);
+        look.set(OpticsDelta.Param.EXPOSURE, 2f);
+        look.set(OpticsDelta.Param.GRAIN, 0.25f);
+
+        look.reset(OpticsDelta.Param.GLARE);
+        eq(OpticsDelta.Param.GLARE.defaultValue, look.get(OpticsDelta.Param.GLARE));
+        eq(2f, look.get(OpticsDelta.Param.EXPOSURE));
+        eq(0.25f, look.get(OpticsDelta.Param.GRAIN));
+
+        // Already at the default: resetting again changes nothing.
+        look.reset(OpticsDelta.Param.GLARE);
+        eq(OpticsDelta.Param.GLARE.defaultValue, look.get(OpticsDelta.Param.GLARE));
+
+        look.reset(OpticsDelta.Param.EXPOSURE);
+        eq(OpticsDelta.Param.EXPOSURE.defaultValue, look.get(OpticsDelta.Param.EXPOSURE));
+        eq(0.25f, look.get(OpticsDelta.Param.GRAIN));
+    }
+
+    /**
+     * A capture copies a Look without normalising it: the glare above the M3
+     * slider cap and every field the optics page does not edit travel as they
+     * are, and the copy is detached from the source.
+     */
+    private static void copyPreserves() {
+        final Look look = Look.fromJson(new org.json.JSONObject());
+        look.filmStock = "kodak_portra_400";
+        look.glareAmount = 20f;
+        look.edgeMode = "filed";
+        look.edgeFog = 2.5f;
+        look.datePlacement = "rebate";
+
+        final Look copy = look.copy();
+        eq(20f, copy.glareAmount);
+        eq("kodak_portra_400", copy.filmStock);
+        eq("filed", copy.edgeMode);
+        eq(2.5f, copy.edgeFog);
+        eq("rebate", copy.datePlacement);
+
+        copy.set(OpticsDelta.Param.GLARE, 1f);
+        eq(20f, look.glareAmount);
+        eq(1f, copy.glareAmount);
     }
 
     private static void put(org.json.JSONObject json, String key, Object value) {
