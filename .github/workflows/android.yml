@@ -46,21 +46,43 @@ jobs:
           Invoke-WebRequest -Uri 'https://github.com/SAINTTaiYi/SpektraLab-Android/releases/download/v1.4.0/SpektraLab-1.4.0-arm64-v8a.apk' -OutFile $base
           Add-Content -Path $env:GITHUB_ENV -Value "BASE_APK=$base" -Encoding utf8
 
-      - name: Signing key for CI
+      - name: Release or CI signing key
         shell: pwsh
+        env:
+          KEYSTORE_B64: ${{ secrets.SPK_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.SPK_KS_PASS }}
+          KEY_PASS: ${{ secrets.SPK_KEY_PASS }}
+          KEY_ALIAS: ${{ secrets.SPK_KEY_ALIAS }}
         run: |
-          $ks = Join-Path $env:RUNNER_TEMP 'ci.jks'
-          & keytool -genkeypair -keystore $ks -storepass android -keypass android `
-            -alias ci -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=SpektraLab CI'
-          Add-Content -Path $env:GITHUB_ENV -Value "SPK_KEYSTORE=$ks" -Encoding utf8
-          Add-Content -Path $env:GITHUB_ENV -Value "SPK_KS_PASS=android" -Encoding utf8
-          Add-Content -Path $env:GITHUB_ENV -Value "SPK_KEY_PASS=android" -Encoding utf8
-          Add-Content -Path $env:GITHUB_ENV -Value "SPK_KEY_ALIAS=ci" -Encoding utf8
+          if ($env:KEYSTORE_B64) {
+            $ks = Join-Path $env:RUNNER_TEMP 'release.jks'
+            [IO.File]::WriteAllBytes($ks, [Convert]::FromBase64String($env:KEYSTORE_B64))
+            Add-Content -Path $env:GITHUB_ENV -Value "SPK_KEYSTORE=$ks" -Encoding utf8
+            Add-Content -Path $env:GITHUB_ENV -Value "SPK_KS_PASS=$env:KS_PASS" -Encoding utf8
+            Add-Content -Path $env:GITHUB_ENV -Value "SPK_KEY_PASS=$env:KEY_PASS" -Encoding utf8
+            Add-Content -Path $env:GITHUB_ENV -Value "SPK_KEY_ALIAS=$env:KEY_ALIAS" -Encoding utf8
+            Write-Host 'Using the repository release keystore.'
+          } else {
+            $ks = Join-Path $env:RUNNER_TEMP 'ci.jks'
+            & keytool -genkeypair -keystore $ks -storepass android -keypass android `
+              -alias ci -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=SpektraLab CI'
+            Add-Content -Path $env:GITHUB_ENV -Value "SPK_KEYSTORE=$ks" -Encoding utf8
+            Add-Content -Path $env:GITHUB_ENV -Value "SPK_KS_PASS=android" -Encoding utf8
+            Add-Content -Path $env:GITHUB_ENV -Value "SPK_KEY_PASS=android" -Encoding utf8
+            Add-Content -Path $env:GITHUB_ENV -Value "SPK_KEY_ALIAS=ci" -Encoding utf8
+            Write-Host 'No release keystore secret; using a CI-only key.'
+          }
 
       - name: Assemble and gate the 16 KB APK
         shell: pwsh
         run: |
           .\gradlew.bat align16k "-PbaseApk=$env:BASE_APK" --no-daemon
+
+      - name: Verify the APK signature
+        shell: pwsh
+        run: |
+          & "$env:ANDROID_HOME\build-tools\36.0.0\apksigner.bat" verify --print-certs `
+            app/build/outputs/apk/debug/app-debug-16k-signed.apk
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
