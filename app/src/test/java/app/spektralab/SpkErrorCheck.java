@@ -81,6 +81,8 @@ public final class SpkErrorCheck {
         }
         ok(jni.contains("spk_engine_create failed: %s"));
         ok(jni.contains("spk_last_error(nullptr)"));
+        ok(jni.contains("throw_runtime(env, \"%s\", msg)"));
+        ok(!jni.contains("throw_runtime(env, msg)"));
         ok(jni.contains("if (cw <= long(r.width) && ch <= long(r.height))"));
         ok(jni.contains("geometry: cropped to the canvas"));
         ok(!jni.contains("geometry: trimmed to the canvas"));

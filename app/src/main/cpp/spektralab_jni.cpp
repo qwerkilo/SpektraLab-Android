@@ -55,7 +55,7 @@ static void throw_status(JNIEnv* env, spk_status st) {
     char msg[512];
     const char* detail = spk_last_error(nullptr);
     snprintf(msg, sizeof(msg), "spektralab: %s", detail ? detail : "unknown error");
-    throw_runtime(env, msg);
+    throw_runtime(env, "%s", msg);
 }
 
 JNI(void, nativeSetEnv)(JNIEnv* env, jclass, jstring name, jstring value) {
@@ -141,7 +141,7 @@ JNI(jlong, nativeOpenSession)(JNIEnv* env, jclass, jlong engineHandle,
     if (capacity < needed) {
         char msg[128]; snprintf(msg, sizeof(msg), "buffer too small: %lld < %lld",
             (long long)capacity, (long long)needed);
-        throw_runtime(env, msg); return 0;
+        throw_runtime(env, "%s", msg); return 0;
     }
     spk_image img;
     img.data = static_cast<const float*>(data);
@@ -158,7 +158,7 @@ JNI(jlong, nativeOpenSession)(JNIEnv* env, jclass, jlong engineHandle,
         // matched nothing. The engine always has a reason here.
         char msg[512];
         std::snprintf(msg, sizeof msg, "spk_open failed: %s", spk_last_error(engine));
-        throw_runtime(env, msg);
+        throw_runtime(env, "%s", msg);
         return 0;
     }
     return reinterpret_cast<jlong>(session);
@@ -238,7 +238,7 @@ JNI(jdouble, nativeRenderToBuffer)(JNIEnv* env, jclass, jlong sessionHandle,
         char msg[128]; snprintf(msg, sizeof(msg), "output buffer too small: %lld < %lld",
             (long long)capacity, (long long)needed);
         env->ReleaseStringUTFChars(tier, tierStr);
-        throw_runtime(env, msg); return -1;
+        throw_runtime(env, "%s", msg); return -1;
     }
 
     spk_result result{};
@@ -330,7 +330,7 @@ JNI(jintArray, nativeRenderBegin)(JNIEnv* env, jclass, jlong sessionHandle, jstr
     if (st != SPK_OK) {
         char msg[512];
         std::snprintf(msg, sizeof msg, "spk_render failed (%d): %s", (int)st, spk_last_error(session ? nullptr : nullptr));
-        throw_runtime(env, msg);
+        throw_runtime(env, "%s", msg);
         return nullptr;
     }
     if (!g_result.rgba16 || g_result.width == 0 || g_result.height == 0) {
@@ -370,7 +370,7 @@ JNI(jintArray, nativeExportSource)(JNIEnv* env, jclass, jlong sessionHandle, jst
         char msg[512];
         std::snprintf(msg, sizeof msg, "spk_export_source failed (%d): %s",
                       (int)st, spk_last_error(nullptr));
-        throw_runtime(env, msg);
+        throw_runtime(env, "%s", msg);
         return nullptr;
     }
     if (!g_result.rgba16 || g_result.width == 0 || g_result.height == 0) {
@@ -638,7 +638,7 @@ JNI(jintArray, nativeExportJpeg)(JNIEnv* env, jclass, jlong sessionHandle,
         char msg[256];
         std::snprintf(msg, sizeof msg, "full render failed (%d): %s", int(st),
                       spk_last_error(nullptr) ? spk_last_error(nullptr) : "unknown");
-        throw_runtime(env, msg);
+        throw_runtime(env, "%s", msg);
         return nullptr;
     }
     trim_to_canvas(session, result, progPath);
@@ -696,7 +696,7 @@ JNI(jintArray, nativeExportTiff)(JNIEnv* env, jclass, jlong sessionHandle, jstri
         char msg[256];
         std::snprintf(msg, sizeof msg, "full render failed (%d): %s", int(st),
                       spk_last_error(nullptr) ? spk_last_error(nullptr) : "unknown");
-        throw_runtime(env, msg);
+        throw_runtime(env, "%s", msg);
         return nullptr;
     }
     trim_to_canvas(session, result, progPath);
@@ -715,7 +715,7 @@ JNI(jintArray, nativeExportTiff)(JNIEnv* env, jclass, jlong sessionHandle, jstri
     spk_result_free(&result);
     if (!ok) {
         prog_line(progPath, "tiff-failed %s", error.c_str());
-        throw_runtime(env, error.c_str());
+        throw_runtime(env, "%s", error.c_str());
         return nullptr;
     }
     prog_line(progPath, "done total_ms=%.0f", total_ms);
@@ -759,7 +759,7 @@ JNI(jintArray, nativeExportDng)(JNIEnv* env, jclass, jlong sessionHandle, jstrin
         char msg[256];
         std::snprintf(msg, sizeof msg, "full render failed (%d): %s", int(st),
                       spk_last_error(nullptr) ? spk_last_error(nullptr) : "unknown");
-        throw_runtime(env, msg);
+        throw_runtime(env, "%s", msg);
         return nullptr;
     }
     trim_to_canvas(session, result, progPath);
@@ -777,7 +777,7 @@ JNI(jintArray, nativeExportDng)(JNIEnv* env, jclass, jlong sessionHandle, jstrin
     spk_result_free(&result);
     if (!ok) {
         prog_line(progPath, "dng-failed %s", error.c_str());
-        throw_runtime(env, error.c_str());
+        throw_runtime(env, "%s", error.c_str());
         return nullptr;
     }
     prog_line(progPath, "done total_ms=%.0f", total_ms);
