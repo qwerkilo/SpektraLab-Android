@@ -8,11 +8,13 @@ before packaging; a policy regression fails the build, not the device.
 """
 
 from pathlib import Path
+import re
 import sys
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "app" / "src" / "main" / "AndroidManifest.xml"
+GRADLE = ROOT / "app" / "build.gradle"
 NETWORK = ROOT / "app" / "src" / "main" / "res" / "xml" / "network_security_config.xml"
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 
@@ -47,6 +49,12 @@ def main():
     if sdk is not None:
         check("minSdk 24", attr(sdk, "minSdkVersion") == "24", attr(sdk, "minSdkVersion", "?"))
         check("targetSdk 36", attr(sdk, "targetSdkVersion") == "36", attr(sdk, "targetSdkVersion", "?"))
+    # The built APK follows Gradle, not this XML; keep both declarations equal
+    # so the source cannot silently disagree with the shipped target.
+    gradle = GRADLE.read_text(encoding="utf-8")
+    check("Gradle minSdk 24", re.search(r"\bminSdk\s+24\b", gradle) is not None)
+    check("Gradle targetSdk 36", re.search(r"\btargetSdk\s+36\b", gradle) is not None)
+    check("Gradle compileSdk 36", re.search(r"\bcompileSdk\s+36\b", gradle) is not None)
 
     permissions = {}
     for node in root.findall("uses-permission"):

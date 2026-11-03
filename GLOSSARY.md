@@ -50,6 +50,14 @@ _Avoid_: Slide film, positive, transparency, chrome
 The stage used for a Reversal film: the developed film is scanned instead of printed, so the Print stock does not affect the result.
 _Avoid_: Scan mode, no-paper, film scan
 
+**Camera filter**:
+A Wratten filter in front of the taking lens. It is not the enlarger's dichroic filter pack, which belongs to the print stage.
+_Avoid_: Lens filter, colour filter
+
+**Protection norm**:
+The scene measurement used by highlight and shadow protection: power, luminance, or peak. It changes how protection is calculated, not how much is asked for.
+_Avoid_: Exposure mode, metering mode
+
 **Print stock**:
 The paper chosen for a Look.
 _Avoid_: Paper, print, profile
@@ -121,6 +129,22 @@ _Avoid_: Eyedropper, picker, probe
 **Δ (delta)**:
 The signed difference between an optics value and that panel's default. It is display-only.
 _Avoid_: Offset, diff
+
+**Parameter strip**:
+The horizontal row of M3 chips in the Optics workspace. It selects the active optical parameter; it does not itself change a value.
+_Avoid_: Knob strip, slider list
+
+**Active parameter**:
+The one optical parameter currently bound to the Optics slider. It is a UI selection, not part of a Look.
+_Avoid_: Selected knob, current control
+
+**Secondary page**:
+A page inside the Edge workspace for Rebate or Date back, opened from one of the two Edge cards and dismissed with Back. It carries its own on/off switch.
+_Avoid_: Subscreen, dialog, nested panel
+
+**Look re-statement**:
+Sending the complete Look, including the Film stock and every parameter, to the engine for an export instead of relying on defaults left by an earlier render.
+_Avoid_: Full params, export sync
 
 **Theme mode**:
 The light or dark presentation setting. It is saved as a preference and is not part of a Look.

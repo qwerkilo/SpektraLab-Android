@@ -46,6 +46,7 @@ apksigner sign --ks "$ROOT/debug.keystore" --ks-pass pass:android --key-pass pas
 # the build log: the .so is present, its DT_NEEDED just names a file the APK
 # does not carry. Check the closure before the file is allowed to leave.
 python3 "$ROOT/app/build/check-libs.py" "$STAGE/lib/arm64-v8a"
+python3 "$ROOT/app/build/check-apk.py" "$TMP"
 cp "$TMP" /sdcard/Download/SpektraLab-dev.apk
 python3 - <<'PY'
 import zipfile

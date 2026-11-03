@@ -52,6 +52,7 @@ def main():
                 "balance": "daylight",
                 "description": "A fixture description.",
                 "antihalation": "strong",
+                "target_print": "fixture_paper",
                 "nested": {"dropped": True},
             },
             "data": {
@@ -123,6 +124,33 @@ def main():
                 "iso": 100,
             },
         })
+        write_profile(profiles, "cinestill_800t.json", {
+            "info": {
+                "stock": "cinestill_800t",
+                "name": "CineStill 800T",
+                "type": "negative",
+                "stage": "filming",
+            },
+            "data": {
+                "wavelengths": [380, 385, 390],
+                "channel_density": [[1.0, 2.0, 3.0], [2.0, 3.0, 4.0],
+                                    [3.0, 4.0, 5.0]],
+            },
+        })
+        write_profile(profiles, "kodak_vision3_500t.json", {
+            "info": {
+                "stock": "kodak_vision3_500t",
+                "name": "Kodak Vision3 500T",
+                "type": "negative",
+                "stage": "filming",
+                "target_print": "kodak_portra_endura",
+            },
+            "data": {
+                "wavelengths": [380, 385, 390],
+                "log_sensitivity": [[1.0, 2.0, 3.0], [2.0, 3.0, 4.0],
+                                    [3.0, 4.0, 5.0]],
+            },
+        })
 
         result = subprocess.run(
             [sys.executable, GENERATOR, "--profiles", profiles, "--out", out],
@@ -177,6 +205,31 @@ def main():
         assert len(papers) == 1, "the printing profile did not land in prints"
         assert papers[0]["iso"] == 100, "print info is not preserved"
         assert "wavelengths" not in papers[0], "prints should not carry film spectra"
+
+        # `targetPrint` is the paper a film declares it prints on. It comes
+        # from the profile when it is there, and the CineStill/Vision3 alias
+        # fallback when it is not; the real spectral series must survive.
+        assert log["target_print"] == "fixture_paper", "the profile target is not preserved"
+        assert log["targetPrint"] == "fixture_paper", "the profile target did not become targetPrint"
+        assert log["spectral_source"] == "log_sensitivity", "targetPrint dropped the series"
+        assert log["log_sensitivity"] is not None, "targetPrint nulled the film spectrum"
+
+        cinestill = record(catalog, "cinestill_800t")
+        assert cinestill["targetPrint"] == "kodak_2383", \
+            "the CineStill alias should fall back to 2383"
+        assert cinestill["spectral_source"] == "channel_density", \
+            "the CineStill spectral series was dropped"
+        assert cinestill["channel_density"][0] == [1.0, 2.0, 3.0], \
+            "the CineStill spectral data changed"
+
+        vision = record(catalog, "kodak_vision3_500t")
+        assert vision["targetPrint"] == "kodak_portra_endura", \
+            "an explicit profile target must win over the alias fallback"
+        assert vision["spectral_source"] == "log_sensitivity", \
+            "the Vision3 spectral series was dropped"
+
+        assert "targetPrint" not in nodata, "targetPrint was invented for a no-data stock"
+        assert "targetPrint" not in papers[0], "prints should not gain a film target"
 
     print("gen-stock-catalog test: fixture checks passed")
     return 0

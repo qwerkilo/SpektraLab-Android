@@ -4,6 +4,11 @@ package app.spektralab;
  * Pure JVM contract for the optics rows' display-only Δ: each row measures
  * against its own panel default, prints a sign and two decimals, and shows a
  * plain zero when the value is at the default.
+ *
+ * <p>It also pins the parameter contract the strip, the slider, the Look JSON,
+ * and the reset all read: stable wire ids, labels, glyphs, real ranges, units,
+ * steps, and defaults for all 22 engine parameters, plus the camera filter and
+ * protection norm choices.
  */
 public final class OpticsDeltaCheck {
     private static int checks = 0;
@@ -17,6 +22,10 @@ public final class OpticsDeltaCheck {
         signedText();
         rounding();
         extrema();
+        parameterContract();
+        choices();
+        stripSelection();
+        wireMapping();
 
         System.out.println("OpticsDeltaCheck: " + checks + " checks passed");
     }
@@ -49,7 +58,6 @@ public final class OpticsDeltaCheck {
         require("glare range is 0.00 to 12.00",
                 OpticsDelta.Param.GLARE.min == 0.0f
                         && OpticsDelta.Param.GLARE.max == 12.0f);
-        require("four optics parameters", OpticsDelta.Param.values().length == 4);
         require("exposure announces EV", "EV".equals(OpticsDelta.Param.EXPOSURE.unit));
         require("grain announces the multiplier sign",
                 "\u00d7".equals(OpticsDelta.Param.GRAIN.unit));
@@ -130,6 +138,135 @@ public final class OpticsDeltaCheck {
                 "+3.00".equals(OpticsDelta.text(4.0f, OpticsDelta.EXPOSURE_DEFAULT)));
         require("glare off is a full negative delta",
                 "-3.00".equals(OpticsDelta.text(0.0f, OpticsDelta.GLARE_DEFAULT)));
+    }
+
+    /** Every parameter the engine exposes, in the order the strip presents. */
+    private static final String[] WIRES = {
+            "exp", "highlight", "shadow", "grain", "halation", "boost", "scatter",
+            "glare", "lens", "yf", "mf", "fscale", "preflash", "rolloff", "lift",
+            "halon", "ahrem", "grainon", "coupon", "scw", "scb", "edr"};
+
+    private static void parameterContract() {
+        final OpticsDelta.Param[] params = OpticsDelta.Param.values();
+        require("twenty-two optical parameters", params.length == 22);
+        require("the wire ids are the engine's parameter names", params.length == WIRES.length);
+        for (int i = 0; i < params.length; ++i) {
+            final OpticsDelta.Param p = params[i];
+            require("param " + i + " keeps its stable wire id", WIRES[i].equals(p.wire));
+            require(p.name() + " has a label", p.label != null && !p.label.isEmpty());
+            require(p.name() + " has a glyph", p.glyph != null && !p.glyph.isEmpty());
+            require(p.name() + " has a unit", p.unit != null && !p.unit.isEmpty());
+            require(p.name() + " has a positive step", p.step > 0f);
+            require(p.name() + " has a real range", p.min < p.max);
+            require(p.name() + " clamps below", p.clamp(p.min - 1f) == p.min);
+            require(p.name() + " clamps above", p.clamp(p.max + 1f) == p.max);
+            require(p.name() + " keeps the default", p.clamp(p.defaultValue) == p.defaultValue);
+            require(p.name() + " resets to its default",
+                    p.isDefault(p.defaultValue) && !p.isDefault(p.max == p.defaultValue
+                            ? p.min : p.max));
+            for (int j = i + 1; j < params.length; ++j) {
+                require(p.name() + " wire is unique", !p.wire.equals(params[j].wire));
+            }
+        }
+        require("highlight room range", OpticsDelta.Param.HIGHLIGHT_ROOM.min == 0f
+                && OpticsDelta.Param.HIGHLIGHT_ROOM.max == 3f);
+        require("lens blur is in micrometres", "µm".equals(OpticsDelta.Param.LENS_BLUR.unit)
+                && OpticsDelta.Param.LENS_BLUR.max == 200f);
+        require("filter shifts are signed", OpticsDelta.Param.Y_FILTER.min == -1f
+                && OpticsDelta.Param.Y_FILTER.max == 1f);
+    }
+
+    private static void choices() {
+        require("eight Wratten filters plus none",
+                OpticsDelta.CameraFilter.values().length == 9);
+        require("the default camera filter is none",
+                OpticsDelta.CameraFilter.NONE.wire.isEmpty());
+        for (OpticsDelta.CameraFilter filter : OpticsDelta.CameraFilter.values()) {
+            require("filter " + filter.name() + " has a label",
+                    filter.label != null && !filter.label.isEmpty());
+        }
+        for (String wire : new String[] {"w8", "w11", "w12", "w15", "w21", "w25", "w47", "w58"}) {
+            require("filter " + wire + " is present",
+                    OpticsDelta.CameraFilter.fromWire(wire) != OpticsDelta.CameraFilter.NONE);
+        }
+        require("unknown filter falls back to none",
+                OpticsDelta.CameraFilter.fromWire("nope") == OpticsDelta.CameraFilter.NONE);
+
+        require("three protection norms", OpticsDelta.ProtectionNorm.values().length == 3);
+        require("the default norm is power",
+                OpticsDelta.ProtectionNorm.POWER.wire.equals("power"));
+        for (OpticsDelta.ProtectionNorm norm : OpticsDelta.ProtectionNorm.values()) {
+            require("norm " + norm.name() + " has a label",
+                    norm.label != null && !norm.label.isEmpty());
+            require("norm " + norm.name() + " round-trips",
+                    OpticsDelta.ProtectionNorm.fromWire(norm.wire) == norm);
+        }
+        require("unknown norm falls back to power",
+                OpticsDelta.ProtectionNorm.fromWire("nope") == OpticsDelta.ProtectionNorm.POWER);
+    }
+
+    /**
+     * The strip is a stable list of the contract's own parameters: index 0 is
+     * exposure, the last index is EDR, and an out-of-range selection lands on an
+     * end rather than crashing a chip tap.
+     */
+    private static void stripSelection() {
+        require("the strip starts on exposure",
+                OpticsDelta.paramAt(0) == OpticsDelta.Param.EXPOSURE);
+        require("a selection below the strip lands on exposure",
+                OpticsDelta.paramAt(-4) == OpticsDelta.Param.EXPOSURE);
+        require("the strip keeps the contract order at index 7",
+                OpticsDelta.paramAt(7) == OpticsDelta.Param.GLARE);
+        require("the strip ends on EDR", OpticsDelta.paramAt(21) == OpticsDelta.Param.EDR_ON);
+        require("a selection beyond the strip lands on EDR",
+                OpticsDelta.paramAt(200) == OpticsDelta.Param.EDR_ON);
+        for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
+            require(param.name() + " round-trips through its strip index",
+                    OpticsDelta.paramAt(OpticsDelta.indexOf(param)) == param);
+        }
+
+        // Material Slider rejects a step that does not divide the range; the
+        // contract is also what the strip's range announcement means.
+        for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
+            final double steps = (param.max - param.min) / (double) param.step;
+            require(param.name() + " step divides its range",
+                    Math.abs(steps - Math.round(steps)) < 0.001);
+            require(param.name() + " default lands on a slider tick",
+                    param.snap(param.defaultValue) == param.defaultValue);
+            require(param.name() + " snaps an out-of-range value to its cap",
+                    param.snap(param.max + 50f) == param.max);
+            require(param.name() + " snaps a low value into its range",
+                    param.snap(param.min - 50f) == param.min);
+            final float offGrid = param.min + 3.5f * param.step;
+            final float snapped = param.snap(offGrid);
+            final double ticks = (snapped - param.min) / (double) param.step;
+            require(param.name() + " snaps a between-step value onto a tick",
+                    Math.abs(ticks - Math.round(ticks)) < 0.001);
+        }
+        require("a glare above the M3 cap lands on the cap",
+                OpticsDelta.Param.GLARE.snap(20f) == 12f);
+        require("a switch between 0 and 1 lands on 1",
+                OpticsDelta.Param.HALATION_ON.snap(0.7f) == 1f);
+    }
+
+    /** The two wire values whose UI meaning is not the engine's own number. */
+    private static void wireMapping() {
+        require("no highlight protection leaves the stage off",
+                OpticsDelta.highlightRoomWire(0f) == 0f);
+        require("the tightest protection is the 0.5-stop room floor",
+                Math.abs(OpticsDelta.highlightRoomWire(3f) - 0.5f) < 0.0001f);
+        require("half protection is half the room",
+                Math.abs(OpticsDelta.highlightRoomWire(1.5f) - 1.75f) < 0.0001f);
+        require("protection above the contract clamps to the floor",
+                Math.abs(OpticsDelta.highlightRoomWire(9f) - 0.5f) < 0.0001f);
+        require("the stage is off with both rooms at zero",
+                !OpticsDelta.sceneLatitudeActive(0f, 0f));
+        require("rounding noise does not switch the stage on",
+                !OpticsDelta.sceneLatitudeActive(0.01f, 0f));
+        require("a visible highlight room switches the stage on",
+                OpticsDelta.sceneLatitudeActive(0.02f, 0f));
+        require("a visible shadow room switches the stage on",
+                OpticsDelta.sceneLatitudeActive(0f, 0.02f));
     }
 
     private static void require(String message, boolean ok) {

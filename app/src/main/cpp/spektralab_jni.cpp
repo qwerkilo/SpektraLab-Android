@@ -39,10 +39,15 @@ static std::string g_resources_dir;
 #define LOGE(...) fprintf(stderr, __VA_ARGS__)
 #endif
 
-static void throw_runtime(JNIEnv* env, const char* msg) {
+static void throw_runtime(JNIEnv* env, const char* format, ...) {
     if (env->ExceptionCheck()) return;
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    std::vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
     jclass cls = env->FindClass("java/lang/RuntimeException");
-    if (cls) { env->ThrowNew(cls, msg); env->DeleteLocalRef(cls); }
+    if (cls) { env->ThrowNew(cls, buffer); env->DeleteLocalRef(cls); }
 }
 
 static void throw_status(JNIEnv* env, spk_status st) {
@@ -50,7 +55,7 @@ static void throw_status(JNIEnv* env, spk_status st) {
     char msg[512];
     const char* detail = spk_last_error(nullptr);
     snprintf(msg, sizeof(msg), "spektralab: %s", detail ? detail : "unknown error");
-    throw_runtime(env, msg);
+    throw_runtime(env, "%s", msg);
 }
 
 JNI(void, nativeSetEnv)(JNIEnv* env, jclass, jstring name, jstring value) {
@@ -107,7 +112,16 @@ JNI(jlong, nativeCreateEngine)(JNIEnv* env, jclass, jstring resourcesDir) {
     // in rather than let the reader guess.
     g_resources_dir = dir;
     env->ReleaseStringUTFChars(resourcesDir, dir);
-    if (!engine) { throw_runtime(env, "spk_engine_create failed"); return 0; }
+    if (!engine) {
+        // `spk_last_error` ignores its handle: the slot is per-thread, and the
+        // engine is exactly what does not exist here. Without this the app has
+        // nothing but "failed" to show, which is how every driver problem
+        // became an E-9000.
+        const char* why = spk_last_error(nullptr);
+        throw_runtime(env, "spk_engine_create failed: %s",
+                      (why && *why) ? why : "no reason reported");
+        return 0;
+    }
     return reinterpret_cast<jlong>(engine);
 }
 
@@ -127,7 +141,7 @@ JNI(jlong, nativeOpenSession)(JNIEnv* env, jclass, jlong engineHandle,
     if (capacity < needed) {
         char msg[128]; snprintf(msg, sizeof(msg), "buffer too small: %lld < %lld",
             (long long)capacity, (long long)needed);
-        throw_runtime(env, msg); return 0;
+        throw_runtime(env, "%s", msg); return 0;
     }
     spk_image img;
     img.data = static_cast<const float*>(data);
@@ -144,7 +158,7 @@ JNI(jlong, nativeOpenSession)(JNIEnv* env, jclass, jlong engineHandle,
         // matched nothing. The engine always has a reason here.
         char msg[512];
         std::snprintf(msg, sizeof msg, "spk_open failed: %s", spk_last_error(engine));
-        throw_runtime(env, msg);
+        throw_runtime(env, "%s", msg);
         return 0;
     }
     return reinterpret_cast<jlong>(session);
@@ -224,7 +238,7 @@ JNI(jdouble, nativeRenderToBuffer)(JNIEnv* env, jclass, jlong sessionHandle,
         char msg[128]; snprintf(msg, sizeof(msg), "output buffer too small: %lld < %lld",
             (long long)capacity, (long long)needed);
         env->ReleaseStringUTFChars(tier, tierStr);
-        throw_runtime(env, msg); return -1;
+        throw_runtime(env, "%s", msg); return -1;
     }
 
     spk_result result{};
@@ -316,7 +330,7 @@ JNI(jintArray, nativeRenderBegin)(JNIEnv* env, jclass, jlong sessionHandle, jstr
     if (st != SPK_OK) {
         char msg[512];
         std::snprintf(msg, sizeof msg, "spk_render failed (%d): %s", (int)st, spk_last_error(session ? nullptr : nullptr));
-        throw_runtime(env, msg);
+        throw_runtime(env, "%s", msg);
         return nullptr;
     }
     if (!g_result.rgba16 || g_result.width == 0 || g_result.height == 0) {
@@ -356,7 +370,7 @@ JNI(jintArray, nativeExportSource)(JNIEnv* env, jclass, jlong sessionHandle, jst
         char msg[512];
         std::snprintf(msg, sizeof msg, "spk_export_source failed (%d): %s",
                       (int)st, spk_last_error(nullptr));
-        throw_runtime(env, msg);
+        throw_runtime(env, "%s", msg);
         return nullptr;
     }
     if (!g_result.rgba16 || g_result.width == 0 || g_result.height == 0) {
@@ -436,8 +450,13 @@ static void prog_line(const std::string& path, const char* fmt, ...) {
 // rebate is flying": the frame and its edge are squeezed into the top of the
 // file with a dead band under them.
 //
-// So ask the layout what it actually drew. Rows are trimmed only when the
-// widths already agree, because the row stride is the buffer's, not ours.
+// So ask the layout what it actually drew. The canvas is drawn into the
+// buffer's **top-left** (that is the shape of this engine bug, and the reason
+// this function exists). Cropping to the canvas is therefore right whenever
+// the buffer is the bigger one -- the old version only did it when the widths
+// already agreed, so a full export whose width differed kept the whole buffer
+// and showed the bottom rebate in the middle of the file: "preview is fine,
+// export is flying".
 static void trim_to_canvas(spk_session* session, spk_result& r, const std::string& progPath) {
     char* reply = nullptr;
     if (spk_overscan_geometry(session, &reply) != SPK_OK || !reply) return;
@@ -453,9 +472,10 @@ static void trim_to_canvas(spk_session* session, spk_result& r, const std::strin
     if (cw <= 0 || ch <= 0) return;
     if (long(r.width) == cw && long(r.height) == ch) return;
     prog_line(progPath, "geometry: result %ux%u, canvas %ldx%ld", r.width, r.height, cw, ch);
-    if (long(r.width) == cw && ch < long(r.height)) {
+    if (cw <= long(r.width) && ch <= long(r.height)) {
+        r.width = uint32_t(cw);
         r.height = uint32_t(ch);
-        prog_line(progPath, "geometry: trimmed to the canvas, %ux%u", r.width, r.height);
+        prog_line(progPath, "geometry: cropped to the canvas, %ux%u", r.width, r.height);
     }
 }
 
@@ -618,7 +638,7 @@ JNI(jintArray, nativeExportJpeg)(JNIEnv* env, jclass, jlong sessionHandle,
         char msg[256];
         std::snprintf(msg, sizeof msg, "full render failed (%d): %s", int(st),
                       spk_last_error(nullptr) ? spk_last_error(nullptr) : "unknown");
-        throw_runtime(env, msg);
+        throw_runtime(env, "%s", msg);
         return nullptr;
     }
     trim_to_canvas(session, result, progPath);
@@ -676,7 +696,7 @@ JNI(jintArray, nativeExportTiff)(JNIEnv* env, jclass, jlong sessionHandle, jstri
         char msg[256];
         std::snprintf(msg, sizeof msg, "full render failed (%d): %s", int(st),
                       spk_last_error(nullptr) ? spk_last_error(nullptr) : "unknown");
-        throw_runtime(env, msg);
+        throw_runtime(env, "%s", msg);
         return nullptr;
     }
     trim_to_canvas(session, result, progPath);
@@ -695,7 +715,7 @@ JNI(jintArray, nativeExportTiff)(JNIEnv* env, jclass, jlong sessionHandle, jstri
     spk_result_free(&result);
     if (!ok) {
         prog_line(progPath, "tiff-failed %s", error.c_str());
-        throw_runtime(env, error.c_str());
+        throw_runtime(env, "%s", error.c_str());
         return nullptr;
     }
     prog_line(progPath, "done total_ms=%.0f", total_ms);
@@ -739,7 +759,7 @@ JNI(jintArray, nativeExportDng)(JNIEnv* env, jclass, jlong sessionHandle, jstrin
         char msg[256];
         std::snprintf(msg, sizeof msg, "full render failed (%d): %s", int(st),
                       spk_last_error(nullptr) ? spk_last_error(nullptr) : "unknown");
-        throw_runtime(env, msg);
+        throw_runtime(env, "%s", msg);
         return nullptr;
     }
     trim_to_canvas(session, result, progPath);
@@ -757,7 +777,7 @@ JNI(jintArray, nativeExportDng)(JNIEnv* env, jclass, jlong sessionHandle, jstrin
     spk_result_free(&result);
     if (!ok) {
         prog_line(progPath, "dng-failed %s", error.c_str());
-        throw_runtime(env, error.c_str());
+        throw_runtime(env, "%s", error.c_str());
         return nullptr;
     }
     prog_line(progPath, "done total_ms=%.0f", total_ms);
