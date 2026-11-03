@@ -22,32 +22,32 @@ public final class RebateControlsCheck {
 
     private static void choices() {
         require("two rebate modes", RebateControls.MODES.size() == 2);
-        require("strip is a mode id", RebateControls.has(RebateControls.MODES, "strip"));
-        require("filed is a mode id", RebateControls.has(RebateControls.MODES, "filed"));
+        require("strip is a mode id", ControlChoice.has(RebateControls.MODES, "strip"));
+        require("filed is a mode id", ControlChoice.has(RebateControls.MODES, "filed"));
 
         require("six gate shapes", RebateControls.GATE_STYLES.size() == 6);
-        require("auto is a gate shape", RebateControls.has(RebateControls.GATE_STYLES, "auto"));
-        require("kicked is a gate shape", RebateControls.has(RebateControls.GATE_STYLES, "kicked"));
+        require("auto is a gate shape", ControlChoice.has(RebateControls.GATE_STYLES, "auto"));
+        require("kicked is a gate shape", ControlChoice.has(RebateControls.GATE_STYLES, "kicked"));
 
         require("two hole choices", RebateControls.HOLES.size() == 2);
-        require("white holes are a choice", RebateControls.has(RebateControls.HOLES, "white"));
-        require("black holes are a choice", RebateControls.has(RebateControls.HOLES, "black"));
+        require("white holes are a choice", ControlChoice.has(RebateControls.HOLES, "white"));
+        require("black holes are a choice", ControlChoice.has(RebateControls.HOLES, "black"));
 
         require("three carrier choices", RebateControls.CARRIERS.size() == 3);
-        require("no carrier is a choice", RebateControls.has(RebateControls.CARRIERS, "none"));
-        require("open carrier is a choice", RebateControls.has(RebateControls.CARRIERS, "open"));
+        require("no carrier is a choice", ControlChoice.has(RebateControls.CARRIERS, "none"));
+        require("open carrier is a choice", ControlChoice.has(RebateControls.CARRIERS, "open"));
 
         // Every default in Look is one of the page's real ids, not a label that
         // only the page happens to understand.
         final Look look = new Look();
         require("default mode is in the mode list",
-                RebateControls.has(RebateControls.MODES, look.edgeMode));
+                ControlChoice.has(RebateControls.MODES, look.edgeMode));
         require("default gate shape is in the gate list",
-                RebateControls.has(RebateControls.GATE_STYLES, look.edgeGate));
+                ControlChoice.has(RebateControls.GATE_STYLES, look.edgeGate));
         require("default holes are in the hole list",
-                RebateControls.has(RebateControls.HOLES, look.edgeHoles));
+                ControlChoice.has(RebateControls.HOLES, look.edgeHoles));
         require("default carrier is in the carrier list",
-                RebateControls.has(RebateControls.CARRIERS, look.edgeCarrier));
+                ControlChoice.has(RebateControls.CARRIERS, look.edgeCarrier));
 
         for (String[] pair : new String[][]{
                 ids(RebateControls.MODES), ids(RebateControls.GATE_STYLES),
@@ -62,15 +62,15 @@ public final class RebateControlsCheck {
 
     private static void labelFallback() {
         require("strip has its label",
-                "整条 strip".equals(RebateControls.labelOf(RebateControls.MODES, "strip")));
+                "整条 strip".equals(ControlChoice.labelOf(RebateControls.MODES, "strip")));
         // A Look from a newer build may name an id this build does not offer:
         // showing the id beats showing a different mode's label.
         require("an unknown mode shows its own id",
-                "future_mode".equals(RebateControls.labelOf(RebateControls.MODES, "future_mode")));
+                "future_mode".equals(ControlChoice.labelOf(RebateControls.MODES, "future_mode")));
         require("an unknown mode has no index",
-                RebateControls.indexOf(RebateControls.MODES, "future_mode") == -1);
+                ControlChoice.indexOf(RebateControls.MODES, "future_mode") == -1);
         require("a known mode has its catalogue index",
-                RebateControls.indexOf(RebateControls.MODES, "filed") == 1);
+                ControlChoice.indexOf(RebateControls.MODES, "filed") == 1);
     }
 
     private static void seedAndRangeClamps() {

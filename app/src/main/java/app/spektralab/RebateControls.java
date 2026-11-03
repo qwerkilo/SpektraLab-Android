@@ -18,13 +18,9 @@ import java.util.List;
  */
 public final class RebateControls {
     /** One page choice: the Look's stored id and the label the sheet shows. */
-    public static final class Choice {
-        public final String id;
-        public final String label;
-
+    public static final class Choice extends ControlChoice {
         private Choice(String id, String label) {
-            this.id = id;
-            this.label = label;
+            super(id, label);
         }
     }
 
@@ -69,33 +65,6 @@ public final class RebateControls {
         final Choice[] out = new Choice[ids.length];
         for (int i = 0; i < ids.length; ++i) out[i] = new Choice(ids[i], labels[i]);
         return Collections.unmodifiableList(Arrays.asList(out));
-    }
-
-    /** True when this list offers the id. */
-    public static boolean has(List<Choice> choices, String id) {
-        return indexOf(choices, id) >= 0;
-    }
-
-    /** The list index for the id, or -1 when this build does not offer it. */
-    public static int indexOf(List<Choice> choices, String id) {
-        if (choices == null || id == null) return -1;
-        for (int i = 0; i < choices.size(); ++i) {
-            if (id.equals(choices.get(i).id)) return i;
-        }
-        return -1;
-    }
-
-    /** The id's label, or the id itself when this build does not offer it. */
-    public static String labelOf(List<Choice> choices, String id) {
-        final int index = indexOf(choices, id);
-        return index < 0 ? String.valueOf(id) : choices.get(index).label;
-    }
-
-    /** The labels the choice sheet shows, in list order. */
-    public static String[] labels(List<Choice> choices) {
-        final String[] out = new String[choices.size()];
-        for (int i = 0; i < choices.size(); ++i) out[i] = choices.get(i).label;
-        return out;
     }
 
     public static float clampFog(float value) {
