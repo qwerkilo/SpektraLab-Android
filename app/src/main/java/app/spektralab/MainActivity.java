@@ -1985,7 +1985,22 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private Look captureLook() {
-        final Look look = new Look();
+        return captureLook(false);
+    }
+
+    /**
+     * Capture the live controls into the Frame's Look. A save from an existing
+     * Frame starts from that Frame's stored Look, so a field this build does
+     * not yet expose (an optical parameter that arrives in a later ticket) is
+     * carried through instead of being reset by a Frame switch. A brand-new
+     * photograph starts from a fresh Look and inherits nothing.
+     */
+    private Look captureLook(boolean preserveHidden) {
+        final Look look = preserveHidden
+                && currentFrame >= 0 && currentFrame < frames.size()
+                && frames.get(currentFrame).look != null
+                ? frames.get(currentFrame).look
+                : new Look();
         look.filmStock = filmStock;
         look.printStock = printStock;
         look.printExposure = printExposure;
@@ -2096,7 +2111,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void saveLookIntoFrames() {
         if (currentFrame < 0 || currentFrame >= frames.size()) return;
-        frames.get(currentFrame).look = captureLook();
+        frames.get(currentFrame).look = captureLook(true);
     }
 
     private void updateShelfHandle() {
