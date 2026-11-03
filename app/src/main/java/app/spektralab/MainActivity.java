@@ -73,6 +73,10 @@ public class MainActivity extends AppCompatActivity {
     private SpektraLabEngine.Session session;
     private boolean isRawFile = false;
     private String rawFilePath = null;
+    /** The caps the current RAW was opened with: an export re-decodes the
+     *  same frame in its own session instead of a differently capped one. */
+    private volatile int rawImportMaxPixels = 0;
+    private volatile int rawImportLongEdge = 0;
     // The last file that reached the gallery, so it can be handed straight to
     // another app. A picker that filters by MIME will not show a TIFF on a ROM
     // whose picture list does not know the type; an explicit ACTION_SEND does,
@@ -104,10 +108,6 @@ public class MainActivity extends AppCompatActivity {
      *  a Portra 400 session, and must not render one behind their back. */
     private String filmStock = null;
     private String printStock = "kodak_portra_endura";
-    private float printExposure = OpticsDelta.EXPOSURE_DEFAULT;
-    private float grainAmount = OpticsDelta.GRAIN_DEFAULT;      // 0..2
-    private float halationAmount = OpticsDelta.HALATION_DEFAULT; // 0..4
-    private float glareAmount = OpticsDelta.GLARE_DEFAULT;      // 0..12 shown; engine 0..30
     private float filmFormatMm = 36.0f;    // frame's long edge, 135 = 36 mm
     private boolean uiReady = false;
     private String lastImportError = null;
@@ -190,10 +190,28 @@ public class MainActivity extends AppCompatActivity {
     private Typeface tfHan;          // OPPO Sans — Chinese, and anything mixed
     private View emptyState, rawState;
     private TextView fileLabel, rawName, busyLabel, originalLabel, paperValue, edgeValue, formatFootValue;
-    private OpticsRow exposureRow, grainRow, halationRow, glareRow;
+    /**
+     * The live Optics values for the current Frame: all 22 contract
+     * parameters plus the camera filter and protection norm. The Look owns
+     * them; the strip and the one slider only read and write this object, so a
+     * capture, a preview, and a restored JSON cannot drift apart.
+     */
+    private final Look optics = new Look();
+    private int activeOptics = 0;
+    /** True while the slider is being parked on a new parameter; no commit. */
+    private boolean syncingOptics = false;
+    /** True between a real touch-down and touch-up; mid-drag never commits. */
+    private boolean trackingOpticsTouch = false;
+    private HorizontalScrollView opticsStripScroll;
+    private LinearLayout opticsStrip;
+    private final List<Chip> opticsChips = new ArrayList<>();
+    private Slider opticsSlider;
+    private TextView opticsName, opticsValue, opticsUnit, opticsDelta, opticsRange;
+    private MaterialButton opticsReset, opticsFilterButton, opticsNormButton;
     private LinearLayout opticsPanel;
     private TextView opticsLockNote;
     private boolean opticsUnlocked = false;
+    private final Runnable opticsCommitRunnable = this::commitOptics;
 
     // The Console shell's instrument readouts. The strip under the stage is
     // built from the same Look the panels edit, never from a second copy.
@@ -208,14 +226,44 @@ public class MainActivity extends AppCompatActivity {
     private boolean overscanOn = false;
     private String overscanFormat = "135";
     private boolean dateOn = false;
+    /** A typed Date back text; null/empty means "follow the Frame's EXIF date". */
     private String dateText = null;
-    private MaterialSwitch overscanSwitch, dateSwitch;
+    /** The current file's own imprint date, cached until another image opens. */
+    private String defaultDateText = null;
+    /** The Rebate page's own controls. Dimming while off is presentation only:
+     *  these values stay live so re-enabling or switching Frame finds them. */
+    private boolean edgeTextOn = true;
+    private String edgeMode = "strip", edgeGate = "auto", edgeHoles = "white", edgeCarrier = "none";
+    private float edgeFog = 1f, edgeLeaks, frameNumber, edgeFNumber;
+    private int cameraSeed = 1, frameSeed = 1;
+    /** Date-back values; the page lands in a later ticket, the Look already
+     *  carries them and switching Frame must not drop them. */
+    private String datePlacement = "frame", dateCorner = "br", dateStyle = "lcd";
+    private float dateInsetX = 3f, dateInsetY = 2.4f, dateSize = 1f, dateEv = 3.5f;
+    private String dataText = "", dateTextB = "";
+    /** -1 = the two Edge entry cards, 0 = Rebate, 1 = Date back. */
+    private int edgePageIndex = -1;
+    /** True while a Look restore fills the page; its listeners must not render. */
+    private boolean syncingRebate = false;
+    private LinearLayout edgeHome, rebatePage, datePage, rebateControls, dateControls;
+    private MaterialSwitch rebateSwitch, edgeTextSwitch;
+    private MaterialCardView rebateGateCard;
+    private TextView rebateGateValue, rebateModeValue, rebateGateStyleValue;
+    private TextView rebateHolesValue, rebateCarrierValue;
+    private TextView rebateCameraSeedValue, rebateFrameSeedValue;
+    private TextView rebateFogValue, rebateLeaksValue, rebateFrameNoValue, rebateFNumberValue;
+    private Slider rebateFogSlider, rebateLeaksSlider, rebateFrameNoSlider, rebateFNumberSlider;
+    /** Each chosen row repaints its value and description from the live field. */
+    private final List<Runnable> rebateRefreshers = new ArrayList<>();
     /** True while a Look restore sets switch state; the listener must not render. */
     private boolean syncingToggles = false;
+    private MaterialSwitch dateSwitch;
     /** The date back's own line: the text shown while the imprint is on. */
     private TextView dateDetail;
-    /** The Edge toggles, kept so a Look restore can resync their checked state. */
-    private View overscanToggleRow, dateToggleRow;
+    private TextView dateTextValue, datePlacementValue, dateCornerValue, dateStyleValue;
+    private TextView dateDataValue, dateTextBValue;
+    private TextView dateInsetXValue, dateInsetYValue, dateSizeValue, dateEvValue;
+    private Slider dateInsetXSlider, dateInsetYSlider, dateSizeSlider, dateEvSlider;
 
     /** 片边: the Gates this Frame's shape can actually carry, in catalogue order. */
     private final List<String> edgeLabels = new ArrayList<>(), edgeIds = new ArrayList<>();
@@ -247,6 +295,7 @@ public class MainActivity extends AppCompatActivity {
             formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
         }
         rebuildFormatCards();
+        syncRebatePage();
     }
     /** The shell: `body` stacks or splits into `mainCol` and `controls`. */
     private LinearLayout body, mainCol, controls, panelHolder, formatCardStrip;
@@ -290,20 +339,6 @@ public class MainActivity extends AppCompatActivity {
      * the live source is replaced on every import, and a list holding those
      * would pin one 1024-px ARGB buffer per photograph.
      */
-    /** Everything the film page and the optics page own.
-     *
-     *  <p>A look belongs to the photograph it was chosen on. It used to be one
-     *  set of fields for the whole session, so re-opening the first frame after
-     *  picking a film on the second one developed the *second* film onto the
-     *  first: the shelf was a memory of photographs but only one memory of a
-     *  look. */
-    private static final class Look {
-        String filmStock;
-        String printStock;
-        float printExposure, grainAmount, halationAmount, glareAmount, filmFormatMm;
-        boolean overscanOn, dateOn;
-        String overscanFormat;
-    }
     private static final class Frame {
         final Uri uri;
         final boolean raw;
@@ -324,13 +359,16 @@ public class MainActivity extends AppCompatActivity {
         /** "LOG SENSITIVITY", "DENSITY", or "" when nothing was shipped. */
         final String seriesLabel;
         final java.util.Map<String, String> info;
+        /** The paper this film declares it prints on; null when it declares none. */
+        final String targetPrint;
 
         FilmStock(SpectrumSamples samples, SpectrumCurve curve, String seriesLabel,
-                  java.util.Map<String, String> info) {
+                  java.util.Map<String, String> info, String targetPrint) {
             this.samples = samples;
             this.curve = curve;
             this.seriesLabel = seriesLabel;
             this.info = info;
+            this.targetPrint = targetPrint;
         }
     }
     private final java.util.List<Frame> frames = new java.util.ArrayList<>();
@@ -619,6 +657,7 @@ public class MainActivity extends AppCompatActivity {
         String fileName, rawNameText, status;
         float scanFraction;
         boolean scanVisible;
+        int edgePageIndex = -1;
     }
 
     private UiState captureUiState() {
@@ -637,6 +676,7 @@ public class MainActivity extends AppCompatActivity {
         s.status = statusText == null ? null : String.valueOf(statusText.getText());
         s.scanFraction = scanFraction;
         s.scanVisible = scanVisible;
+        s.edgePageIndex = edgePageIndex;
         return s;
     }
 
@@ -664,6 +704,8 @@ public class MainActivity extends AppCompatActivity {
         setTab(s.activeTab);
         setPanelCollapsed(s.panelCollapsed);
         setOpticsUnlocked(s.opticsUnlocked);
+        edgePageIndex = s.edgePageIndex;
+        openEdgePage(edgePageIndex);
         scanFraction = s.scanFraction;
         scanVisible = s.scanVisible;
         refreshFilmPanel();
@@ -773,6 +815,16 @@ public class MainActivity extends AppCompatActivity {
 
     /** Rotations and foldable resizes arrive here because the manifest keeps
      *  the Activity alive; no Frame, Look, or render is touched. */
+    /** System Back leaves a secondary page before it leaves the Console. */
+    @Override
+    public void onBackPressed() {
+        if (activeTabIndex == 3 && edgePageIndex >= 0) {
+            openEdgePage(-1);
+            return;
+        }
+        super.onBackPressed();
+    }
+
     @Override
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
@@ -1082,7 +1134,11 @@ public class MainActivity extends AppCompatActivity {
         load.setBackground(pressableFill(Palette.Role.SURFACE_ELEVATED));
         load.setPadding(dp(18), 0, dp(18), 0);
         load.setOnClickListener(v -> showImportMenu());
-        load.addView(m3Label("选择照片", M3Tokens.TypeRole.LABEL_LARGE,
+        // At 2.0× the centred pill runs into the PRINT EXPOSURE readout at the
+        // stage's right edge; bias it left rather than shrinking the label.
+        if (veryLargeText()) load.setTranslationX(-dp(44));
+        load.addView(m3Label("选择照片",
+                veryLargeText() ? M3Tokens.TypeRole.LABEL_MEDIUM : M3Tokens.TypeRole.LABEL_LARGE,
                 m3Primary(), tfHan));
         ArrowView loadArrow = new ArrowView(this, palette.color(Palette.Role.ACCENT));
         LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(14), dp(14));
@@ -1151,7 +1207,7 @@ public class MainActivity extends AppCompatActivity {
 
         mainCol.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
         mainCol.addView(buildReadoutStrip(),
-                new LinearLayout.LayoutParams(-1, dp(READOUT_HEIGHT_DP)));
+                new LinearLayout.LayoutParams(-1, -2));
         mainCol.addView(buildSourceBar(),
                 new LinearLayout.LayoutParams(-1, dp(SOURCE_HEIGHT_DP)));
 
@@ -1162,10 +1218,14 @@ public class MainActivity extends AppCompatActivity {
         panelHolder = new LinearLayout(this);
         panelHolder.setOrientation(LinearLayout.VERTICAL);
         panelHolder.setPadding(dp(16), 0, dp(16), dp(PANEL_BOTTOM_DP));
-        panelHolder.addView(buildFilmPanel(), new LinearLayout.LayoutParams(-1, -1));
-        panelHolder.addView(buildOpticsPanel(), new LinearLayout.LayoutParams(-1, -1));
-        panelHolder.addView(buildFormatPanel(), new LinearLayout.LayoutParams(-1, -1));
-        panelHolder.addView(buildEdgePanel(), new LinearLayout.LayoutParams(-1, -1));
+        panelHolder.addView(scrollablePanel(buildFilmPanel()),
+                new LinearLayout.LayoutParams(-1, -1));
+        panelHolder.addView(scrollablePanel(buildOpticsPanel()),
+                new LinearLayout.LayoutParams(-1, -1));
+        panelHolder.addView(scrollablePanel(buildFormatPanel()),
+                new LinearLayout.LayoutParams(-1, -1));
+        panelHolder.addView(scrollablePanel(buildEdgePanel()),
+                new LinearLayout.LayoutParams(-1, -1));
         for (int i = 0; i < 4; ++i) panels[i] = panelHolder.getChildAt(i);
 
         controls.addView(buildTabs(), new LinearLayout.LayoutParams(-1, dp(TABS_HEIGHT_DP)));
@@ -1280,7 +1340,10 @@ public class MainActivity extends AppCompatActivity {
 
         final MaterialToolbar toolbar = new MaterialToolbar(this);
         toolbar.setTitle(typed("SpektraLab", tfDisplay));
-        toolbar.setSubtitle(mixedText("/ CONSOLE"));
+        // At very large text the wordmark and the two actions compete for one
+        // 48 dp row; the subtitle is the first thing to go so the name and
+        // the actions both stay legible. At 1.3× the tagline still fits.
+        if (!veryLargeText()) toolbar.setSubtitle(mixedText("/ CONSOLE"));
         toolbar.setLongClickable(true);
         toolbar.setOnLongClickListener(v -> { showAbout(); return true; });
 
@@ -1294,7 +1357,9 @@ public class MainActivity extends AppCompatActivity {
         actions.addView(sharePill, actionButtonParams());
 
         final MaterialButton themeButton = actionButton(
-                mixedText(dark ? "暗 DARK" : "亮 LIGHT"),
+                mixedText(veryLargeText()
+                        ? (dark ? "暗" : "亮")
+                        : (dark ? "暗 DARK" : "亮 LIGHT")),
                 dark ? "当前深色主题，点击切换到浅色" : "当前浅色主题，点击切换到深色");
         themeButton.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(
@@ -1398,66 +1463,116 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout outer = new LinearLayout(this);
         outer.setOrientation(LinearLayout.VERTICAL);
         outer.setBackgroundColor(m3Surface());
+        outer.setMinimumHeight(dp(READOUT_HEIGHT_DP));
         outer.addView(hairline(m3OutlineVariant()),
                 new LinearLayout.LayoutParams(-1, dp(1)));
 
-        LinearLayout strip = new LinearLayout(this);
-        strip.setOrientation(LinearLayout.HORIZONTAL);
         final String[] titles = {
                 "FILM / 胶片", "PAPER / 相纸", "EXPOSURE / 曝光", "SPECTRUM / 光谱"};
-        for (int i = 0; i < titles.length; ++i) {
-            if (i > 0) {
-                strip.addView(hairline(m3OutlineVariant()),
-                        new LinearLayout.LayoutParams(dp(1), -1));
+        // Two columns at every width. Four columns at 400 dp clip the section
+        // titles and the longer stock names even at the default font scale;
+        // the readout is an instrument strip, not a race to fit four cells.
+        final int columns = 2;
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        for (int rowIndex = 0; rowIndex * columns < titles.length; ++rowIndex) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setMinimumHeight(dp(READOUT_HEIGHT_DP));
+            for (int column = 0; column < columns; ++column) {
+                final int i = rowIndex * columns + column;
+                if (i >= titles.length) break;
+                if (column > 0) {
+                    row.addView(hairline(m3OutlineVariant()),
+                            new LinearLayout.LayoutParams(dp(1), -1));
+                }
+                row.addView(readoutCell(i, titles[i]),
+                        new LinearLayout.LayoutParams(0, -2, 1f));
             }
-            final LinearLayout cell = new LinearLayout(this);
-            cell.setOrientation(LinearLayout.VERTICAL);
-            cell.setPadding(dp(9), dp(1), dp(6), 0);
+            grid.addView(row, new LinearLayout.LayoutParams(-1, -2));
+            if ((rowIndex + 1) * columns < titles.length) {
+                grid.addView(hairline(m3OutlineVariant()),
+                        new LinearLayout.LayoutParams(-1, dp(1)));
+            }
+        }
+        outer.addView(grid, new LinearLayout.LayoutParams(-1, -2));
+        return outer;
+    }
 
-            TextView title = m3Label(titles[i], M3Tokens.TypeRole.LABEL_SMALL,
-                    m3OnSurfaceVariant(), tfHan);
+    /** A panel's content scrolls inside the fixed panel height when text grows. */
+    private View scrollablePanel(View content) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setClipToPadding(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        scroll.addView(content, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        return scroll;
+    }
+
+    private View readoutCell(int i, String titleText) {
+        final LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setPadding(dp(9), dp(3), dp(6), dp(3));
+
+        TextView title = m3Label(titleText, M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfHan);
+        // At 2.0× the bilingual title is wider than half the phone; let it
+        // wrap instead of ending in an ellipsis that hides the parameter name.
+        if (veryLargeText()) {
+            title.setSingleLine(false);
+            title.setMaxLines(2);
+        } else {
             title.setSingleLine(true);
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            cell.addView(title, new LinearLayout.LayoutParams(-1, -2));
-
-            LinearLayout valueRow = new LinearLayout(this);
-            valueRow.setOrientation(LinearLayout.HORIZONTAL);
-            valueRow.setGravity(android.view.Gravity.BOTTOM);
-            TextView value = m3Label("\u2014", M3Tokens.TypeRole.LABEL_MEDIUM,
-                    m3OnSurface(), i == 2 ? tfDisplay : tfHan);
-            value.setSingleLine(true);
-            value.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            valueRow.addView(value, new LinearLayout.LayoutParams(0, -2, 1f));
-            TextView unit = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                    m3OnSurfaceVariant(), tfBody);
-            LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
-            unitLp.leftMargin = dp(2);
-            unitLp.bottomMargin = dp(1);
-            valueRow.addView(unit, unitLp);
-            LinearLayout.LayoutParams valueRowLp = new LinearLayout.LayoutParams(-1, -2);
-            valueRowLp.topMargin = dp(1);
-            cell.addView(valueRow, valueRowLp);
-
-            TextView detail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                    m3OnSurfaceVariant(), tfBody);
-            detail.setSingleLine(true);
-            detail.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            LinearLayout.LayoutParams detailLp = new LinearLayout.LayoutParams(-1, -2);
-            cell.addView(detail, detailLp);
-
-            if (i == 0) readoutFilm = value;
-            if (i == 1) readoutPaper = value;
-            if (i == 2) readoutExposure = value;
-            if (i == 3) {
-                readoutSpectrumValue = value;
-                readoutSpectrumUnit = unit;
-                readoutSpectrumDetail = detail;
-                readoutSpectrumCell = cell;
-            }
-            strip.addView(cell, new LinearLayout.LayoutParams(0, -1, 1f));
         }
-        outer.addView(strip, new LinearLayout.LayoutParams(-1, 0, 1f));
-        return outer;
+        cell.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout valueRow = new LinearLayout(this);
+        valueRow.setOrientation(LinearLayout.HORIZONTAL);
+        valueRow.setGravity(android.view.Gravity.BOTTOM);
+        TextView value = m3Label("—", M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurface(), i == 2 ? tfDisplay : tfHan);
+        value.setSingleLine(true);
+        value.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        valueRow.addView(value, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView unit = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfBody);
+        LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
+        unitLp.leftMargin = dp(2);
+        unitLp.bottomMargin = dp(1);
+        valueRow.addView(unit, unitLp);
+        LinearLayout.LayoutParams valueRowLp = new LinearLayout.LayoutParams(-1, -2);
+        valueRowLp.topMargin = dp(1);
+        cell.addView(valueRow, valueRowLp);
+
+        TextView detail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfBody);
+        detail.setSingleLine(false);
+        detail.setMaxLines(2);
+        detail.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        cell.addView(detail, new LinearLayout.LayoutParams(-1, -2));
+
+        if (i == 0) readoutFilm = value;
+        if (i == 1) readoutPaper = value;
+        if (i == 2) readoutExposure = value;
+        if (i == 3) {
+            readoutSpectrumValue = value;
+            readoutSpectrumUnit = unit;
+            readoutSpectrumDetail = detail;
+            readoutSpectrumCell = cell;
+        }
+        return cell;
+    }
+
+    /** True when the system font scale needs the wider film cards and stacked heads. */
+    private boolean largeText() {
+        return getResources().getConfiguration().fontScale >= 1.15f;
+    }
+
+    /** True when the 48 dp top app bar must drop its tagline and English theme word. */
+    private boolean veryLargeText() {
+        return getResources().getConfiguration().fontScale >= 1.6f;
     }
 
     /**
@@ -1466,7 +1581,8 @@ public class MainActivity extends AppCompatActivity {
      * spectrum cell only reports samples the catalogue actually carries.
      */
     private void refreshReadoutStrip() {
-        final String exposure = OpticsDelta.valueText(printExposure);
+        final String exposure = OpticsDelta.valueText(
+                optics.get(OpticsDelta.Param.EXPOSURE));
         if (stageExposureValue != null) stageExposureValue.setText(exposure);
         if (readoutExposure == null) return;
         readoutExposure.setText(exposure);
@@ -1775,6 +1891,10 @@ public class MainActivity extends AppCompatActivity {
         scanToggleChip.setChecked(scanVisible);
         scanToggleChip.setEnabled(enabled);
         scanToggleChip.setAlpha(enabled ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
+        // The empty stage has no preview to inspect; leaving the pill visible
+        // lets it collide with the central import button at 2.0× text.
+        scanToggleChip.setVisibility(enabled || (scanVisible && sourceUri != null)
+                ? View.VISIBLE : View.GONE);
         final String state = scanVisible
                 ? (enabled ? "扫描检视已开启，点击关闭"
                         : "扫描检视已开启，等待预览")
@@ -1927,45 +2047,106 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private Look captureLook() {
-        final Look look = new Look();
+        return captureLook(false);
+    }
+
+    /**
+     * Capture the live controls into the Frame's Look. A save from an existing
+     * Frame starts from a detached copy of that Frame's stored Look, so a field
+     * this build does not yet expose is carried through instead of being reset
+     * by a Frame switch. A brand-new photograph starts from a fresh Look and
+     * inherits nothing. Nothing is clamped on the way in.
+     */
+    private Look captureLook(boolean preserveHidden) {
+        final Look look = preserveHidden
+                && currentFrame >= 0 && currentFrame < frames.size()
+                && frames.get(currentFrame).look != null
+                ? frames.get(currentFrame).look.copy()
+                : new Look();
         look.filmStock = filmStock;
         look.printStock = printStock;
-        look.printExposure = printExposure;
-        look.grainAmount = grainAmount;
-        look.halationAmount = halationAmount;
-        look.glareAmount = glareAmount;
         look.filmFormatMm = filmFormatMm;
+        for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
+            look.set(param, optics.get(param));
+        }
+        look.cameraFilter = optics.cameraFilter;
+        look.sceneNorm = optics.sceneNorm;
         look.overscanOn = overscanOn;
         look.overscanFormat = overscanFormat;
         look.dateOn = dateOn;
+        look.edgeTextOn = edgeTextOn;
+        look.edgeMode = edgeMode;
+        look.edgeGate = edgeGate;
+        look.edgeHoles = edgeHoles;
+        look.edgeCarrier = edgeCarrier;
+        look.edgeFog = edgeFog;
+        look.edgeLeaks = edgeLeaks;
+        look.frameNumber = frameNumber;
+        look.edgeFNumber = edgeFNumber;
+        look.cameraSeed = cameraSeed;
+        look.frameSeed = frameSeed;
+        look.datePlacement = datePlacement;
+        look.dateCorner = dateCorner;
+        look.dateStyle = dateStyle;
+        look.dateInsetX = dateInsetX;
+        look.dateInsetY = dateInsetY;
+        look.dateSize = dateSize;
+        look.dateEv = dateEv;
+        look.dataText = dataText;
+        look.dateTextB = dateTextB;
+        // Only a *typed* text is part of the Look; the EXIF default stays with
+        // the Frame's file, so a Frame with no typed date keeps following it.
+        look.dateText = dateText == null ? "" : dateText;
         return look;
     }
 
     /** Put a frame's own look back, controls included: a slider that says 1.00
-     *  while the render used 1.40 is worse than no slider. `setValue` goes
-     *  through the slider listener, so the number and the field move
-     *  together. */
+     *  while the render used 1.40 is worse than no slider. The stored value is
+     *  restored as-is; the slider only clamps the thumb it can reach, so a
+     *  glare above its 12.0 cap still reaches the engine. */
     private void applyLook(Look look) {
         if (look == null) return;
         filmStock = look.filmStock;
         printStock = look.printStock;
-        printExposure = look.printExposure;
-        grainAmount = look.grainAmount;
-        halationAmount = look.halationAmount;
-        glareAmount = look.glareAmount;
         filmFormatMm = look.filmFormatMm;
+        for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
+            optics.set(param, look.get(param));
+        }
+        // Unknown choice ids stay on the Look so a later save does not erase
+        // them; the page shows the documented fallback until the user picks.
+        optics.cameraFilter = look.cameraFilter;
+        optics.sceneNorm = look.sceneNorm;
         overscanOn = look.overscanOn;
         overscanFormat = look.overscanFormat;
         dateOn = look.dateOn;
+        edgeTextOn = look.edgeTextOn;
+        edgeMode = look.edgeMode;
+        edgeGate = look.edgeGate;
+        edgeHoles = look.edgeHoles;
+        edgeCarrier = look.edgeCarrier;
+        edgeFog = look.edgeFog;
+        edgeLeaks = look.edgeLeaks;
+        frameNumber = look.frameNumber;
+        edgeFNumber = look.edgeFNumber;
+        cameraSeed = look.cameraSeed;
+        frameSeed = look.frameSeed;
+        datePlacement = look.datePlacement;
+        dateCorner = look.dateCorner;
+        dateStyle = look.dateStyle;
+        dateInsetX = look.dateInsetX;
+        dateInsetY = look.dateInsetY;
+        dateSize = look.dateSize;
+        dateEv = look.dateEv;
+        dataText = look.dataText == null ? "" : look.dataText;
+        dateTextB = look.dateTextB == null ? "" : look.dateTextB;
+        dateText = look.dateText == null || look.dateText.isEmpty() ? null : look.dateText;
         final GateScale.Gate pair = GateScale.pair(overscanFormat, filmFormatMm);
         // One piece of film geometry: a stored Gate and Scale that disagree are
         // pulled onto the Gate's measured edge before either control can draw.
         overscanFormat = pair.id;
         filmFormatMm = pair.longEdgeMm;
-        if (exposureRow != null) exposureRow.setValue(printExposure);
-        if (grainRow != null) grainRow.setValue(grainAmount);
-        if (halationRow != null) halationRow.setValue(halationAmount);
-        if (glareRow != null) glareRow.setValue(glareAmount);
+        if (opticsSlider != null) bindActiveOptics();
+        syncOpticsChoices();
         syncToggleRows();
         syncDateDetail();
         if (edgeValue != null) edgeValue.setText(pair.label);
@@ -1984,11 +2165,7 @@ public class MainActivity extends AppCompatActivity {
     private Look defaultLook() {
         final Look look = new Look();
         look.filmStock = null;
-        look.printStock = "kodak_portra_endura";
-        look.printExposure = OpticsDelta.EXPOSURE_DEFAULT;
-        look.grainAmount = OpticsDelta.GRAIN_DEFAULT;
-        look.halationAmount = OpticsDelta.HALATION_DEFAULT;
-        look.glareAmount = OpticsDelta.GLARE_DEFAULT;
+        look.printStock = Look.DEFAULT_PRINT_STOCK;
         look.filmFormatMm = GateScale.defaultGate().longEdgeMm;
         look.overscanOn = false;
         look.overscanFormat = GateScale.defaultGate().id;
@@ -1998,7 +2175,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void saveLookIntoFrames() {
         if (currentFrame < 0 || currentFrame >= frames.size()) return;
-        frames.get(currentFrame).look = captureLook();
+        frames.get(currentFrame).look = captureLook(true);
     }
 
     private void updateShelfHandle() {
@@ -2191,18 +2368,28 @@ public class MainActivity extends AppCompatActivity {
 
     private View sectionHead(String title, String actionLabel, Runnable action, Runnable reset) {
         LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        head.setMinimumHeight(dp(SECTION_HEAD_HEIGHT_DP));
         TextView titleView = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
-        head.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1f));
+        titleView.setMaxLines(2);
+        titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        head.addView(titleView, new LinearLayout.LayoutParams(
+                largeText() ? -1 : 0, -2, largeText() ? 0f : 1f));
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(android.view.Gravity.END);
         if (actionLabel != null && action != null) {
             MaterialButton actionView = m3TextButton(actionLabel, actionLabel,
                     m3Primary(), action);
-            head.addView(actionView, new LinearLayout.LayoutParams(-2, dp(48)));
+            actions.addView(actionView, new LinearLayout.LayoutParams(-2, dp(48)));
         }
         MaterialButton resetView = m3TextButton("重置当前页", "重置当前页",
                 m3OnSurfaceVariant(), reset);
-        head.addView(resetView, new LinearLayout.LayoutParams(-2, dp(48)));
+        actions.addView(resetView, new LinearLayout.LayoutParams(-2, dp(48)));
+        head.addView(actions, largeText()
+                ? new LinearLayout.LayoutParams(-1, -2)
+                : new LinearLayout.LayoutParams(-2, -2));
         return head;
     }
 
@@ -2211,7 +2398,7 @@ public class MainActivity extends AppCompatActivity {
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.addView(sectionHead("FILM STOCK / 胶片",
                         "全部胶片", this::showFilmPicker, this::resetFilmPanel),
-                new LinearLayout.LayoutParams(-1, dp(SECTION_HEAD_HEIGHT_DP)));
+                new LinearLayout.LayoutParams(-1, -2));
 
         HorizontalScrollView brandScroll = new HorizontalScrollView(this);
         brandScroll.setHorizontalScrollBarEnabled(false);
@@ -2256,13 +2443,15 @@ public class MainActivity extends AppCompatActivity {
         filmMetricsRow.setOrientation(LinearLayout.HORIZONTAL);
         filmMetricsRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
         panel.addView(filmMetricsRow,
-                new LinearLayout.LayoutParams(-1, dp(FILM_METRICS_HEIGHT_DP)));
+                new LinearLayout.LayoutParams(-1, -2));
+        filmMetricsRow.setMinimumHeight(dp(FILM_METRICS_HEIGHT_DP));
 
         filmNote = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
                 m3OnSurfaceVariant(), tfBody);
-        filmNote.setSingleLine(true);
+        filmNote.setSingleLine(false);
+        filmNote.setMaxLines(2);
         filmNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        panel.addView(filmNote, new LinearLayout.LayoutParams(-1, dp(20)));
+        panel.addView(filmNote, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout paperRow = new LinearLayout(this);
         paperRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -2300,9 +2489,11 @@ public class MainActivity extends AppCompatActivity {
         paperChoice.addView(paperInner,
                 new android.widget.FrameLayout.LayoutParams(-1, -1));
         paperRow.addView(paperChoice,
-                new LinearLayout.LayoutParams(0, dp(PAPER_ROW_HEIGHT_DP), 1f));
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        paperChoice.setMinimumHeight(dp(PAPER_ROW_HEIGHT_DP));
         panel.addView(paperRow,
-                new LinearLayout.LayoutParams(-1, dp(PAPER_ROW_HEIGHT_DP)));
+                new LinearLayout.LayoutParams(-1, -2));
+        paperRow.setMinimumHeight(dp(PAPER_ROW_HEIGHT_DP));
         return panel;
     }
 
@@ -2369,10 +2560,32 @@ public class MainActivity extends AppCompatActivity {
             final boolean active = id.equals(brandFilter);
             final Chip chip = new Chip(this);
             // A real filter chip, not an assist chip with a checkmark bolted
-            // on: the style owns its checked/disabled colours and state layer.
+            // on: the style owns its shape and typography, while the colour
+            // state lists are resolved from the theme at build time. Without
+            // these explicit lists a theme rebuild keeps the ChipDrawable's
+            // previous dark scheme after Dark -> Light.
             chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null,
                     0,
                     com.google.android.material.R.style.Widget_Material3_Chip_Filter));
+            final int chipSurface = m3Role(
+                    com.google.android.material.R.attr.colorSurfaceContainerLow,
+                    Palette.Role.SURFACE_ELEVATED);
+            final int chipSelected = m3Role(
+                    com.google.android.material.R.attr.colorSecondaryContainer,
+                    Palette.Role.ACCENT_SOFT);
+            final int chipText = m3Role(
+                    com.google.android.material.R.attr.colorOnSurfaceVariant,
+                    Palette.Role.MUTED_INK);
+            final int chipTextSelected = m3Role(
+                    com.google.android.material.R.attr.colorOnSecondaryContainer,
+                    Palette.Role.ACCENT);
+            final int chipOutline = m3Role(
+                    com.google.android.material.R.attr.colorOutlineVariant,
+                    Palette.Role.LINE);
+            chip.setChipBackgroundColor(checkedColors(chipSelected, chipSurface));
+            chip.setChipStrokeWidth(Math.max(1, dp(1)));
+            chip.setChipStrokeColor(checkedColors(chipSelected, chipOutline));
+            chip.setTextColor(checkedColors(chipTextSelected, chipText));
             chip.setId(View.generateViewId());
             chip.setCheckable(true);
             chip.setChecked(active);
@@ -2486,7 +2699,7 @@ public class MainActivity extends AppCompatActivity {
             else pickFilmChip(id);
         });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                dp(FILM_CARD_WIDTH_DP), dp(FILM_CARD_HEIGHT_DP));
+                dp(FILM_CARD_WIDTH_DP + (largeText() ? 20 : 0)), dp(FILM_CARD_HEIGHT_DP));
         lp.rightMargin = dp(FILM_CARD_GAP_DP);
         filmChipRow.addView(card, lp);
     }
@@ -2497,8 +2710,15 @@ public class MainActivity extends AppCompatActivity {
         if (index < 0) return;
         if (id.equals(filmStock) && !showingOriginal) return;
         filmStock = id;
+        // Upstream's `selectFilmStock` rule: the Film the user picks brings its
+        // own paper. An explicit paper chosen afterwards stays until the next
+        // Film selection; a Frame restore keeps its stored Film/paper pair.
+        final FilmStock chosen = filmStocks.get(id);
+        printStock = PrintTarget.choose(printStock,
+                chosen == null ? null : chosen.targetPrint, printIds);
         showingOriginal = false;
         refreshFilmPanel();
+        refreshPaperLabel();
         onStockChanged();
     }
 
@@ -2577,7 +2797,9 @@ public class MainActivity extends AppCompatActivity {
         }
         if (description != null && !description.isEmpty()) return description;
         final java.util.List<String> parts = new java.util.ArrayList<>();
-        final String target = stock.info.get("target_print");
+        // The same declaration the Film choice applies, so the note cannot
+        // claim a paper the Look would not move to.
+        final String target = stock.targetPrint;
         if (target != null && !target.isEmpty()) {
             parts.add("TARGET " + stockLabel(target, printIds, printLabels)
                     .toUpperCase(java.util.Locale.US));
@@ -2668,33 +2890,394 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout buildOpticsPanel() {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(buildOpticsHead(),
-                new LinearLayout.LayoutParams(-1, dp(SECTION_HEAD_HEIGHT_DP)));
-        opticsPanel = new LinearLayout(this);
-        opticsPanel.setOrientation(LinearLayout.VERTICAL);
+        opticsPanel = panel;
         opticsPanel.setOnClickListener(v -> {
             if (!opticsUnlocked) showSnackbar(opticsLockReason());
         });
-        exposureRow = opticsRow(opticsPanel, "EXPOSURE 曝光", OpticsDelta.Param.EXPOSURE,
-                printExposure, v -> printExposure = v);
-        grainRow = opticsRow(opticsPanel, "GRAIN 颗粒", OpticsDelta.Param.GRAIN,
-                grainAmount, v -> grainAmount = v);
-        halationRow = opticsRow(opticsPanel, "HALATION 光晕", OpticsDelta.Param.HALATION,
-                halationAmount, v -> halationAmount = v);
-        glareRow = opticsRow(opticsPanel, "GLARE 眩光", OpticsDelta.Param.GLARE,
-                glareAmount, v -> glareAmount = v);
-        panel.addView(opticsPanel, new LinearLayout.LayoutParams(-1, 0, 1f));
+        panel.addView(buildOpticsHead(),
+                new LinearLayout.LayoutParams(-1, -2));
+
+        // The strip: one M3 chip per contract parameter, in the engine's own
+        // order. It scrolls sideways instead of clipping, so 390 dp and large
+        // text both keep every parameter reachable.
+        opticsStrip = new LinearLayout(this);
+        opticsStrip.setOrientation(LinearLayout.HORIZONTAL);
+        opticsStrip.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        opticsChips.clear();
+        for (int i = 0; i < OpticsDelta.Param.values().length; ++i) {
+            final int index = i;
+            final OpticsDelta.Param spec = OpticsDelta.paramAt(i);
+            final Chip chip = new Chip(this);
+            styleOpticsChip(chip);
+            chip.setId(View.generateViewId());
+            chip.setCheckable(true);
+            chip.setSingleLine(true);
+            chip.setText(mixedText(spec.glyph + "  " + spec.label));
+            chip.setContentDescription(spec.label + "，参数 " + (i + 1) + " / "
+                    + OpticsDelta.Param.values().length);
+            chip.setMinimumHeight(dp(MIN_TOUCH_DP));
+            chip.setOnClickListener(v -> {
+                if (!opticsUnlocked) {
+                    showSnackbar(opticsLockReason());
+                    return;
+                }
+                selectOptics(index);
+            });
+            final LinearLayout.LayoutParams chipLp =
+                    new LinearLayout.LayoutParams(-2, -2);
+            chipLp.rightMargin = dp(6);
+            opticsStrip.addView(chip, chipLp);
+            opticsChips.add(chip);
+        }
+        opticsStripScroll = new HorizontalScrollView(this);
+        opticsStripScroll.setHorizontalScrollBarEnabled(false);
+        opticsStripScroll.setClipToPadding(false);
+        opticsStripScroll.setFillViewport(false);
+        opticsStripScroll.addView(opticsStrip,
+                new android.widget.FrameLayout.LayoutParams(-2, -2));
+        panel.addView(opticsStripScroll, new LinearLayout.LayoutParams(-1, -2));
+
+        // The one active row: name, value, unit, display-only Δ, and reset.
+        panel.addView(buildOpticsReadout(), new LinearLayout.LayoutParams(-1, -2));
+
+        opticsSlider = new Slider(this);
+        opticsSlider.setId(View.generateViewId());
+        opticsSlider.setMinimumHeight(dp(SLIDER_HEIGHT_DP));
+        // The head already shows the live value; a floating tooltip would be
+        // clipped by the row and repeat it.
+        opticsSlider.setLabelBehavior(
+                com.google.android.material.slider.LabelFormatter.LABEL_GONE);
+        opticsSlider.setLabelFormatter(value -> {
+            final OpticsDelta.Param spec = activeOptics();
+            return OpticsDelta.valueText(value) + " " + spec.unit;
+        });
+        opticsSlider.addOnChangeListener((slider, value, fromUser) -> {
+            if (syncingOptics) return;
+            final OpticsDelta.Param spec = activeOptics();
+            optics.set(spec, value);
+            showActiveOptics(value);
+            refreshReadoutStrip();
+            // One render per completed gesture: a touch release commits at
+            // once; keyboard, switch access, and TalkBack changes coalesce so
+            // a held arrow key does not queue a render per key. The guard at
+            // the top keeps a Look restore and a chip rebind silent.
+            if (!trackingOpticsTouch) scheduleOpticsCommit(slider);
+        });
+        opticsSlider.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+            @Override public void onStartTrackingTouch(Slider slider) {
+                trackingOpticsTouch = true;
+                slider.removeCallbacks(opticsCommitRunnable);
+            }
+            @Override public void onStopTrackingTouch(Slider slider) {
+                trackingOpticsTouch = false;
+                slider.removeCallbacks(opticsCommitRunnable);
+                commitOptics();
+            }
+        });
+        panel.addView(opticsSlider,
+                new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
+
+        // The two choices the engine models separately from the 22 numbers.
+        opticsFilterButton = opticsChoiceRow(panel, "镜头滤镜 / CAMERA FILTER",
+                this::showCameraFilterPicker);
+        opticsNormButton = opticsChoiceRow(panel, "保护基准 / PROTECTION NORM",
+                this::showProtectionNormPicker);
+
+        bindActiveOptics();
+        syncOpticsChoices();
         return panel;
     }
 
+    /** Set a chip's M3 filter style from the current theme's roles. */
+    private void styleOpticsChip(Chip chip) {
+        chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null, 0,
+                com.google.android.material.R.style.Widget_Material3_Chip_Filter));
+        final int chipSurface = m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerLow,
+                Palette.Role.SURFACE_ELEVATED);
+        final int chipSelected = m3Role(
+                com.google.android.material.R.attr.colorSecondaryContainer,
+                Palette.Role.ACCENT_SOFT);
+        final int chipText = m3Role(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+        final int chipTextSelected = m3Role(
+                com.google.android.material.R.attr.colorOnSecondaryContainer,
+                Palette.Role.ACCENT);
+        final int chipOutline = m3Role(
+                com.google.android.material.R.attr.colorOutlineVariant,
+                Palette.Role.LINE);
+        chip.setChipBackgroundColor(checkedColors(chipSelected, chipSurface));
+        chip.setChipStrokeWidth(Math.max(1, dp(1)));
+        chip.setChipStrokeColor(checkedColors(chipSelected, chipOutline));
+        chip.setTextColor(checkedColors(chipTextSelected, chipText));
+        chip.setEnsureMinTouchTargetSize(true);
+    }
+
     /**
-     * The Optics head: title, page reset, and the locked reason. The reason
-     * sits outside the dimmed row stack so it stays readable while the rows
-     * are disabled.
+     * The active parameter's readout, above the slider: name and reset on one
+     * line, then value, unit, display-only Δ, and the contract's visible range.
+     */
+    private View buildOpticsReadout() {
+        final LinearLayout block = new LinearLayout(this);
+        block.setOrientation(LinearLayout.VERTICAL);
+        block.setPadding(0, dp(6), 0, 0);
+
+        final LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        opticsName = m3Label("", M3Tokens.TypeRole.TITLE_SMALL,
+                m3OnSurface(), tfHan);
+        opticsName.setSingleLine(true);
+        opticsName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        ViewCompat.setAccessibilityHeading(opticsName, true);
+        top.addView(opticsName, new LinearLayout.LayoutParams(0, -2, 1f));
+        opticsReset = m3TextButton("重置", "重置当前参数",
+                m3OnSurfaceVariant(), this::resetActiveOptics);
+        top.addView(opticsReset, new LinearLayout.LayoutParams(-2, dp(48)));
+        block.addView(top, new LinearLayout.LayoutParams(-1, -2));
+
+        final LinearLayout values = new LinearLayout(this);
+        values.setOrientation(LinearLayout.HORIZONTAL);
+        values.setGravity(android.view.Gravity.BOTTOM);
+        opticsValue = m3Label("", M3Tokens.TypeRole.HEADLINE_SMALL,
+                m3Primary(), tfDisplay);
+        values.addView(opticsValue);
+        opticsUnit = m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurfaceVariant(), tfBody);
+        final LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
+        unitLp.leftMargin = dp(4);
+        unitLp.bottomMargin = dp(4);
+        values.addView(opticsUnit, unitLp);
+        opticsDelta = m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurfaceVariant(), tfDisplay);
+        final LinearLayout.LayoutParams deltaLp = new LinearLayout.LayoutParams(-2, -2);
+        deltaLp.leftMargin = dp(10);
+        deltaLp.bottomMargin = dp(4);
+        values.addView(opticsDelta, deltaLp);
+        block.addView(values, new LinearLayout.LayoutParams(-1, -2));
+
+        opticsRange = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfHan);
+        opticsRange.setSingleLine(false);
+        block.addView(opticsRange, new LinearLayout.LayoutParams(-1, -2));
+        return block;
+    }
+
+    /** A label + current choice + arrow, the same shape as the paper picker. */
+    private MaterialButton opticsChoiceRow(LinearLayout parent, String title,
+                                           Runnable open) {
+        final boolean stacked = largeText();
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(MIN_TOUCH_DP));
+        final TextView titleView = m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurfaceVariant(), tfHan);
+        row.addView(titleView, stacked
+                ? new LinearLayout.LayoutParams(-1, -2)
+                : new LinearLayout.LayoutParams(0, -2, 1f));
+        final MaterialButton button = m3TextButton("", title, m3Primary(), open);
+        button.setGravity(stacked
+                ? (android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL)
+                : (android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL));
+        button.setSingleLine(false);
+        button.setMaxLines(2);
+        row.addView(button, stacked
+                ? new LinearLayout.LayoutParams(-1, dp(MIN_TOUCH_DP))
+                : new LinearLayout.LayoutParams(-2, dp(MIN_TOUCH_DP)));
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return button;
+    }
+
+    private OpticsDelta.Param activeOptics() {
+        return OpticsDelta.paramAt(activeOptics);
+    }
+
+    /** Bind the one slider and the readout to the strip's active parameter. */
+    private void bindActiveOptics() {
+        if (opticsSlider == null) return;
+        final OpticsDelta.Param spec = activeOptics();
+        final float stored = optics.get(spec);
+        syncingOptics = true;
+        try {
+            // Every contract range contains 1.0, so parking the thumb there is
+            // always inside the previous range. The step is cleared, the upper
+            // bound widened, and only then are the real bounds stated: this
+            // survives every transition, including one into a range whose
+            // lower bound equals the previous upper bound (switch -> filter
+            // strength). The real value is restored below.
+            opticsSlider.setValue(1.0f);
+            opticsSlider.setStepSize(0f);
+            opticsSlider.setValueTo(200.0f);
+            opticsSlider.setValueFrom(spec.min);
+            opticsSlider.setValueTo(spec.max);
+            opticsSlider.setStepSize(spec.step);
+            opticsSlider.setValue(spec.snap(stored));
+        } finally {
+            syncingOptics = false;
+        }
+        showActiveOptics(stored);
+        refreshOpticsChips();
+    }
+
+    /** Show a value in the head without moving the slider or committing. */
+    private void showActiveOptics(float value) {
+        final OpticsDelta.Param spec = activeOptics();
+        final String number = OpticsDelta.valueText(value);
+        final String delta = OpticsDelta.text(value, spec.defaultValue);
+        final boolean moved = !spec.isDefault(value);
+        final int color = moved ? m3Primary() : m3OnSurfaceVariant();
+        opticsName.setText(spec.label);
+        opticsValue.setText(number);
+        opticsUnit.setText(spec.unit);
+        opticsDelta.setText("Δ " + delta);
+        opticsDelta.setTextColor(color);
+        opticsReset.setTextColor(color);
+        opticsRange.setText("范围 " + OpticsDelta.valueText(spec.min) + " – "
+                + OpticsDelta.valueText(spec.max) + " " + spec.unit
+                + " · 步进 " + stepText(spec.step)
+                + outsideRangeNote(spec, value));
+        opticsSlider.setContentDescription(spec.label);
+        // The slider's own RangeInfo carries the real float range; the state
+        // description carries the value the Look actually holds, which may be
+        // outside the M3 slider's cap on an older Look.
+        ViewCompat.setStateDescription(opticsSlider,
+                number + " " + spec.unit + "，Δ " + delta + outsideRangeNote(spec, value));
+        opticsReset.setContentDescription("重置" + spec.label + "为 "
+                + OpticsDelta.valueText(spec.defaultValue) + " " + spec.unit);
+    }
+
+    private static String outsideRangeNote(OpticsDelta.Param spec, float value) {
+        if (value > spec.max + 0.0005f) {
+            return "，高于滑杆上限 " + OpticsDelta.valueText(spec.max) + " " + spec.unit;
+        }
+        if (value < spec.min - 0.0005f) {
+            return "，低于滑杆下限 " + OpticsDelta.valueText(spec.min) + " " + spec.unit;
+        }
+        return "";
+    }
+
+    private static String stepText(float step) {
+        return Math.abs(step - Math.round(step)) < 0.001f
+                ? String.format(java.util.Locale.US, "%.0f", step)
+                : String.format(java.util.Locale.US, "%.2f", step);
+    }
+
+    /** Select a strip chip: one UI selection, no Look change and no render. */
+    private void selectOptics(int index) {
+        final OpticsDelta.Param spec = OpticsDelta.paramAt(index);
+        if (activeOptics == spec.ordinal() && opticsSlider != null) {
+            // A checkable chip toggles itself on click; the strip has exactly
+            // one selection, so put the check back where it belongs.
+            refreshOpticsChips();
+            return;
+        }
+        activeOptics = spec.ordinal();
+        bindActiveOptics();
+    }
+
+    private void refreshOpticsChips() {
+        for (int i = 0; i < opticsChips.size(); ++i) {
+            final Chip chip = opticsChips.get(i);
+            final boolean active = i == activeOptics;
+            chip.setChecked(active);
+            chip.setContentDescription(OpticsDelta.paramAt(i).label + "，参数 "
+                    + (i + 1) + " / " + opticsChips.size()
+                    + (active ? "，已选中" : "，未选中"));
+        }
+        if (opticsStripScroll != null && activeOptics >= 0
+                && activeOptics < opticsChips.size()) {
+            final Chip active = opticsChips.get(activeOptics);
+            opticsStripScroll.post(() -> opticsStripScroll.smoothScrollTo(
+                    Math.max(0, active.getLeft() - dp(24)), 0));
+        }
+    }
+
+    /** One render after a settled keyboard/TalkBack change. */
+    private void scheduleOpticsCommit(Slider slider) {
+        slider.removeCallbacks(opticsCommitRunnable);
+        slider.postDelayed(opticsCommitRunnable, OPTICS_COMMIT_DELAY_MS);
+    }
+
+    /** Reset only the active parameter; already at default is a no-op. */
+    private void resetActiveOptics() {
+        if (!opticsUnlocked) {
+            showSnackbar(opticsLockReason());
+            return;
+        }
+        final OpticsDelta.Param spec = activeOptics();
+        if (spec.isDefault(optics.get(spec))) return;
+        optics.reset(spec);
+        bindActiveOptics();
+        refreshReadoutStrip();
+        commitOptics();
+    }
+
+    private void showCameraFilterPicker() {
+        if (!opticsUnlocked) {
+            showSnackbar(opticsLockReason());
+            return;
+        }
+        final OpticsDelta.CameraFilter[] all = OpticsDelta.CameraFilter.values();
+        final List<String> labels = new ArrayList<>();
+        for (OpticsDelta.CameraFilter filter : all) labels.add(filter.label);
+        final int selected = OpticsDelta.CameraFilter.fromWire(optics.cameraFilter).ordinal();
+        showChoiceSheet("镜头滤镜 / CAMERA FILTER",
+                "Wratten 滤镜在镜头前；放大机的滤色片属于相纸阶段",
+                labels, selected, picked -> {
+                    if (picked < 0 || picked >= all.length) return;
+                    final OpticsDelta.CameraFilter chosen = all[picked];
+                    if (chosen.wire.equals(optics.cameraFilter)) return;
+                    optics.cameraFilter = chosen.wire;
+                    syncOpticsChoices();
+                    commitOptics();
+                });
+    }
+
+    private void showProtectionNormPicker() {
+        if (!opticsUnlocked) {
+            showSnackbar(opticsLockReason());
+            return;
+        }
+        final OpticsDelta.ProtectionNorm[] all = OpticsDelta.ProtectionNorm.values();
+        final List<String> labels = new ArrayList<>();
+        for (OpticsDelta.ProtectionNorm norm : all) labels.add(norm.label);
+        final int selected = OpticsDelta.ProtectionNorm.fromWire(optics.sceneNorm).ordinal();
+        showChoiceSheet("保护基准 / PROTECTION NORM",
+                "高光与暗部保护按这个场景测量计算，不改变保护量",
+                labels, selected, picked -> {
+                    if (picked < 0 || picked >= all.length) return;
+                    final OpticsDelta.ProtectionNorm chosen = all[picked];
+                    if (chosen.wire.equals(optics.sceneNorm)) return;
+                    optics.sceneNorm = chosen.wire;
+                    syncOpticsChoices();
+                    commitOptics();
+                });
+    }
+
+    private void syncOpticsChoices() {
+        if (opticsFilterButton != null) {
+            final String label = OpticsDelta.CameraFilter.fromWire(optics.cameraFilter).label;
+            opticsFilterButton.setText(label + "  ↓");
+            opticsFilterButton.setContentDescription(
+                    "镜头滤镜，当前 " + label + "，双击选择");
+        }
+        if (opticsNormButton != null) {
+            final String label = OpticsDelta.ProtectionNorm.fromWire(optics.sceneNorm).label;
+            opticsNormButton.setText(label + "  ↓");
+            opticsNormButton.setContentDescription(
+                    "保护基准，当前 " + label + "，双击选择");
+        }
+    }
+
+    /**
+     * The Optics head: title and the locked reason. The reset lives on the
+     * active parameter's row, so it can only touch the one parameter in view.
      */
     private View buildOpticsHead() {
         final LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
 
         final LinearLayout titles = new LinearLayout(this);
@@ -2710,11 +3293,9 @@ public class MainActivity extends AppCompatActivity {
         opticsLockNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
         opticsLockNote.setVisibility(View.GONE);
         titles.addView(opticsLockNote, new LinearLayout.LayoutParams(-1, -2));
-        head.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
-
-        MaterialButton resetView = m3TextButton("重置当前页", "重置当前页",
-                m3OnSurfaceVariant(), this::resetOpticsPanel);
-        head.addView(resetView, new LinearLayout.LayoutParams(-2, dp(48)));
+        head.addView(titles, largeText()
+                ? new LinearLayout.LayoutParams(-1, -2)
+                : new LinearLayout.LayoutParams(0, -2, 1f));
         return head;
     }
 
@@ -2727,7 +3308,7 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.addView(sectionHead("PHYSICAL SCALE / 光学尺度", this::resetFormatPanel),
-                new LinearLayout.LayoutParams(-1, dp(SECTION_HEAD_HEIGHT_DP)));
+                new LinearLayout.LayoutParams(-1, -2));
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
         scroll.setClipToPadding(false);
@@ -2885,14 +3466,122 @@ public class MainActivity extends AppCompatActivity {
             final View target = formatCards.get(index);
             formatScroll.post(() -> formatScroll.smoothScrollTo(Math.max(0, target.getLeft() - dp(8)), 0));
         }
+        syncRebatePage();
         onEdgeChanged();
     }
 
     private LinearLayout buildEdgePanel() {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
-                new LinearLayout.LayoutParams(-1, dp(SECTION_HEAD_HEIGHT_DP)));
+        rebateRefreshers.clear();
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        edgeHome = buildEdgeHome();
+        rebatePage = buildRebatePage();
+        datePage = buildDatePage();
+        root.addView(edgeHome, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(rebatePage, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(datePage, new LinearLayout.LayoutParams(-1, -2));
+        openEdgePage(edgePageIndex);
+        syncRebatePage();
+        syncDatePage();
+        return root;
+    }
+
+    /** The Edge landing page: one card per edge feature. */
+    private LinearLayout buildEdgeHome() {
+        final LinearLayout home = new LinearLayout(this);
+        home.setOrientation(LinearLayout.VERTICAL);
+        home.addView(sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
+                new LinearLayout.LayoutParams(-1, -2));
+
+        final HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        scroll.setClipToPadding(false);
+        final LinearLayout strip = new LinearLayout(this);
+        strip.setOrientation(LinearLayout.HORIZONTAL);
+        strip.setPadding(0, dp(4), 0, dp(4));
+
+        final MaterialCardView rebateCard = edgeEntryCard("片边  REBATE",
+                this::rebateSummary, "打开片边设置", () -> openEdgePage(0));
+        strip.addView(rebateCard, edgeCardParams());
+        final MaterialCardView dateCard = edgeEntryCard("日期水印  DATE BACK",
+                this::dateSummary, "打开日期水印设置", () -> openEdgePage(1));
+        strip.addView(dateCard, edgeCardParams());
+
+        scroll.addView(strip, new android.widget.FrameLayout.LayoutParams(-2, -2));
+        home.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
+
+        final TextView note = m3Label("片门与尺度联动；片边只在这张图可用的片门里选",
+                M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfHan);
+        final LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
+        noteLp.topMargin = dp(8);
+        home.addView(note, noteLp);
+        return home;
+    }
+
+    private LinearLayout.LayoutParams edgeCardParams() {
+        final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(176), -2);
+        lp.rightMargin = dp(8);
+        return lp;
+    }
+
+    /**
+     * One Edge entry card: the feature name, a live summary, and a chevron.
+     * The summary is a supplier so the card never keeps a second copy of the
+     * Look; {@link #refreshEdgeCards()} repaints it after every change.
+     */
+    private MaterialCardView edgeEntryCard(String title,
+                                           java.util.function.Supplier<String> summary,
+                                           String description, Runnable onOpen) {
+        final MaterialCardView card = new MaterialCardView(this);
+        card.setCardElevation(0f);
+        card.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
+        card.setStrokeWidth(dp(1));
+        card.setCardBackgroundColor(m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerLow,
+                Palette.Role.SURFACE_ELEVATED));
+        card.setStrokeColor(m3OutlineVariant());
+        card.setClickable(true);
+        card.setFocusable(true);
+
+        final LinearLayout stack = new LinearLayout(this);
+        stack.setOrientation(LinearLayout.VERTICAL);
+        stack.setPadding(dp(12), dp(10), dp(12), dp(10));
+
+        final LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        final TextView name = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
+        name.setMaxLines(2);
+        titleRow.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+        titleRow.addView(m3Label("›", M3Tokens.TypeRole.TITLE_SMALL, m3OnSurfaceVariant(), tfBody));
+        stack.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
+
+        final TextView summaryView = m3Label(summary.get(),
+                M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfHan);
+        final LinearLayout.LayoutParams summaryLp = new LinearLayout.LayoutParams(-1, -2);
+        summaryLp.topMargin = dp(6);
+        stack.addView(summaryView, summaryLp);
+
+        card.addView(stack, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        card.setOnClickListener(v -> onOpen.run());
+        rebateRefreshers.add(() -> {
+            final String text = summary.get();
+            summaryView.setText(text);
+            card.setContentDescription(description + "，" + text);
+        });
+        return card;
+    }
+
+    /**
+     * The Rebate secondary page. Its switch owns whether the controls are
+     * enabled; they stay visible and dimmed while off, so the page explains
+     * what is available without pretending the controls work.
+     */
+    private LinearLayout buildRebatePage() {
+        final LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setVisibility(View.GONE);
+        page.addView(edgePageHead("片边 / REBATE"), new LinearLayout.LayoutParams(-1, -2));
 
         final int onSurface = m3Role(
                 com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
@@ -2900,74 +3589,604 @@ public class MainActivity extends AppCompatActivity {
                 com.google.android.material.R.attr.colorOnSurfaceVariant,
                 Palette.Role.MUTED_INK);
 
-        overscanSwitch = new MaterialSwitch(this);
-        overscanToggleRow = switchRow("片边（胶片边缘）", null, overscanSwitch,
-                () -> overscanOn, on -> {
-                    if (on && edgeIds.isEmpty()) {
-                        showSnackbar("这张图的长宽比不对应任何片门");
-                        return;
-                    }
-                    overscanOn = on;
-                    onEdgeChanged();
-                });
-        panel.addView(overscanToggleRow, new LinearLayout.LayoutParams(-1, dp(56)));
+        rebateSwitch = new MaterialSwitch(this);
+        page.addView(switchRow("开启片边", null, rebateSwitch, () -> overscanOn, on -> {
+            if (on && !GateScale.canHostRebate(sourceWidth, sourceHeight)) {
+                showSnackbar("这张图的长宽比不对应任何片门");
+                syncRebatePage();
+                return;
+            }
+            overscanOn = on;
+            syncRebatePage();
+            commitRebate();
+        }), new LinearLayout.LayoutParams(-1, dp(56)));
 
-        final MaterialCardView gateCard = new MaterialCardView(this);
-        gateCard.setCardElevation(0f);
-        gateCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
-        gateCard.setStrokeWidth(dp(1));
-        gateCard.setCardBackgroundColor(m3Role(
+        rebateControls = new LinearLayout(this);
+        rebateControls.setOrientation(LinearLayout.VERTICAL);
+
+        rebateGateValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateGateCard = new MaterialCardView(this);
+        rebateGateCard.setCardElevation(0f);
+        rebateGateCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
+        rebateGateCard.setStrokeWidth(dp(1));
+        rebateGateCard.setCardBackgroundColor(m3Role(
                 com.google.android.material.R.attr.colorSurfaceContainerLow,
                 Palette.Role.SURFACE_ELEVATED));
-        gateCard.setStrokeColor(m3Role(
-                com.google.android.material.R.attr.colorOutlineVariant,
-                Palette.Role.LINE));
-        gateCard.setClickable(true);
-        gateCard.setFocusable(true);
-        gateCard.setContentDescription("选择片门格式");
-        gateCard.setOnClickListener(v -> showEdgePicker());
-
-        LinearLayout gateRow = new LinearLayout(this);
+        rebateGateCard.setStrokeColor(m3OutlineVariant());
+        rebateGateCard.setClickable(true);
+        rebateGateCard.setFocusable(true);
+        rebateGateCard.setOnClickListener(v -> showEdgePicker());
+        final LinearLayout gateRow = new LinearLayout(this);
         gateRow.setOrientation(LinearLayout.HORIZONTAL);
         gateRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
         gateRow.setPadding(dp(14), 0, dp(14), 0);
         gateRow.addView(m3Label("片门格式", M3Tokens.TypeRole.BODY_MEDIUM,
-                        onSurfaceVariant, tfHan),
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        edgeValue = m3Label(GateScale.resolve(overscanFormat, filmFormatMm).label,
-                M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        edgeValue.setGravity(android.view.Gravity.END);
-        gateRow.addView(edgeValue, new LinearLayout.LayoutParams(-2, -2));
-        TextView edgeArrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
+                onSurfaceVariant, tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
+        rebateGateValue.setGravity(android.view.Gravity.END);
+        gateRow.addView(rebateGateValue, new LinearLayout.LayoutParams(-2, -2));
+        final TextView gateArrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
                 onSurfaceVariant, tfBody);
-        LinearLayout.LayoutParams edgeArrowLp = new LinearLayout.LayoutParams(-2, -2);
-        edgeArrowLp.leftMargin = dp(7);
-        gateRow.addView(edgeArrow, edgeArrowLp);
-        gateCard.addView(gateRow, new android.widget.FrameLayout.LayoutParams(-1, -1));
-        LinearLayout.LayoutParams gateCardLp = new LinearLayout.LayoutParams(-1, dp(52));
-        gateCardLp.topMargin = dp(4);
-        gateCardLp.bottomMargin = dp(4);
-        panel.addView(gateCard, gateCardLp);
+        final LinearLayout.LayoutParams gateArrowLp = new LinearLayout.LayoutParams(-2, -2);
+        gateArrowLp.leftMargin = dp(7);
+        gateRow.addView(gateArrow, gateArrowLp);
+        rebateGateCard.addView(gateRow,
+                new android.widget.FrameLayout.LayoutParams(-1, -1));
+        rebateRefreshers.add(() -> {
+            final String label = edgeIds.isEmpty()
+                    ? "无可用片门"
+                    : GateScale.resolve(overscanFormat, filmFormatMm).label;
+            rebateGateValue.setText(label);
+            rebateGateCard.setContentDescription("片门格式，" + label);
+        });
+        final LinearLayout.LayoutParams gateLp = new LinearLayout.LayoutParams(-1, dp(52));
+        gateLp.bottomMargin = dp(4);
+        rebateControls.addView(rebateGateCard, gateLp);
+
+        edgeTextSwitch = new MaterialSwitch(this);
+        rebateControls.addView(switchRow("片边文字（厂标 / 张数）", null,
+                edgeTextSwitch, () -> edgeTextOn, on -> {
+                    edgeTextOn = on;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, dp(56)));
+
+        rebateFogValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateFogSlider = rebateSliderRow(rebateControls, "片基雾",
+                "片基本身的灰雾。0 是完全透明，越大越脏",
+                RebateControls.FOG_MIN, RebateControls.FOG_MAX, 0.05f,
+                RebateControls.clampFog(edgeFog),
+                value -> String.format(java.util.Locale.US, "%.2f", value),
+                value -> edgeFog = RebateControls.clampFog(value),
+                () -> edgeFog, rebateFogValue);
+
+        rebateLeaksValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateLeaksSlider = rebateSliderRow(rebateControls, "漏光",
+                "卷轴漏进来的光，从片边渗向画面",
+                RebateControls.LEAKS_MIN, RebateControls.LEAKS_MAX, 0.05f,
+                RebateControls.clampLeaks(edgeLeaks),
+                value -> String.format(java.util.Locale.US, "%.2f", value),
+                value -> edgeLeaks = RebateControls.clampLeaks(value),
+                () -> edgeLeaks, rebateLeaksValue);
+
+        rebateFrameNoValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateFrameNoSlider = rebateSliderRow(rebateControls, "片边张数",
+                "片边上印的张数。0 = 按 seed 随机",
+                RebateControls.FRAME_NUMBER_MIN, RebateControls.FRAME_NUMBER_MAX, 1f,
+                RebateControls.clampFrameNumber(frameNumber),
+                value -> value < 0.5f ? "自动" : String.valueOf(Math.round(value)),
+                value -> frameNumber = RebateControls.clampFrameNumber(value),
+                () -> frameNumber, rebateFrameNoValue);
+
+        rebateFNumberValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateFNumberSlider = rebateSliderRow(rebateControls, "光圈值",
+                "相机记录的 f 值。决定片门边缘的虚化。0 = 未知（按 f/5.6）",
+                RebateControls.F_NUMBER_MIN, RebateControls.F_NUMBER_MAX, 1f,
+                RebateControls.clampFNumber(edgeFNumber),
+                value -> value < 0.5f
+                        ? "未知"
+                        : "f/" + String.format(java.util.Locale.US, "%.1f", value),
+                value -> edgeFNumber = RebateControls.clampFNumber(value),
+                () -> edgeFNumber, rebateFNumberValue);
+
+        rebateModeValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateControls.addView(edgeChoiceRow("片边模式", rebateModeValue, RebateControls.MODES,
+                () -> edgeMode, id -> {
+                    edgeMode = id;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateGateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateControls.addView(edgeChoiceRow("片门形状", rebateGateStyleValue,
+                RebateControls.GATE_STYLES, () -> edgeGate, id -> {
+                    edgeGate = id;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateHolesValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateControls.addView(edgeChoiceRow("齿孔", rebateHolesValue, RebateControls.HOLES,
+                () -> edgeHoles, id -> {
+                    edgeHoles = id;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateCarrierValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateControls.addView(edgeChoiceRow("片夹", rebateCarrierValue,
+                RebateControls.CARRIERS, () -> edgeCarrier, id -> {
+                    edgeCarrier = id;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateCameraSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateControls.addView(rebateValueRow("片边种子", rebateCameraSeedValue,
+                () -> String.valueOf(cameraSeed),
+                () -> askSeed("片边随机种子（0 – 2147483647）", cameraSeed, value -> {
+                    cameraSeed = value;
+                    syncRebatePage();
+                    commitRebate();
+                })), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateFrameSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
+                () -> String.valueOf(frameSeed),
+                () -> askSeed("帧随机种子（0 – 2147483647）", frameSeed, value -> {
+                    frameSeed = value;
+                    syncRebatePage();
+                    commitRebate();
+                })), new LinearLayout.LayoutParams(-1, -2));
+
+        page.addView(rebateControls, new LinearLayout.LayoutParams(-1, -2));
+        return page;
+    }
+
+    /**
+     * The Date back secondary page. It follows the Rebate page's shape: its
+     * switch owns whether the controls are enabled, and the controls stay
+     * visible and dimmed while off. The default text comes from the Frame's
+     * EXIF capture date; a custom text is sent to the engine exactly as typed.
+     */
+    private LinearLayout buildDatePage() {
+        final LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setVisibility(View.GONE);
+        page.addView(edgePageHead("日期水印 / DATE BACK"), new LinearLayout.LayoutParams(-1, -2));
+
+        final int onSurface = m3Role(
+                com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
+        final int onSurfaceVariant = m3Role(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
 
         dateSwitch = new MaterialSwitch(this);
-        dateDetail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                onSurfaceVariant, tfBody);
-        dateDetail.setVisibility(View.GONE);
-        dateToggleRow = switchRow("日期水印", dateDetail, dateSwitch, () -> dateOn, on -> {
+        dateDetail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
+        page.addView(switchRow("开启日期水印", dateDetail, dateSwitch, () -> dateOn, on -> {
             dateOn = on;
-            if (dateOn && dateText == null) dateText = imprintDate();
-            syncDateDetail();
-            onEdgeChanged();
-        });
-        panel.addView(dateToggleRow, new LinearLayout.LayoutParams(-1, dp(56)));
+            syncDatePage();
+            commitRebate();
+        }), new LinearLayout.LayoutParams(-1, dp(56)));
 
-        TextView note = m3Label("片门与尺度联动；片边只在这张图可用的片门里选",
-                M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
-        LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
-        noteLp.topMargin = dp(8);
-        panel.addView(note, noteLp);
-        syncDateDetail();
-        return panel;
+        dateControls = new LinearLayout(this);
+        dateControls.setOrientation(LinearLayout.VERTICAL);
+
+        // The one field the app used to decide for the user: the EXIF date is
+        // the default, but the imprint has always been editable.
+        dateTextValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(rebateValueRow("日期文字", dateTextValue,
+                this::effectiveDateText, () -> {
+                    askText("印在画面上的日期（可以自己写）", effectiveDateText(), value -> {
+                        dateText = value == null || value.trim().isEmpty()
+                                ? null : value.trim();
+                        syncDatePage();
+                        commitRebate();
+                    });
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        dateInsetXValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        dateInsetXSlider = rebateSliderRow(dateControls, "左右内边距",
+                "字到片门左右边的距离，毫米",
+                DateBack.INSET_MIN, DateBack.INSET_MAX, 0.1f,
+                DateBack.clampInset(dateInsetX),
+                value -> String.format(java.util.Locale.US, "%.1f mm", value),
+                value -> dateInsetX = DateBack.clampInset(value),
+                () -> dateInsetX, dateInsetXValue);
+
+        dateInsetYValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        dateInsetYSlider = rebateSliderRow(dateControls, "上下内边距",
+                "字到片门上下边的距离，毫米",
+                DateBack.INSET_MIN, DateBack.INSET_MAX, 0.1f,
+                DateBack.clampInset(dateInsetY),
+                value -> String.format(java.util.Locale.US, "%.1f mm", value),
+                value -> dateInsetY = DateBack.clampInset(value),
+                () -> dateInsetY, dateInsetYValue);
+
+        dateSizeValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        dateSizeSlider = rebateSliderRow(dateControls, "日期大小",
+                "相对该样式的字高",
+                DateBack.SIZE_MIN, DateBack.SIZE_MAX, 0.05f,
+                DateBack.clampSize(dateSize),
+                value -> String.format(java.util.Locale.US, "%.2f×", value),
+                value -> dateSize = DateBack.clampSize(value),
+                () -> dateSize, dateSizeValue);
+
+        dateEvValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        dateEvSlider = rebateSliderRow(dateControls, "日期亮度",
+                "红光在 18% 灰之上的曝光，单位挡",
+                DateBack.EV_MIN, DateBack.EV_MAX, 0.1f,
+                DateBack.clampEv(dateEv),
+                value -> String.format(java.util.Locale.US, "%+.1f EV", value),
+                value -> dateEv = DateBack.clampEv(value),
+                () -> dateEv, dateEvValue);
+
+        datePlacementValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(edgeChoiceRow("日期位置", datePlacementValue,
+                DateBack.PLACEMENTS, () -> datePlacement, id -> {
+                    datePlacement = id;
+                    syncDatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        dateCornerValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(edgeChoiceRow("日期角位", dateCornerValue,
+                DateBack.CORNERS, () -> dateCorner, id -> {
+                    dateCorner = id;
+                    syncDatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        dateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(edgeChoiceRow("日期样式", dateStyleValue,
+                DateBack.STYLES, () -> dateStyle, id -> {
+                    dateStyle = id;
+                    syncDatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        dateDataValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(rebateValueRow("拍摄数据", dateDataValue,
+                () -> dataText.isEmpty() ? "（空）" : dataText,
+                () -> askText("拍摄数据（和日期一起印在片边）", dataText, value -> {
+                    dataText = value == null ? "" : value.trim();
+                    syncDatePage();
+                    commitRebate();
+                })), new LinearLayout.LayoutParams(-1, -2));
+
+        dateTextBValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(rebateValueRow("第二帧日期", dateTextBValue,
+                () -> dateTextB.isEmpty() ? "（空）" : dateTextB,
+                () -> askText("半格对的第二帧日期（用不到就留空）", dateTextB, value -> {
+                    dateTextB = value == null ? "" : value.trim();
+                    syncDatePage();
+                    commitRebate();
+                })), new LinearLayout.LayoutParams(-1, -2));
+
+        page.addView(dateControls, new LinearLayout.LayoutParams(-1, -2));
+        return page;
+    }
+
+    /** Back plus the page name; the two pages share one header shape. */
+    private View edgePageHead(String title) {
+        final LinearLayout head = new LinearLayout(this);
+        head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        final MaterialButton back = m3TextButton("‹ 返回", "返回边框页",
+                m3Primary(), () -> openEdgePage(-1));
+        head.addView(back, new LinearLayout.LayoutParams(-2, dp(48)));
+        final TextView name = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL,
+                m3OnSurfaceVariant());
+        final LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
+                largeText() ? -1 : 0, -2, largeText() ? 0f : 1f);
+        nameLp.leftMargin = largeText() ? 0 : dp(8);
+        head.addView(name, nameLp);
+        return head;
+    }
+
+    /** -1 = the two cards, 0 = the Rebate page, 1 = the Date back page. */
+    private void openEdgePage(int which) {
+        edgePageIndex = which;
+        if (edgeHome != null) {
+            edgeHome.setVisibility(which < 0 ? View.VISIBLE : View.GONE);
+        }
+        if (rebatePage != null) {
+            rebatePage.setVisibility(which == 0 ? View.VISIBLE : View.GONE);
+        }
+        if (datePage != null) {
+            datePage.setVisibility(which == 1 ? View.VISIBLE : View.GONE);
+        }
+        if (which == 0) syncRebatePage();
+        if (which == 1) syncDatePage();
+        refreshEdgeCards();
+        // The panel is one ScrollView; a page opens at its own top.
+        if (panels != null && activeTabIndex == 3 && panels[3] instanceof ScrollView) {
+            ((ScrollView) panels[3]).scrollTo(0, 0);
+        }
+    }
+
+    /** Repaint the entry cards and every chosen row from the live Look. */
+    private void refreshEdgeCards() {
+        for (int i = 0; i < rebateRefreshers.size(); ++i) rebateRefreshers.get(i).run();
+    }
+
+    private String rebateSummary() {
+        if (!GateScale.canHostRebate(sourceWidth, sourceHeight)) return "这张图没有可用片门";
+        if (!overscanOn) return "未开启 · 点进去设置";
+        final String gate = edgeIds.isEmpty()
+                ? gateLabel(overscanFormat)
+                : GateScale.resolve(overscanFormat, filmFormatMm).label;
+        return gate + " · 雾 " + fmt1(edgeFog) + " · 漏光 " + fmt1(edgeLeaks)
+                + " · 张数 " + (frameNumber < 0.5f
+                        ? "自动" : String.valueOf(Math.round(frameNumber)));
+    }
+
+    private String dateSummary() {
+        if (!dateOn) return "未开启 · 点进去设置";
+        return ControlChoice.labelOf(DateBack.PLACEMENTS, datePlacement)
+                + ControlChoice.labelOf(DateBack.CORNERS, dateCorner)
+                + " · " + ControlChoice.labelOf(DateBack.STYLES, dateStyle)
+                + " · " + effectiveDateText();
+    }
+
+    private static String fmt1(float value) {
+        return String.format(java.util.Locale.US, "%.1f", value);
+    }
+
+    /**
+     * Fill the Rebate page from the live fields. It runs after a Look restore,
+     * a Gate change, or a page open, so the page never keeps a second copy of
+     * the Look. The switch guard keeps the slider listeners from committing a
+     * render while they are being moved into place.
+     */
+    private void syncRebatePage() {
+        if (rebateSwitch == null) return;
+        syncingRebate = true;
+        syncingToggles = true;
+        try {
+            rebateSwitch.setChecked(overscanOn);
+            rebateSwitch.setContentDescription(toggleDescription("开启片边", overscanOn));
+            if (edgeTextSwitch != null) {
+                edgeTextSwitch.setChecked(edgeTextOn);
+                edgeTextSwitch.setContentDescription(
+                        toggleDescription("片边文字（厂标 / 张数）", edgeTextOn));
+            }
+            refreshEdgeCards();
+        } finally {
+            syncingRebate = false;
+            syncingToggles = false;
+        }
+        setEnabledDeep(rebateControls, overscanOn);
+    }
+
+    /**
+     * Fill the Date back page from the live fields. Like the Rebate page it
+     * runs after a Look restore or a page open, and its guard keeps the slider
+     * listeners from committing a render while they are being moved into place.
+     */
+    private void syncDatePage() {
+        if (dateSwitch == null) return;
+        syncingRebate = true;
+        syncingToggles = true;
+        try {
+            dateSwitch.setChecked(dateOn);
+            dateSwitch.setContentDescription(toggleDescription("开启日期水印", dateOn));
+            syncDateDetail();
+            refreshEdgeCards();
+        } finally {
+            syncingRebate = false;
+            syncingToggles = false;
+        }
+        setEnabledDeep(dateControls, dateOn);
+    }
+
+    /** Dim and disable a whole control group without hiding what it offers. */
+    private static void setEnabledDeep(View view, boolean enabled) {
+        if (view == null) return;
+        setEnabledRecursive(view, enabled);
+        // One 38 % overlay for the group; setting it on every child too would
+        // compound the opacity and make nested labels unreadable.
+        view.setAlpha(enabled ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
+    }
+
+    private static void setEnabledRecursive(View view, boolean enabled) {
+        view.setEnabled(enabled);
+        if (view instanceof android.view.ViewGroup) {
+            final android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); ++i) {
+                setEnabledRecursive(group.getChildAt(i), enabled);
+            }
+        }
+    }
+
+    /** A slider, its label, and its live value; the page owns four of them. */
+    private Slider rebateSliderRow(LinearLayout parent, String name, String hint,
+                                   float min, float max, float step, float initial,
+                                   java.util.function.Function<Float, String> format,
+                                   java.util.function.Consumer<Float> apply,
+                                   java.util.function.Supplier<Float> current,
+                                   TextView valueView) {
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dp(4), 0, 0);
+
+        final LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        head.addView(m3Label(name, M3Tokens.TypeRole.BODY_MEDIUM,
+                m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
+                tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
+        valueView.setText(format.apply(initial));
+        applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfBody);
+        valueView.setTextColor(m3Primary());
+        head.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
+        row.addView(head, new LinearLayout.LayoutParams(-1, -2));
+
+        if (hint != null && !hint.isEmpty()) {
+            final TextView note = m3Label(hint, M3Tokens.TypeRole.LABEL_SMALL,
+                    m3OnSurfaceVariant(), tfHan);
+            note.setLineSpacing(dp(2), 1f);
+            final LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
+            noteLp.topMargin = dp(1);
+            row.addView(note, noteLp);
+        }
+
+        final Slider bar = new Slider(this);
+        bar.setId(View.generateViewId());
+        bar.setValueFrom(min);
+        bar.setValueTo(max);
+        bar.setStepSize(step);
+        bar.setValue(snapToStep(clampToSlider(initial, min, max), min, step));
+        bar.setMinimumHeight(dp(48));
+        bar.setLabelFormatter(value -> format.apply(value));
+        bar.setLabelBehavior(com.google.android.material.slider.LabelFormatter.LABEL_GONE);
+        bar.setContentDescription(name);
+        valueView.setLabelFor(bar.getId());
+        bar.addOnChangeListener((slider, value, fromUser) -> {
+            valueView.setText(format.apply(value));
+            // A programmatic park (a Look restore, a page refresh) moves the
+            // thumb only. Writing the snapped step back would replace a stored
+            // 2.43 mm with 2.4 before the user touched anything.
+            if (!fromUser) return;
+            apply.accept(value);
+            if (!syncingRebate) {
+                slider.removeCallbacks(rebateCommit);
+                slider.postDelayed(rebateCommit, OPTICS_COMMIT_DELAY_MS);
+            }
+        });
+        bar.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+            @Override public void onStartTrackingTouch(Slider slider) {
+                slider.removeCallbacks(rebateCommit);
+            }
+            @Override public void onStopTrackingTouch(Slider slider) {
+                slider.removeCallbacks(rebateCommit);
+                commitRebate();
+            }
+        });
+        rebateRefreshers.add(() -> bar.setValue(snapToStep(
+                clampToSlider(current.get(), min, max), min, step)));
+        row.addView(bar, new LinearLayout.LayoutParams(-1, dp(48)));
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return bar;
+    }
+
+    /** A chosen value row backed by the M3 radio sheet; the id is the Look's. */
+    private View edgeChoiceRow(String labelText, TextView valueView,
+                               List<? extends ControlChoice> choices,
+                               java.util.function.Supplier<String> current,
+                               java.util.function.Consumer<String> setter) {
+        return rebateValueRow(labelText, valueView,
+                () -> String.valueOf(ControlChoice.labelOf(choices, current.get())),
+                () -> {
+                    final int selected = ControlChoice.indexOf(choices, current.get());
+                    showChoiceSheet(labelText, "只列出这一版支持的选项",
+                            java.util.Arrays.asList(ControlChoice.labels(choices)),
+                            selected, picked -> {
+                                if (picked < 0 || picked >= choices.size()) return;
+                                setter.accept(choices.get(picked).id);
+                            });
+                });
+    }
+
+    /** A non-sheet row: a label, the live value, and a chevron-like arrow. */
+    private View rebateValueRow(String labelText, TextView valueView,
+                                java.util.function.Supplier<String> current,
+                                Runnable onClick) {
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(52));
+        row.setPadding(dp(2), 0, dp(2), 0);
+        row.addView(m3Label(labelText, M3Tokens.TypeRole.BODY_MEDIUM,
+                m3Role(com.google.android.material.R.attr.colorOnSurfaceVariant,
+                        Palette.Role.MUTED_INK), tfHan),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfHan);
+        valueView.setTextColor(m3OnSurface());
+        valueView.setGravity(android.view.Gravity.END);
+        row.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
+        final TextView arrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
+                m3OnSurfaceVariant(), tfBody);
+        final LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(-2, -2);
+        arrowLp.leftMargin = dp(7);
+        row.addView(arrow, arrowLp);
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setOnClickListener(v -> onClick.run());
+        rebateRefreshers.add(() -> {
+            final String value = current.get();
+            valueView.setText(value);
+            row.setContentDescription(labelText + "，" + value);
+        });
+        return row;
+    }
+
+    /** The date text and the capture-data line are free text, not numbers. */
+    private void askText(String title, String initial, java.util.function.Consumer<String> onValue) {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        input.setText(initial == null ? "" : initial);
+        input.setSelectAllOnFocus(true);
+        input.setSingleLine(false);
+        input.setMinLines(1);
+        input.setMaxLines(3);
+        final int pad = dp(16);
+        input.setPadding(pad, dp(8), pad, dp(8));
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(title)
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) ->
+                        onValue.accept(input.getText().toString()))
+                .show();
+    }
+
+    /** The seeds are arbitrary ints, so they ask for a number rather than a slider. */
+    private void askSeed(String title, int initial, java.util.function.IntConsumer onValue) {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        input.setText(String.valueOf(initial));
+        input.setSelectAllOnFocus(true);
+        input.setSingleLine(true);
+        final int pad = dp(16);
+        input.setPadding(pad, dp(8), pad, dp(8));
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(title)
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    try {
+                        onValue.accept(RebateControls.clampSeed(
+                                Long.parseLong(input.getText().toString().trim())));
+                    } catch (NumberFormatException ignored) {
+                        showSnackbar("请输入 0 到 2147483647 之间的整数");
+                    }
+                })
+                .show();
+    }
+
+    /** A switch change or a chosen row commits one render, not one per frame. */
+    private void commitRebate() {
+        if (syncingRebate) return;
+        onEdgeChanged();
+    }
+
+    private final Runnable rebateCommit = () -> {
+        if (!syncingRebate) onEdgeChanged();
+    };
+
+    private static float clampToSlider(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    /**
+     * Put a stored value on the slider's own step grid. An older Look may hold
+     * a raw engine value (2.43 mm) that is not a multiple of the page's step;
+     * Material's Slider rejects that instead of nudging it.
+     */
+    private static float snapToStep(float value, float min, float step) {
+        if (step <= 0f) return value;
+        final float snapped = min + Math.round((value - min) / step) * step;
+        return Math.round(snapped * 1000f) / 1000f;
     }
 
     private void showEdgePicker() {
@@ -3470,28 +4689,6 @@ public class MainActivity extends AppCompatActivity {
         refreshFilmPanel(true);
     }
 
-    private void resetOpticsPanel() {
-        if (!opticsUnlocked) {
-            showSnackbar(opticsLockReason());
-            return;
-        }
-        final boolean moved =
-                !OpticsDelta.isDefault(printExposure, OpticsDelta.EXPOSURE_DEFAULT)
-                        || !OpticsDelta.isDefault(grainAmount, OpticsDelta.GRAIN_DEFAULT)
-                        || !OpticsDelta.isDefault(halationAmount, OpticsDelta.HALATION_DEFAULT)
-                        || !OpticsDelta.isDefault(glareAmount, OpticsDelta.GLARE_DEFAULT);
-        printExposure = OpticsDelta.EXPOSURE_DEFAULT;
-        grainAmount = OpticsDelta.GRAIN_DEFAULT;
-        halationAmount = OpticsDelta.HALATION_DEFAULT;
-        glareAmount = OpticsDelta.GLARE_DEFAULT;
-        if (exposureRow != null) exposureRow.setValue(printExposure);
-        if (grainRow != null) grainRow.setValue(grainAmount);
-        if (halationRow != null) halationRow.setValue(halationAmount);
-        if (glareRow != null) glareRow.setValue(glareAmount);
-        // The whole page is already neutral: no parameter delta, no render.
-        if (moved) commitOptics();
-    }
-
     private void resetFormatPanel() {
         // The page's default is a Gate, not a bare number: resetting the Scale
         // must not leave the Edge claiming a different piece of film.
@@ -3502,6 +4699,27 @@ public class MainActivity extends AppCompatActivity {
     private void resetEdgePanel() {
         overscanOn = false;
         dateOn = false;
+        dateText = null;
+        edgeMode = "strip";
+        edgeGate = "auto";
+        edgeHoles = "white";
+        edgeCarrier = "none";
+        edgeTextOn = true;
+        edgeFog = 1f;
+        edgeLeaks = 0f;
+        frameNumber = 0f;
+        edgeFNumber = 0f;
+        cameraSeed = 1;
+        frameSeed = 1;
+        datePlacement = "frame";
+        dateCorner = "br";
+        dateStyle = "lcd";
+        dateInsetX = 3f;
+        dateInsetY = 2.4f;
+        dateSize = 1f;
+        dateEv = 3.5f;
+        dataText = "";
+        dateTextB = "";
         syncToggleRows();
         syncDateDetail();
         if (session != null) onEdgeChanged();
@@ -3627,18 +4845,31 @@ public class MainActivity extends AppCompatActivity {
             formatFootValue.setText(mmText(filmFormatMm) + " mm");
         }
         rebuildFormatCards();
+        // The page's Gate row and switch follow the same available set: a shape
+        // no Gate can hold cannot keep the Rebate on.
+        syncRebatePage();
         try {
             DebugSink.text("overscan", "aspect=" + aspect + " gates=" + edgeIds
                     + " chosen=" + overscanFormat + " scale=" + filmFormatMm);
         } catch (Throwable ignored) { }
     }
 
+    /**
+     * A rebate or date change is an edge-only edit: the UI never states the
+     * Look itself. The render thread is the single full-Look writer, so a page
+     * change cannot re-state the whole Look twice or park the UI behind a long
+     * render's lock. When there is nothing to draw, the next render states
+     * everything anyway.
+     */
     private void onEdgeChanged() {
-        applyParams();
-        if (uiReady && session != null) {
-            showingOriginal = false;
-            setOriginalVisual(false);
+        if (!uiReady || session == null || filmStock == null) return;
+        showingOriginal = false;
+        setOriginalVisual(false);
+        try {
             renderImage();
+        } catch (Throwable t) {
+            // A rejected render must not take the UI down with it.
+            showErrorSnackbar("片边没有更新", describe(t));
         }
     }
 
@@ -3649,34 +4880,46 @@ public class MainActivity extends AppCompatActivity {
         return name.toUpperCase(java.util.Locale.US);
     }
 
-    /** "'26 10 31" — a date back's format, from the frame's own EXIF date when
-     *  the file has one, from today when it does not. */
+    /** "'26 10 31" — a typed imprint, or the frame's own EXIF date. */
     private String imprintDate() {
-        if (dateText != null) return dateText;
-        String text = null;
+        if (dateText != null && !dateText.isEmpty()) return dateText;
+        return defaultImprintDate();
+    }
+
+    /**
+     * The Frame's own default: its EXIF capture date, or today when the file
+     * has none. Cached for the open image; a typed text never overwrites it.
+     */
+    private String defaultImprintDate() {
+        if (defaultDateText != null && !defaultDateText.isEmpty()) return defaultDateText;
+        String exif = null;
         try {
             if (sourceUri != null) {
-                String v = null;
                 try (InputStream in = getContentResolver().openInputStream(sourceUri)) {
                     if (in != null) {
-                        v = new android.media.ExifInterface(in)
+                        exif = new android.media.ExifInterface(in)
                                 .getAttribute(android.media.ExifInterface.TAG_DATETIME_ORIGINAL);
                     }
                 }
-                if (v != null && v.length() >= 10) {
-                    text = "'" + v.substring(2, 4) + " " + Integer.parseInt(v.substring(5, 7))
-                            + " " + Integer.parseInt(v.substring(8, 10));
-                }
             }
         } catch (Throwable ignored) { }
+        String text = DateBack.formatExif(exif);
         if (text == null) {
+            // The file has no usable capture date. The page still needs a
+            // starting value, so the caller supplies today's date here rather
+            // than letting the pure formatter read a clock behind its back.
             final java.util.Calendar c = java.util.Calendar.getInstance();
-            text = "'" + (c.get(java.util.Calendar.YEAR) % 100) + " "
-                    + (c.get(java.util.Calendar.MONTH) + 1) + " "
-                    + c.get(java.util.Calendar.DAY_OF_MONTH);
+            text = DateBack.formatDate(c.get(java.util.Calendar.YEAR),
+                    c.get(java.util.Calendar.MONTH) + 1,
+                    c.get(java.util.Calendar.DAY_OF_MONTH));
         }
-        dateText = text;
-        return dateText;
+        defaultDateText = text;
+        return defaultDateText;
+    }
+
+    /** A custom imprint, or the Frame's own EXIF date until the user writes one. */
+    private String effectiveDateText() {
+        return dateText != null && !dateText.isEmpty() ? dateText : imprintDate();
     }
 
     /**
@@ -3747,146 +4990,10 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** The one value both preview and export hand to the engine. */
-    private String dateParam() {
-        return dateOn ? imprintDate() : "";
-    }
-
-    /** Re-apply a restored Look to the Edge switches' checked state. */
+    /** Re-apply a restored Look to the Edge pages' switches and controls. */
     private void syncToggleRows() {
-        syncToggleRow(overscanSwitch, "片边（胶片边缘）", overscanOn);
-        syncToggleRow(dateSwitch, "日期水印", dateOn);
-    }
-
-    private void syncToggleRow(MaterialSwitch toggle, String labelText, boolean on) {
-        if (toggle == null) return;
-        syncingToggles = true;
-        toggle.setChecked(on);
-        syncingToggles = false;
-        toggle.setContentDescription(toggleDescription(labelText, on));
-    }
-
-    /**
-     * One calibrated optics row: label, value, unit, display-only Δ, a reset,
-     * and a real M3 slider exposing the Look's float range.
-     */
-    private OpticsRow opticsRow(LinearLayout parent, String name,
-                                final OpticsDelta.Param spec, float initial,
-                                final java.util.function.Consumer<Float> apply) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView nameView = mixedM3Label(name, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
-        nameView.setSingleLine(true);
-        nameView.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        final TextView valueView = m3Label("", M3Tokens.TypeRole.LABEL_LARGE,
-                m3Primary(), tfDisplay);
-        final TextView deltaView = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                m3OnSurfaceVariant(), tfDisplay);
-        // The four rows are useless without their names: the head carries the
-        // parameter, live value, unit, and Δ.
-        head.addView(nameView, new LinearLayout.LayoutParams(0, -2, 1f));
-        head.addView(valueView);
-        TextView unitView = m3Label(spec.unit, M3Tokens.TypeRole.LABEL_SMALL,
-                m3OnSurfaceVariant(), tfBody);
-        LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
-        unitLp.leftMargin = dp(2);
-        unitLp.bottomMargin = dp(1);
-        head.addView(unitView, unitLp);
-        LinearLayout.LayoutParams deltaLp = new LinearLayout.LayoutParams(-2, -2);
-        deltaLp.leftMargin = dp(8);
-        head.addView(deltaView, deltaLp);
-        row.addView(head, new LinearLayout.LayoutParams(-1, dp(20)));
-
-        LinearLayout barRow = new LinearLayout(this);
-        barRow.setOrientation(LinearLayout.HORIZONTAL);
-        barRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-
-        final Slider bar = new Slider(this);
-        bar.setId(View.generateViewId());
-        bar.setValueFrom(spec.min);
-        bar.setValueTo(spec.max);
-        bar.setValue(spec.clamp(initial));
-        bar.setMinimumHeight(dp(SLIDER_HEIGHT_DP));
-        // The visible head is the label. The formatter still gives TalkBack the
-        // unit with the value it appends, and the real float range comes from
-        // the slider's own RangeInfo.
-        bar.setLabelFormatter(new com.google.android.material.slider.LabelFormatter() {
-            @Override public String getFormattedValue(float value) {
-                return OpticsDelta.valueText(value) + " " + spec.unit;
-            }
-        });
-        // The head already shows the live value; a floating tooltip would be
-        // clipped by the 48 dp row and repeat it.
-        bar.setLabelBehavior(com.google.android.material.slider.LabelFormatter.LABEL_GONE);
-        bar.setContentDescription(name);
-        valueView.setLabelFor(bar.getId());
-        barRow.addView(bar, new LinearLayout.LayoutParams(0, dp(SLIDER_HEIGHT_DP), 1f));
-
-        final MaterialButton reset = new MaterialButton(this);
-        reset.setText("重置");
-        reset.setAllCaps(false);
-        applyTypeRole(reset, M3Tokens.TypeRole.LABEL_MEDIUM, tfHan);
-        reset.setMinWidth(0);
-        reset.setMinimumWidth(0);
-        reset.setMinimumHeight(dp(MIN_TOUCH_DP));
-        reset.setInsetTop(0);
-        reset.setInsetBottom(0);
-        reset.setPadding(0, 0, 0, 0);
-        reset.setGravity(android.view.Gravity.CENTER);
-        reset.setSingleLine(true);
-        reset.setStateListAnimator(null);
-        barRow.addView(reset, new LinearLayout.LayoutParams(
-                dp(56), dp(MIN_TOUCH_DP)));
-        row.addView(barRow, new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
-
-        final OpticsRow optics = new OpticsRow(row, bar, valueView, deltaView, reset,
-                name, spec);
-
-        // One commit per completed gesture. A touch release commits at once;
-        // keyboard, switch access, and TalkBack changes coalesce for a moment
-        // so a held arrow key does not queue a render per key event.
-        final Runnable commit = () -> {
-            if (!bar.isAttachedToWindow()) return;
-            commitOptics();
-        };
-        final boolean[] trackingTouch = {false};
-        bar.addOnChangeListener((slider, value, fromUser) -> {
-            optics.show(value);
-            apply.accept(value);
-            refreshReadoutStrip();
-            if (fromUser && !trackingTouch[0]) {
-                slider.removeCallbacks(commit);
-                slider.postDelayed(commit, OPTICS_COMMIT_DELAY_MS);
-            }
-        });
-        bar.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
-            @Override public void onStartTrackingTouch(Slider slider) {
-                trackingTouch[0] = true;
-                slider.removeCallbacks(commit);
-            }
-            @Override public void onStopTrackingTouch(Slider slider) {
-                trackingTouch[0] = false;
-                slider.removeCallbacks(commit);
-                commit.run();
-            }
-        });
-        // The Δ is display-only: reset recomputes it from the slider, and at
-        // the default there is no render to ask for.
-        reset.setOnClickListener(v -> {
-            if (!opticsUnlocked) return;
-            final boolean moved = !optics.isAtDefault();
-            optics.setValue(spec.defaultValue);
-            refreshReadoutStrip();
-            if (moved) commit.run();
-        });
-        optics.show(bar.getValue());
-        parent.addView(row, new LinearLayout.LayoutParams(-1, 0, 1f));
-        return optics;
+        syncRebatePage();
+        syncDatePage();
     }
 
     /**
@@ -3895,64 +5002,11 @@ public class MainActivity extends AppCompatActivity {
      * one update and one picture.
      */
     private void commitOptics() {
+        if (opticsSlider != null) opticsSlider.removeCallbacks(opticsCommitRunnable);
         if (uiReady && session != null) {
             showingOriginal = false;
             setOriginalVisual(false);
             renderImage();
-        }
-    }
-
-    /** One optics row's live views. The Δ is computed from the value and the
-     *  panel default every time; it is never kept as a second piece of state. */
-    private final class OpticsRow {
-        final View row;
-        final Slider bar;
-        final TextView valueView, deltaView;
-        final MaterialButton resetView;
-        final String name;
-        final OpticsDelta.Param spec;
-
-        OpticsRow(View row, Slider bar, TextView valueView, TextView deltaView,
-                  MaterialButton resetView, String name, OpticsDelta.Param spec) {
-            this.row = row;
-            this.bar = bar;
-            this.valueView = valueView;
-            this.deltaView = deltaView;
-            this.resetView = resetView;
-            this.name = name;
-            this.spec = spec;
-        }
-
-        void show(float v) {
-            final String number = OpticsDelta.valueText(v);
-            final boolean moved = !spec.isDefault(v);
-            final String delta = OpticsDelta.text(v, spec.defaultValue);
-            valueView.setText(number);
-            deltaView.setText("Δ " + delta);
-            final int color = moved ? m3Primary() : m3OnSurfaceVariant();
-            deltaView.setTextColor(color);
-            resetView.setTextColor(color);
-            // Slider's accessibility helper appends its formatted value and
-            // RangeInfo to this description; state carries value, unit, and Δ
-            // without repeating the number twice.
-            bar.setContentDescription(name);
-            ViewCompat.setStateDescription(bar, number + " " + spec.unit + "，Δ " + delta);
-            resetView.setContentDescription("重置" + name + "为 "
-                    + OpticsDelta.valueText(spec.defaultValue) + " " + spec.unit);
-        }
-
-        void setValue(float v) {
-            bar.setValue(spec.clamp(v));
-        }
-
-        boolean isAtDefault() {
-            return spec.isDefault(bar.getValue());
-        }
-
-        void setEnabled(boolean on) {
-            row.setAlpha(on ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
-            bar.setEnabled(on);
-            resetView.setEnabled(on);
         }
     }
 
@@ -4024,12 +5078,20 @@ public class MainActivity extends AppCompatActivity {
         return new int[]{top, bottom};
     }
 
-    /** The optics sliders only mean something once there is a frame to change. */
+    /** The optics controls only mean something once there is a frame to change. */
     private void setOpticsUnlocked(boolean unlocked) {
         opticsUnlocked = unlocked;
         if (opticsPanel == null) return;
-        OpticsRow[] rows = {exposureRow, grainRow, halationRow, glareRow};
-        for (OpticsRow row : rows) if (row != null) row.setEnabled(unlocked);
+        final float alpha = unlocked ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA;
+        if (opticsStripScroll != null) {
+            opticsStripScroll.setAlpha(alpha);
+            opticsStripScroll.setEnabled(unlocked);
+        }
+        for (Chip chip : opticsChips) chip.setEnabled(unlocked);
+        if (opticsSlider != null) opticsSlider.setEnabled(unlocked);
+        if (opticsReset != null) opticsReset.setEnabled(unlocked);
+        if (opticsFilterButton != null) opticsFilterButton.setEnabled(unlocked);
+        if (opticsNormButton != null) opticsNormButton.setEnabled(unlocked);
         if (opticsLockNote != null) {
             opticsLockNote.setText(unlocked ? "" : "LOCKED · " + opticsLockReason());
             opticsLockNote.setVisibility(unlocked ? View.GONE : View.VISIBLE);
@@ -4973,8 +6035,12 @@ public class MainActivity extends AppCompatActivity {
             final String seriesLabel = !curve.available() ? ""
                     : "channel_density".equals(source) ? "DENSITY" : "LOG SENSITIVITY";
             final org.json.JSONObject info = o.optJSONObject("info");
+            // `targetPrint` is the generator's record-level field; the profile's
+            // `target_print` is the same fact under the older spelling.
+            final String targetPrint = PrintTarget.declared(
+                    o.optString("targetPrint", ""), o.optString("target_print", ""));
             filmStocks.put(id, new FilmStock(SpectrumSamples.of(wavelengths, rows),
-                    curve, seriesLabel, readStockInfo(info == null ? o : info)));
+                    curve, seriesLabel, readStockInfo(info == null ? o : info), targetPrint));
         }
     }
 
@@ -5174,6 +6240,7 @@ public class MainActivity extends AppCompatActivity {
         // A new import works out its own imprint date; the previous frame's
         // cached text must not travel with the new Source.
         dateText = null;
+        defaultDateText = null;
         // The frame's own look, stated before any session is built: a chip
         // returns to a photograph *and* to what was done to it; a pick from ＋
         // starts with no film at all. Scan inspect belongs to the same Frame,
@@ -5351,7 +6418,9 @@ public class MainActivity extends AppCompatActivity {
                 if (session != null) { session.close(); session = null; }
             }
             session = engine.openSession(sourcePixels, sourceWidth, sourceHeight, 3);
-            applySessionParams();
+            // No parameter write here: a fresh session is stated by the render
+            // that produces the picture (see `renderImage`), on the render
+            // thread, so the UI never waits behind the engine's lock.
             lastImportError = null;
             // An import is not a look. The frame lands unrendered with no film
             // chosen; the first render happens when the user picks a stock.
@@ -5484,6 +6553,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void loadRawImage(Uri uri) {
         final boolean reopening = reopeningFrame;
+        // The Look the RAW session must carry, snapshotted here on the UI
+        // thread: `solve` below meters with it, and the worker never reads a
+        // control.
+        final String importParams = filmStock == null
+                ? null : snapshotRestatement(filmStock, PREVIEW_LONG_EDGE);
         try {
             String filePath = getFilePathFromUri(uri);
             rawFilePath = filePath;
@@ -5503,7 +6577,6 @@ public class MainActivity extends AppCompatActivity {
             if (compare != null) compare.clear();
             lastRenderedBitmap = null;
             setOpticsUnlocked(false);
-            dateText = null;
             setStage(2, getFileName(uri));
 
             new Thread(() -> {
@@ -5528,7 +6601,8 @@ public class MainActivity extends AppCompatActivity {
                             : String.format("\"film_stock\":\"%s\",", filmStock);
                     String params = String.format(
                         "{%s\"print_stock\":\"%s\",\"input_color_space\":\"ProPhoto RGB\",\"input_cctf_decoding\":false,\"output_color_space\":\"sRGB\",\"print_exposure\":%.2f,\"preview_long_edge\":2048}",
-                        filmField, printStock, printExposure
+                        filmField, printStock,
+                        optics.get(OpticsDelta.Param.EXPOSURE)
                     );
                     
                     try { DebugSink.text("open-params", "path=" + filePath + "\n" + params); } catch (Throwable ignored) {}
@@ -5542,20 +6616,20 @@ public class MainActivity extends AppCompatActivity {
                     if (nativeSize) {
                         try { DebugSink.text("import-mode", "native size, no cap"); } catch (Throwable ignored) { }
                     }
+                    // Keep the caps so a RAW export can decode the same frame
+                    // in its own session.
+                    rawImportMaxPixels = nativeSize ? 0 : maxImportPixels();
+                    rawImportLongEdge = nativeSize ? 0 : IMPORT_LONG_EDGE;
                     session = engine.openRawSession(filePath, params,
-                            nativeSize ? 0 : maxImportPixels(),
-                            nativeSize ? 0 : IMPORT_LONG_EDGE);
+                            rawImportMaxPixels, rawImportLongEdge);
                     lastImportError = null;
                     // **The session's own parameters, which this path never sent.**
                     // `openRawSession` carries the film, the paper and the decode
                     // colour space; it does not carry grain, halation, glare, the
-                    // format or the rebate, and those live in `applyParams()`. The
-                    // bitmap path has always called this pair; the raw path did
-                    // not, so a raw kept the engine's defaults for every optical
-                    // control until the user moved a slider -- and a rebate or a
-                    // date back chosen before the import never reached the render
-                    // at all.
-                    applySessionParams();
+                    // format or the rebate. The Look was snapshotted on the UI
+                    // thread, so `solve` below meters with the same values the
+                    // first preview will render.
+                    if (importParams != null) session.setParams(importParams);
 
                     // **The raw itself**, which is the "before" side of every
                     // comparison and the only honest thing to show on import:
@@ -6118,10 +7192,10 @@ public class MainActivity extends AppCompatActivity {
             showSnackbar("选择一张胶片开始渲染");
             return;
         }
-        // No `applySessionParams()` here any more: it wrote the engine from the
-        // UI thread, which could park the UI behind a long render's lock.
-        // `renderImage` applies the stock under the same lock it renders
-        // under -- one writer, one order.
+        // No UI-thread parameter write here any more: writing the engine from
+        // the UI could park it behind a long render's lock. `renderImage`
+        // snapshots the Look on the UI thread and the render thread sends it
+        // under the same lock it renders under -- one writer, one order.
         showingOriginal = false;
         setOriginalVisual(false);
         refreshFilmPanel();
@@ -6130,133 +7204,47 @@ public class MainActivity extends AppCompatActivity {
 
 
     /**
-     * The cheap half: what a slider owns.
+     * The Look re-statement builder preview and export both call.
      *
-     * No stock, no colour space, no preview size -- those describe the file and
-     * live in `applySessionParams`. Sending them on every drag tick made the
-     * engine rebuild the pipeline once per step (the presence of `film_stock`
-     * in a delta *is* a stock change), which is what made the sliders feel
-     * dead rather than merely slow.
+     * <p>It snapshots the live controls into a {@link Look} **on the calling
+     * thread** and hands that detached copy to {@link LookRestatement}, so every
+     * value the UI shows -- the Film stock, the Print stock, all 22 optical
+     * parameters, the camera filter, the protection norm, and every Rebate and
+     * Date back field -- is in the delta. The render thread only ever sends a
+     * string that was built here; it never reads a control or a Frame.
+     *
+     * <p>The only facts added here are the ones a Look does not own: the source
+     * kind, the render's long edge, whether the stock is a Reversal stock, its
+     * edge print, and the Date back's EXIF default.
+     *
+     * <p>The old inline format string lived only in the preview path and the
+     * export re-called it with the preview's stock; a parameter that reached
+     * one and not the other was invisible until a file disagreed with the
+     * screen. There is now one string, built in one place.
      */
-    private void applyParams() {
-        if (session == null) return;
-        // Every delta, with the frame it is being sent for: the engine treats a
-        // stock change as a rebuild, and a render that follows one has to be
-        // read next to the delta that caused it.
-        try {
-            DebugSink.text("params", "render=" + rendering + " film=" + filmStock + " print=" + printStock
-                    + " overscan=" + overscanOn + " date=" + dateOn + " fmt=" + filmFormatMm);
-        } catch (Throwable ignored) { }
-        applyParams(PREVIEW_LONG_EDGE);
+    private String snapshotRestatement(String stock, int longEdge) {
+        final Look look = captureLook();
+        look.filmStock = stock;
+        // The typed text is on the Look; this is only the Frame's default.
+        return LookRestatement.json(look, new LookRestatement.Context(
+                isRawFile,
+                longEdge,
+                isPositiveFilm(stock),
+                edgeTextFor(stock),
+                look.dateOn ? defaultImprintDate() : ""));
     }
 
-    /**
-     * The same delta **plus the film and the paper**, for every call that is
-     * about to produce a picture.
+    /*
+     * The file facts in that context, and why each is what it is:
      *
-     * <p>This is the one thing that has to be true before `renderBegin`: the
-     * session carries the stock the user is looking at. It used to be kept by
-     * a Java-side `sessionSignature` -- a field written by the render thread
-     * and by the UI thread, compared against the engine's *assumed*
-     * state. One write out of order and the signature claimed a stock the
-     * session never got, so every film rendered the same picture while the
-     * rebate text (which the app draws from its own field) kept changing.
-     *
-     * <p>Stating the stock in the delta costs ~10 ms on the host (26 ms
-     * against 19 ms for the delta without it, measured at 900x600 with
-     * `stock_cost`); a render is two orders of magnitude more. So there is no
-     * bookkeeping left to get wrong: whoever draws, says what to draw.
+     * `auto_exposure` is off for everything that is not a RAW. The engine's
+     * default meter is `center_weighted`: an arithmetic mean of luminance
+     * under a Gaussian centred on the frame. An arithmetic mean is dominated
+     * by whatever is brightest, so a sky-lit frame meters about three times
+     * mid-grey and prints dark. A camera JPEG has already been metered once,
+     * by the camera; metering it again is double-counting. A RAW is
+     * scene-referred and keeps the meter.
      */
-    private void applyParams(String stock, int longEdge) {
-        if (session == null || stock == null) return;
-        // The line a "every film looks the same" report needs: what this render
-        // actually told the engine, next to what the UI thinks is selected.
-        try {
-            DebugSink.text("params", "draw film=" + stock + " print=" + printStock
-                    + " render=" + rendering + " long=" + longEdge);
-        } catch (Throwable ignored) { }
-        session.setParams(String.format(java.util.Locale.US,
-            "{\"film_stock\":\"%s\",\"print_stock\":\"%s\",\"scan_film\":%s,"
-            // The file's own colour space and transfer function. A camera
-            // JPEG is sRGB *already encoded*: read as ProPhoto linear (the
-            // engine default, which is right for a decoded RAW) its mid-tones
-            // print about 1.5 stops down with the top 5% flattened from 193
-            // to 126 -- the "grey and flat after the update" report. These
-            // are not `is_live` fields, so they must ride the same delta as
-            // the stock, which has already asked for a rebuild.
-            + "\"input_color_space\":\"%s\",\"input_cctf_decoding\":%s,\"auto_exposure\":%s,"
-            + "\"output_color_space\":\"sRGB\",\"preview_long_edge\":%d,"
-            + "\"print_exposure\":%.2f,\"grain_amount\":%.3f,\"halation_amount\":%.3f,"
-            + "\"glare_amount\":%.3f,\"film_format_mm\":%.1f,"
-            + "\"overscan_active\":%s,\"overscan_format\":\"%s\",\"overscan_edge_text\":\"%s\","
-            + "\"date_imprint_active\":%s,\"date_imprint_text\":\"%s\",\"date_imprint_style\":\"lcd\"}",
-            stock, printStock,
-            isPositiveFilm(stock) ? "true" : "false",
-            isRawFile ? "ProPhoto RGB" : "sRGB",
-            isRawFile ? "false" : "true",
-            isRawFile ? "true" : "false",
-            longEdge,
-            printExposure, grainAmount, halationAmount, glareAmount, filmFormatMm,
-            overscanOn ? "true" : "false", overscanFormat, edgeTextFor(stock),
-            dateOn ? "true" : "false", dateParam()
-        ));
-    }
-
-    /** Same set, at whatever long edge the caller is rendering. A small edge
-     *  is for a cheap pass; a look that is about to be exported goes out at the
-     *  preview size. */
-    private void applyParams(int longEdge) {
-        if (session == null) return;
-        final String stock = filmStock;
-        if (stock == null) return;            // nothing chosen yet: no look
-        try {
-            DebugSink.text("params", "render=" + rendering + " film=" + stock + " print=" + printStock
-                    + " overscan=" + overscanOn + " date=" + dateOn + " fmt=" + filmFormatMm
-                    + " long=" + longEdge);
-        } catch (Throwable ignored) { }
-        session.setParams(String.format(
-            "{\"output_color_space\":\"sRGB\",\"preview_long_edge\":%d,"
-            + "\"print_exposure\":%.2f,\"grain_amount\":%.3f,\"halation_amount\":%.3f,"
-            + "\"glare_amount\":%.3f,\"film_format_mm\":%.1f,"
-            + "\"overscan_active\":%s,\"overscan_format\":\"%s\",\"overscan_edge_text\":\"%s\","
-            + "\"date_imprint_active\":%s,\"date_imprint_text\":\"%s\",\"date_imprint_style\":\"lcd\"}",
-            longEdge,
-            printExposure, grainAmount, halationAmount, glareAmount, filmFormatMm,
-            overscanOn ? "true" : "false", overscanFormat, edgeTextFor(stock),
-            dateOn ? "true" : "false", dateParam()
-        ));
-    }
-
-    /**
-     * The half that describes the file: once per session, and after a stock
-     * change.
-     *
-     * <p>`auto_exposure` is off for everything that is not a RAW. The engine's
-     * default meter is `center_weighted`: an **arithmetic** mean of luminance
-     * under a Gaussian centred on the frame, sigma 0.2 of the long edge (see
-     * `exposure_evs_from` in the pipeline). An arithmetic mean is dominated by
-     * whatever is brightest, so a frame whose middle is open sky meters about
-     * three times mid-grey and the whole picture prints 1.7 stops down -- a
-     * user sent exactly that screenshot: bright blue sky rendered as slate,
-     * sunlit leaves rendered black.
-     *
-     * <p>A camera JPEG has already been metered once, by the camera, and that
-     * decision is what the user sees in their gallery. Metering it a second
-     * time is double-counting, and the two meters disagree by more than a stop
-     * on exactly the pictures people take: sky, backlight, snow. With the
-     * meter off the render starts from the file's own exposure, which is what
-     * "import this photo" has to mean.
-     *
-     * <p>A RAW is scene-referred and has no exposure decision baked in, so it
-     * keeps the meter. (`auto_exposure: false` makes the engine apply no EV at
-     * all -- `pipeline.cpp` returns the input untouched.)
-     */
-    private void applySessionParams() {
-        if (session == null) return;
-        final String stock = filmStock;
-        if (stock == null) return;
-        applyParams(stock, PREVIEW_LONG_EDGE);
-    }
 
     private void renderImage() {
         // Every branch says something. The foot is one thin line, too quiet to
@@ -6285,6 +7273,19 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         final String renderedStock = filmStock;
+        // Snapshot the whole Look here, on the UI thread: the render thread gets
+        // one finished string and never reads a control or a Frame.
+        final String previewParams;
+        try {
+            previewParams = snapshotRestatement(renderedStock, PREVIEW_LONG_EDGE);
+            // The line a "every film looks the same" report needs: what this
+            // render is about to tell the engine, next to the UI selection.
+            DebugSink.text("params", "draw film=" + renderedStock + " print=" + printStock
+                    + " render=" + rendering + " long=" + PREVIEW_LONG_EDGE);
+        } catch (Throwable t) {
+            showErrorSnackbar("渲染参数有误", describe(t));
+            return;
+        }
         rendering = true;
         progressBar.setVisibility(View.VISIBLE);
         busyLabel.setVisibility(View.VISIBLE);
@@ -6296,9 +7297,9 @@ public class MainActivity extends AppCompatActivity {
             try {
                 synchronized (renderMutex) {
                 if (session == null) throw new RuntimeException("session closed before render");
-                // Take the film the user picked, under the same lock the render
-                // runs under, so the picture and the edge text cannot disagree.
-                applyParams(renderedStock, PREVIEW_LONG_EDGE);
+                // The finished Look snapshot, taken on the UI thread before
+                // this thread started. Under the render lock it is one writer.
+                session.setParams(previewParams);
                 int[] dims = session.renderBegin("live");
                 int w = dims[0], h = dims[1];
                 if (w <= 0 || h <= 0) throw new RuntimeException("engine returned empty frame");
@@ -6509,9 +7510,9 @@ public class MainActivity extends AppCompatActivity {
      *  Printed next to the export's own size: when the two disagree the file
      *  carries a band that was never drawn, and that is the whole of the
      *  "the rebate flies in the export but not in the preview" report. */
-    private String overscanCanvasLabel() {
+    private String overscanCanvasLabel(SpektraLabEngine.Session source) {
         try {
-            final String g = session == null ? null : session.overscanGeometry();
+            final String g = source == null ? null : source.overscanGeometry();
             if (g == null) return "";
             final int wAt = g.indexOf("\"canvas_w\":");
             final int hAt = g.indexOf("\"canvas_h\":");
@@ -6537,8 +7538,14 @@ public class MainActivity extends AppCompatActivity {
             showSnackbar("先选一张胶片，再导出");
             return;
         }
-        // The preview and the export share one session; the render lock below
-        // keeps a later stock change out of the full-size pass.
+        // The export states the Look it was started with, not whatever the
+        // controls say by the time the render thread picks it up: a Frame
+        // switch or a slider drag during a long export must not move the file.
+        final String exportStock = filmStock;
+        final String exportParams = snapshotRestatement(exportStock, PREVIEW_LONG_EDGE);
+        final String rawExportPath = isRawFile ? (rawFilePath == null ? "" : rawFilePath) : null;
+        // A bitmap export renders from the preview session; a RAW export opens
+        // its own below. The render lock keeps a stock change out of either.
         new Thread(() -> {
             java.io.File tmp = new java.io.File(getCacheDir(), "export_" + System.currentTimeMillis() + ext);
             try {
@@ -6552,8 +7559,8 @@ public class MainActivity extends AppCompatActivity {
                 // 102.4 std 12481 after, and the two hashes differ). It is the
                 // same delta the preview renders with, which is the point.
                 try {
-                    DebugSink.text("export-params", "film=" + filmStock + " print=" + printStock
-                            + " pex=" + printExposure + " (no delta sent)");
+                    DebugSink.text("export-params", "film=" + exportStock + " print=" + printStock
+                            + " raw=" + (rawExportPath != null) + " " + exportParams);
                 } catch (Throwable ignored) {}
 
                 final long t0 = System.currentTimeMillis();
@@ -6570,30 +7577,54 @@ public class MainActivity extends AppCompatActivity {
                 };
                 runOnUiThread(tick);
                 int[] info;
+                final String canvas;
                 try {
                     synchronized (renderMutex) {
                         // Everything the preview drew with, re-stated: a stock,
                         // a paper, a gate, an edge text or a date that moved
                         // since the last render would otherwise be exported as
                         // the *preview* had it, or not at all.
-                        applyParams(filmStock, PREVIEW_LONG_EDGE);
+                        SpektraLabEngine.Session target = session;
+                        SpektraLabEngine.Session rawExport = null;
                         try {
-                            DebugSink.text("overscan-geom", "tier=" + tier + " before "
-                                    + session.overscanGeometry());
-                            // The whole parameter set this export is about to use.
-                            // "the export disagrees with the preview" is a question
-                            // about which of these two numbers changed.
-                            DebugSink.text("export-params", "tier=" + tier + " " + session.getParams());
-                        } catch (Throwable ignored) { }
-                        info = dng
-                                ? session.exportDng(tmp.getAbsolutePath(), tier)
-                                : tiff
-                                ? session.exportTiff(tmp.getAbsolutePath(), tier)
-                                : session.exportJpeg(tmp.getAbsolutePath(), 95, 512, tier);
-                        try {
-                            DebugSink.text("overscan-geom", "tier=" + tier + " " + info[0] + "x" + info[1]
-                                    + " " + session.overscanGeometry());
-                        } catch (Throwable ignored) { }
+                            if (rawExportPath != null) {
+                                if (rawExportPath.isEmpty()) {
+                                    throw new RuntimeException("RAW 文件路径不可用，无法导出");
+                                }
+                                // A RAW export decodes the file into its own
+                                // session. Re-stating the preview session used
+                                // to change the picture on screen and left the
+                                // export sharing the preview's preview-sized
+                                // decode. This session is opened with the caps
+                                // the import chose, gets the same Look, and is
+                                // closed before the gallery write.
+                                rawExport = engine.openRawSession(rawExportPath, exportParams,
+                                        rawImportMaxPixels, rawImportLongEdge);
+                                target = rawExport;
+                            }
+                            target.setParams(exportParams);
+                            try {
+                                DebugSink.text("overscan-geom", "tier=" + tier + " before "
+                                        + target.overscanGeometry());
+                                // The whole parameter set this export is about to use.
+                                // "the export disagrees with the preview" is a question
+                                // about which of these two numbers changed.
+                                DebugSink.text("export-params", "tier=" + tier
+                                        + " raw=" + (rawExport != null) + " " + target.getParams());
+                            } catch (Throwable ignored) { }
+                            info = dng
+                                    ? target.exportDng(tmp.getAbsolutePath(), tier)
+                                    : tiff
+                                    ? target.exportTiff(tmp.getAbsolutePath(), tier)
+                                    : target.exportJpeg(tmp.getAbsolutePath(), 95, 512, tier);
+                            canvas = overscanCanvasLabel(target);
+                            try {
+                                DebugSink.text("overscan-geom", "tier=" + tier + " " + info[0] + "x" + info[1]
+                                        + " " + target.overscanGeometry());
+                            } catch (Throwable ignored) { }
+                        } finally {
+                            if (rawExport != null) rawExport.close();
+                        }
                     }
                 } finally {
                     spinning.set(false);
@@ -6659,7 +7690,6 @@ public class MainActivity extends AppCompatActivity {
                     // Dimensions and file size together: "3.3 MB" alone reads as
                     // a bug when the frame is 16 MP, and the reason is worth
                     // saying out loud rather than guessing at later.
-                    final String canvas = overscanCanvasLabel();
                     final String canvasNote = canvas.isEmpty() ? "" : " · 画布 " + canvas;
                     final String tiffHint = tiff
                             ? "（TIFF：点导出旁边的「分享」发给手机版 Lightroom 即可使用）"

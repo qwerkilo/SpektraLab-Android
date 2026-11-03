@@ -146,4 +146,14 @@ public final class GateScale {
         }
         return out;
     }
+
+    /**
+     * True when this Frame's shape can carry a Rebate at all. A rebate is cut
+     * only for the frame's shape, using the same 5 % rule as {@link #available}:
+     * a shape no Gate can hold must not switch the Rebate on. Before a Frame
+     * exists every Gate is offered, so the page can be set up in advance.
+     */
+    public static boolean canHostRebate(int width, int height) {
+        return !available(width, height).isEmpty();
+    }
 }

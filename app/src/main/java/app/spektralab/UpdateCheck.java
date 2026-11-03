@@ -32,15 +32,6 @@ import java.net.URL;
  */
 final class UpdateCheck {
 
-    private static final String[] ENDPOINTS = {
-            // Cloudflare, on a name that resolves and serves in mainland China.
-            // The workers.dev hostname does NOT: TCP to 443 never opens there,
-            // which is why this is a custom domain rather than the default one.
-            "https://update.workshop.skin/latest.json",
-            "https://cdn.jsdelivr.net/gh/SAINTTaiYi/SpektraLab-Android@master/update.json",
-            "https://raw.githubusercontent.com/SAINTTaiYi/SpektraLab-Android/master/update.json",
-    };
-
     private static final String PREFS = "update";
     private static final String KEY_SEEN_CODE = "seen_code";
     private static final String KEY_CHECKED_AT = "checked_at";
@@ -57,10 +48,18 @@ final class UpdateCheck {
             final long last = prefs.getLong(KEY_CHECKED_AT, 0);
             if (System.currentTimeMillis() - last < MIN_INTERVAL_MS) return;
         }
+        // This build's own channel: a `-m3` pre-release opts into preview.
+        final String clientName = versionName(activity);
         new Thread(() -> {
             String body = null;
             String lastError = null;
-            for (String endpoint : ENDPOINTS) {
+            for (String endpoint : UpdateGate.endpoints(clientName)) {
+                // Provenance is part of the offer: an announcement may only be
+                // read from one of the fork's own URLs, never the upstream's.
+                if (!UpdateGate.isForkEndpoint(endpoint)) {
+                    lastError = endpoint + ": not the fork's update endpoint";
+                    continue;
+                }
                 try {
                     body = fetch(endpoint);
                     if (body != null && !body.isEmpty()) break;
@@ -90,9 +89,18 @@ final class UpdateCheck {
             if (a == null) return;
 
             final int current = versionCode(activity);
-            if (a.versionCode <= current) {
-                if (manual) post(activity, () -> toast(activity,
-                        "已是最新版本 " + versionName(activity) + "（" + current + "）"));
+            if (!UpdateGate.eligible(a.versionCode, a.channel, current, clientName)) {
+                if (manual) {
+                    if (a.versionCode <= current) {
+                        post(activity, () -> toast(activity,
+                                "已是最新版本 " + versionName(activity) + "（" + current + "）"));
+                    } else {
+                        // Newer code, wrong channel: a stable install must not
+                        // be pushed onto a preview build by a version compare.
+                        post(activity, () -> toast(activity,
+                                "发现 " + a.versionName + "，但它在「预览」通道；当前稳定版不接收预览更新"));
+                    }
+                }
                 return;
             }
             if (!manual && prefs.getInt(KEY_SEEN_CODE, 0) == a.versionCode) return;
@@ -116,7 +124,9 @@ final class UpdateCheck {
 
         if (!(activity instanceof MainActivity)) return;
         final String[] actions = {"去更新", "复制链接", "稍后"};
-        ((MainActivity) activity).showActionSheet("发现新版本 " + a.versionName,
+        final String title = UpdateGate.PREVIEW.equals(a.channel)
+                ? "发现预览版 " + a.versionName : "发现新版本 " + a.versionName;
+        ((MainActivity) activity).showActionSheet(title,
                 message.toString().trim(), actions, which -> {
                     if (which == 0) {
                         prefs.edit().putInt(KEY_SEEN_CODE, a.versionCode).apply();
@@ -180,17 +190,19 @@ final class UpdateCheck {
         }
     }
 
-    /** One announcement: what it is, where to get it, what changed. */
+    /** One announcement: what it is, which channel it is on, where to get it, what changed. */
     static final class Announcement {
         final int versionCode;
         final String versionName;
         final String url;
+        final String channel;
         final String[] notes;
 
-        private Announcement(int code, String name, String url, String[] notes) {
+        private Announcement(int code, String name, String url, String channel, String[] notes) {
             this.versionCode = code;
             this.versionName = name;
             this.url = url;
+            this.channel = channel;
             this.notes = notes;
         }
 
@@ -200,10 +212,12 @@ final class UpdateCheck {
             if (code <= 0) return null;
             String name = o.optString("latest_version_name", String.valueOf(code));
             String url = ReleaseUrl.sanitize(o.optString("url", ReleaseUrl.DEFAULT));
+            // An announcement that names no channel is stable.
+            String channel = UpdateGate.channelOf(o.optString("channel", ""));
             JSONArray arr = o.optJSONArray("notes");
             String[] notes = new String[arr == null ? 0 : arr.length()];
             for (int i = 0; i < notes.length; ++i) notes[i] = arr.optString(i, "");
-            return new Announcement(code, name, url, notes);
+            return new Announcement(code, name, url, channel, notes);
         }
     }
 }

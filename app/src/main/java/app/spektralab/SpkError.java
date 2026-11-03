@@ -25,9 +25,43 @@ public final class SpkError {
         try { return SpektraLabEngine.errorCode(raw); } catch (Throwable ignored) { return 0; }
     }
 
+    /**
+     * The picker's grant, gone. Not an engine failure at all: a `content://`
+     * URI is valid only while the process that received the grant lives, and
+     * the ColorOS file manager will not make it persistable.
+     */
+    private static final String IMPORT_PERMISSION =
+            "照片的读取权限已失效（系统收回了文件选择器给的临时授权）。请点「导入」重新选择这张照片";
+
+    /** The render succeeded; the gallery write did not. Not an import grant. */
+    private static final String GALLERY_WRITE =
+            "导出已经渲染完成，但写入相册被系统拒绝。请检查相册/存储权限和剩余空间，"
+            + "或换一个相册目录后再导出";
+
+    /**
+     * A MediaStore write failure can also arrive as a SecurityException, but
+     * the cure is not "re-import the photo". Identify it before the picker
+     * branch so E-1304 keeps meaning the picker's grant.
+     */
+    static boolean isMediaStoreFailure(String raw) {
+        if (raw == null) return false;
+        return raw.contains("MediaStore") || raw.contains("MediaProvider")
+                || raw.contains("IS_PENDING") || raw.contains("RELATIVE_PATH")
+                || raw.contains("无法创建媒体文件") || raw.contains("无法打开输出流")
+                || raw.contains("openOutputStream");
+    }
+
+    static boolean isPermissionFailure(String raw) {
+        if (raw == null || isMediaStoreFailure(raw)) return false;
+        return raw.contains("SecurityException") || raw.contains("Permission Denial")
+                || raw.contains("that is not exported") || raw.contains("not exported from UID");
+    }
+
     /** "[E-1001] 中文说明" plus the engine's own text, which carries the numbers. */
     public static String format(String raw) {
         if (raw == null || raw.isEmpty()) return "[E-0000] 未知错误";
+        if (isMediaStoreFailure(raw)) return "[E-1305] " + GALLERY_WRITE + "（" + raw + "）";
+        if (isPermissionFailure(raw)) return "[E-1304] " + IMPORT_PERMISSION + "（" + raw + "）";
         int code = codeOf(raw);
         if (code == 0) code = 9000;
         if (code == 9000 && isNativeLoadFailure(raw)) {
@@ -60,6 +94,8 @@ public final class SpkError {
 
     /** Short form for a status line, without the engine text. */
     public static String shortForm(String raw) {
+        if (isMediaStoreFailure(raw)) return "[E-1305] 写入相册失败，请检查存储权限";
+        if (isPermissionFailure(raw)) return "[E-1304] 照片权限已失效，请重新导入";
         int code = codeOf(raw);
         if (code == 0) code = 9000;
         if (code == 9000 && isNativeLoadFailure(raw)) return "[E-9000] 引擎库没有加载成功";
@@ -77,7 +113,9 @@ public final class SpkError {
             case 1002: return "渲染调度超出本机上限（图像太大）";
             case 1003: return "显存不足";
             case 1004: return "GPU 驱动被重置（过热或单次运算过久），请等机器凉下来再试";
-            case 1005: return "本机没有可用的 Vulkan 驱动";
+            case 1005: return "本机没有可用的 Vulkan 驱动，或驱动版本低于引擎要求"
+                             + "（需要 Vulkan 1.1 以上的计算管线）。"
+                             + "换个系统版本更新的机器试试；同一台机器升级系统也可能解决";
             case 1006: return "本机驱动能力低于本程序的最低要求";
             case 1007: return "该效果在当前图形后端上尚未实现";
             case 1008: return "图形资源创建失败";
@@ -91,6 +129,9 @@ public final class SpkError {
             // fits can still lay out a canvas that cannot be rendered.
             case 1010: return "开了片边之后，画布超过了安卓端冲洗引擎的单帧上限（约 42 MP）："
                              + "请关掉片边，或按更小的尺寸重新导入";
+            case 1011: return "渲染引擎没能在这台设备上启动：Vulkan 设备建立失败，"
+                             + "多半是驱动不完整或显存被别的应用占着。"
+                             + "重启手机再试一次；仍然不行就是这台机器的驱动跑不了这个引擎";
             // 11xx — the file
             case 1101: return "RAW 打开失败：格式或压缩方式不受支持";
             case 1102: return "RAW 解包失败：文件确实损坏或没有下载完整（换一份重传试试）";
@@ -124,6 +165,10 @@ public final class SpkError {
             case 1301: return "胶片或相纸名称无效";
             case 1302: return "参数超出允许范围";
             case 1303: return "会话状态异常，请重新导入照片";
+            case 1304: return IMPORT_PERMISSION;
+            // The export rendered; only the gallery write was refused. Same
+            // code family as the request errors, not the picker's grant.
+            case 1305: return GALLERY_WRITE;
             // 2xxx — the update channel
             case 2001: return "检查更新失败：网络不可用，或公告地址被当前网络拦截";
             case 2002: return "更新公告格式错误";

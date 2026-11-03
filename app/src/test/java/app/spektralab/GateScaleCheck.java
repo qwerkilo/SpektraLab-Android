@@ -15,6 +15,7 @@ public final class GateScaleCheck {
         legacyScaleValuesNormaliseToMeasuredGate();
         everyNormalisedPairIsValid();
         frameAspectFiltersGates();
+        rebateEligibilityFollowsTheShapeRule();
 
         System.out.println("GateScaleCheck: " + checks + " checks passed");
     }
@@ -131,6 +132,19 @@ public final class GateScaleCheck {
         require("a 3:2 Frame offers 135", contains(threeByTwo, "135"));
         require("a 3:2 Frame offers 6x9", contains(threeByTwo, "120_6x9"));
         require("a 3:2 Frame does not offer 6x6", !contains(threeByTwo, "120_6x6"));
+    }
+
+    /**
+     * The Rebate page may only switch on when the Frame's shape can hold one
+     * of the ten Gates. That is the same 5 % rule the Gate picker already
+     * applies, exposed as one predicate so the page cannot disagree with it.
+     */
+    private static void rebateEligibilityFollowsTheShapeRule() {
+        require("a 3:2 Frame can carry a rebate", GateScale.canHostRebate(6000, 4000));
+        require("a square Frame can carry a rebate", GateScale.canHostRebate(1000, 1000));
+        require("before a Frame exists every Gate is offered", GateScale.canHostRebate(0, 0));
+        require("a 4:1 Frame has no Gate", GateScale.available(4000, 1000).isEmpty());
+        require("a 4:1 Frame cannot carry a rebate", !GateScale.canHostRebate(4000, 1000));
     }
 
     private static boolean contains(java.util.List<GateScale.Gate> gates, String id) {

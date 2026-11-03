@@ -25,7 +25,78 @@ public final class SpkErrorCheck {
         ok(SpkError.isNativeLoadFailure("UnsatisfiedLinkError"));
         ok(SpkError.isNativeLoadFailure("libspektrafilm_engine.so"));
 
+        driverCodes();
+        permissionFailure();
+        jniContract();
+
         System.out.println("SpkErrorCheck: " + checks + " checks passed");
+    }
+
+    /** E-1005/1006/1011 name the driver cause instead of falling back to E-9000. */
+    private static void driverCodes() {
+        ok(SpkError.explain(1005).contains("Vulkan"));
+        ok(SpkError.explain(1005).contains("1.1"));
+        ok(SpkError.explain(1006).contains("驱动能力"));
+        ok(SpkError.explain(1011).contains("Vulkan 设备建立失败"));
+        ok(SpkError.explain(1011).contains("重启"));
+        ok(SpkError.explain(1304).contains("权限"));
+        ok(!SpkError.explain(1005).equals(SpkError.explain(1006)));
+        ok(!SpkError.explain(1006).equals(SpkError.explain(1011)));
+        ok(!SpkError.explain(1005).equals(SpkError.explain(1011)));
+    }
+
+    /** A revoked picker grant is E-1304, not a nameless E-9000. */
+    private static void permissionFailure() {
+        final String denial = "java.lang.SecurityException: Permission Denial: opening provider "
+                + "com.android.providers.media.MediaDocumentsProvider from ProcessRecord";
+        ok(SpkError.isPermissionFailure(denial));
+        ok(SpkError.isPermissionFailure("that is not exported from UID 10234"));
+        ok(!SpkError.isPermissionFailure(null));
+        ok(!SpkError.isPermissionFailure("plain render failure"));
+
+        // A MediaStore write denial is not the picker's grant: E-1305, not
+        // E-1304 with "re-import the photo" advice.
+        final String mediaDenial = "java.lang.SecurityException: Permission Denial: writing "
+                + "com.android.providers.media.MediaProvider uri content://media/external/"
+                + "images/media from pid=1, uid=2";
+        ok(SpkError.isMediaStoreFailure(mediaDenial));
+        ok(!SpkError.isPermissionFailure(mediaDenial));
+        ok(SpkError.format(mediaDenial).startsWith("[E-1305] "));
+        ok(SpkError.shortForm(mediaDenial).startsWith("[E-1305] "));
+        ok(SpkError.explain(1305).contains("相册"));
+
+        final String formatted = SpkError.format(denial);
+        ok(formatted.startsWith("[E-1304] "));
+        ok(formatted.contains("重新选择"));
+        ok(formatted.contains(denial));
+        eq("[E-1304] 照片权限已失效，请重新导入", SpkError.shortForm(denial));
+
+        // The native-load branch keeps priority over the generic E-9000 wording.
+        ok(SpkError.format("dlopen failed: libspektrafilm_engine.so").contains("引擎库没有加载成功"));
+    }
+
+    /**
+     * The JNI diagnostic strings are the only signal a bug report carries:
+     * engine-create must name the engine's own reason, and the canvas crop must
+     * cover the top-left case (a buffer wider *and* taller than the canvas).
+     * Read the source because there is no JVM seam over a C++ diagnostic.
+     */
+    private static void jniContract() {
+        final java.nio.file.Path source = java.nio.file.Path.of(
+                "app/src/main/cpp/spektralab_jni.cpp");
+        final String jni;
+        try {
+            jni = java.nio.file.Files.readString(source);
+        } catch (java.io.IOException e) {
+            throw new AssertionError("cannot read " + source + ": " + e);
+        }
+        ok(jni.contains("spk_engine_create failed: %s"));
+        ok(jni.contains("spk_last_error(nullptr)"));
+        ok(jni.contains("throw_runtime(env, \"%s\", msg)"));
+        ok(!jni.contains("throw_runtime(env, msg)"));
+        ok(jni.contains("if (cw <= long(r.width) && ch <= long(r.height))"));
+        ok(jni.contains("geometry: cropped to the canvas"));
+        ok(!jni.contains("geometry: trimmed to the canvas"));
     }
 
     private static void eq(String expected, String actual) {
