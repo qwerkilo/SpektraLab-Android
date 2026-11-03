@@ -1151,7 +1151,7 @@ public class MainActivity extends AppCompatActivity {
 
         mainCol.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
         mainCol.addView(buildReadoutStrip(),
-                new LinearLayout.LayoutParams(-1, dp(READOUT_HEIGHT_DP)));
+                new LinearLayout.LayoutParams(-1, -2));
         mainCol.addView(buildSourceBar(),
                 new LinearLayout.LayoutParams(-1, dp(SOURCE_HEIGHT_DP)));
 
@@ -1162,10 +1162,14 @@ public class MainActivity extends AppCompatActivity {
         panelHolder = new LinearLayout(this);
         panelHolder.setOrientation(LinearLayout.VERTICAL);
         panelHolder.setPadding(dp(16), 0, dp(16), dp(PANEL_BOTTOM_DP));
-        panelHolder.addView(buildFilmPanel(), new LinearLayout.LayoutParams(-1, -1));
-        panelHolder.addView(buildOpticsPanel(), new LinearLayout.LayoutParams(-1, -1));
-        panelHolder.addView(buildFormatPanel(), new LinearLayout.LayoutParams(-1, -1));
-        panelHolder.addView(buildEdgePanel(), new LinearLayout.LayoutParams(-1, -1));
+        panelHolder.addView(scrollablePanel(buildFilmPanel()),
+                new LinearLayout.LayoutParams(-1, -1));
+        panelHolder.addView(scrollablePanel(buildOpticsPanel()),
+                new LinearLayout.LayoutParams(-1, -1));
+        panelHolder.addView(scrollablePanel(buildFormatPanel()),
+                new LinearLayout.LayoutParams(-1, -1));
+        panelHolder.addView(scrollablePanel(buildEdgePanel()),
+                new LinearLayout.LayoutParams(-1, -1));
         for (int i = 0; i < 4; ++i) panels[i] = panelHolder.getChildAt(i);
 
         controls.addView(buildTabs(), new LinearLayout.LayoutParams(-1, dp(TABS_HEIGHT_DP)));
@@ -1398,66 +1402,104 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout outer = new LinearLayout(this);
         outer.setOrientation(LinearLayout.VERTICAL);
         outer.setBackgroundColor(m3Surface());
+        outer.setMinimumHeight(dp(READOUT_HEIGHT_DP));
         outer.addView(hairline(m3OutlineVariant()),
                 new LinearLayout.LayoutParams(-1, dp(1)));
 
-        LinearLayout strip = new LinearLayout(this);
-        strip.setOrientation(LinearLayout.HORIZONTAL);
         final String[] titles = {
                 "FILM / 胶片", "PAPER / 相纸", "EXPOSURE / 曝光", "SPECTRUM / 光谱"};
-        for (int i = 0; i < titles.length; ++i) {
-            if (i > 0) {
-                strip.addView(hairline(m3OutlineVariant()),
-                        new LinearLayout.LayoutParams(dp(1), -1));
+        // Two columns at every width. Four columns at 400 dp clip the section
+        // titles and the longer stock names even at the default font scale;
+        // the readout is an instrument strip, not a race to fit four cells.
+        final int columns = 2;
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        for (int rowIndex = 0; rowIndex * columns < titles.length; ++rowIndex) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setMinimumHeight(dp(READOUT_HEIGHT_DP));
+            for (int column = 0; column < columns; ++column) {
+                final int i = rowIndex * columns + column;
+                if (i >= titles.length) break;
+                if (column > 0) {
+                    row.addView(hairline(m3OutlineVariant()),
+                            new LinearLayout.LayoutParams(dp(1), -1));
+                }
+                row.addView(readoutCell(i, titles[i]),
+                        new LinearLayout.LayoutParams(0, -2, 1f));
             }
-            final LinearLayout cell = new LinearLayout(this);
-            cell.setOrientation(LinearLayout.VERTICAL);
-            cell.setPadding(dp(9), dp(1), dp(6), 0);
-
-            TextView title = m3Label(titles[i], M3Tokens.TypeRole.LABEL_SMALL,
-                    m3OnSurfaceVariant(), tfHan);
-            title.setSingleLine(true);
-            title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            cell.addView(title, new LinearLayout.LayoutParams(-1, -2));
-
-            LinearLayout valueRow = new LinearLayout(this);
-            valueRow.setOrientation(LinearLayout.HORIZONTAL);
-            valueRow.setGravity(android.view.Gravity.BOTTOM);
-            TextView value = m3Label("\u2014", M3Tokens.TypeRole.LABEL_MEDIUM,
-                    m3OnSurface(), i == 2 ? tfDisplay : tfHan);
-            value.setSingleLine(true);
-            value.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            valueRow.addView(value, new LinearLayout.LayoutParams(0, -2, 1f));
-            TextView unit = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                    m3OnSurfaceVariant(), tfBody);
-            LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
-            unitLp.leftMargin = dp(2);
-            unitLp.bottomMargin = dp(1);
-            valueRow.addView(unit, unitLp);
-            LinearLayout.LayoutParams valueRowLp = new LinearLayout.LayoutParams(-1, -2);
-            valueRowLp.topMargin = dp(1);
-            cell.addView(valueRow, valueRowLp);
-
-            TextView detail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                    m3OnSurfaceVariant(), tfBody);
-            detail.setSingleLine(true);
-            detail.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            LinearLayout.LayoutParams detailLp = new LinearLayout.LayoutParams(-1, -2);
-            cell.addView(detail, detailLp);
-
-            if (i == 0) readoutFilm = value;
-            if (i == 1) readoutPaper = value;
-            if (i == 2) readoutExposure = value;
-            if (i == 3) {
-                readoutSpectrumValue = value;
-                readoutSpectrumUnit = unit;
-                readoutSpectrumDetail = detail;
-                readoutSpectrumCell = cell;
+            grid.addView(row, new LinearLayout.LayoutParams(-1, -2));
+            if ((rowIndex + 1) * columns < titles.length) {
+                grid.addView(hairline(m3OutlineVariant()),
+                        new LinearLayout.LayoutParams(-1, dp(1)));
             }
-            strip.addView(cell, new LinearLayout.LayoutParams(0, -1, 1f));
         }
-        outer.addView(strip, new LinearLayout.LayoutParams(-1, 0, 1f));
+        outer.addView(grid, new LinearLayout.LayoutParams(-1, -2));
         return outer;
+    }
+
+    /** A panel's content scrolls inside the fixed panel height when text grows. */
+    private View scrollablePanel(View content) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setClipToPadding(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        scroll.addView(content, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        return scroll;
+    }
+
+    private View readoutCell(int i, String titleText) {
+        final LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setPadding(dp(9), dp(3), dp(6), dp(3));
+
+        TextView title = m3Label(titleText, M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfHan);
+        title.setSingleLine(true);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        cell.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout valueRow = new LinearLayout(this);
+        valueRow.setOrientation(LinearLayout.HORIZONTAL);
+        valueRow.setGravity(android.view.Gravity.BOTTOM);
+        TextView value = m3Label("—", M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurface(), i == 2 ? tfDisplay : tfHan);
+        value.setSingleLine(true);
+        value.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        valueRow.addView(value, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView unit = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfBody);
+        LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
+        unitLp.leftMargin = dp(2);
+        unitLp.bottomMargin = dp(1);
+        valueRow.addView(unit, unitLp);
+        LinearLayout.LayoutParams valueRowLp = new LinearLayout.LayoutParams(-1, -2);
+        valueRowLp.topMargin = dp(1);
+        cell.addView(valueRow, valueRowLp);
+
+        TextView detail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfBody);
+        detail.setSingleLine(false);
+        detail.setMaxLines(2);
+        detail.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        cell.addView(detail, new LinearLayout.LayoutParams(-1, -2));
+
+        if (i == 0) readoutFilm = value;
+        if (i == 1) readoutPaper = value;
+        if (i == 2) readoutExposure = value;
+        if (i == 3) {
+            readoutSpectrumValue = value;
+            readoutSpectrumUnit = unit;
+            readoutSpectrumDetail = detail;
+            readoutSpectrumCell = cell;
+        }
+        return cell;
+    }
+
+    /** True when the system font scale makes four readout columns too narrow. */
+    private boolean largeText() {
+        return getResources().getConfiguration().fontScale >= 1.15f;
     }
 
     /**
@@ -2191,18 +2233,28 @@ public class MainActivity extends AppCompatActivity {
 
     private View sectionHead(String title, String actionLabel, Runnable action, Runnable reset) {
         LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        head.setMinimumHeight(dp(SECTION_HEAD_HEIGHT_DP));
         TextView titleView = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
-        head.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1f));
+        titleView.setMaxLines(2);
+        titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        head.addView(titleView, new LinearLayout.LayoutParams(
+                largeText() ? -1 : 0, -2, largeText() ? 0f : 1f));
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(android.view.Gravity.END);
         if (actionLabel != null && action != null) {
             MaterialButton actionView = m3TextButton(actionLabel, actionLabel,
                     m3Primary(), action);
-            head.addView(actionView, new LinearLayout.LayoutParams(-2, dp(48)));
+            actions.addView(actionView, new LinearLayout.LayoutParams(-2, dp(48)));
         }
         MaterialButton resetView = m3TextButton("重置当前页", "重置当前页",
                 m3OnSurfaceVariant(), reset);
-        head.addView(resetView, new LinearLayout.LayoutParams(-2, dp(48)));
+        actions.addView(resetView, new LinearLayout.LayoutParams(-2, dp(48)));
+        head.addView(actions, largeText()
+                ? new LinearLayout.LayoutParams(-1, -2)
+                : new LinearLayout.LayoutParams(-2, -2));
         return head;
     }
 
@@ -2211,7 +2263,7 @@ public class MainActivity extends AppCompatActivity {
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.addView(sectionHead("FILM STOCK / 胶片",
                         "全部胶片", this::showFilmPicker, this::resetFilmPanel),
-                new LinearLayout.LayoutParams(-1, dp(SECTION_HEAD_HEIGHT_DP)));
+                new LinearLayout.LayoutParams(-1, -2));
 
         HorizontalScrollView brandScroll = new HorizontalScrollView(this);
         brandScroll.setHorizontalScrollBarEnabled(false);
@@ -2256,13 +2308,15 @@ public class MainActivity extends AppCompatActivity {
         filmMetricsRow.setOrientation(LinearLayout.HORIZONTAL);
         filmMetricsRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
         panel.addView(filmMetricsRow,
-                new LinearLayout.LayoutParams(-1, dp(FILM_METRICS_HEIGHT_DP)));
+                new LinearLayout.LayoutParams(-1, -2));
+        filmMetricsRow.setMinimumHeight(dp(FILM_METRICS_HEIGHT_DP));
 
         filmNote = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
                 m3OnSurfaceVariant(), tfBody);
-        filmNote.setSingleLine(true);
+        filmNote.setSingleLine(false);
+        filmNote.setMaxLines(2);
         filmNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        panel.addView(filmNote, new LinearLayout.LayoutParams(-1, dp(20)));
+        panel.addView(filmNote, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout paperRow = new LinearLayout(this);
         paperRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -2300,9 +2354,11 @@ public class MainActivity extends AppCompatActivity {
         paperChoice.addView(paperInner,
                 new android.widget.FrameLayout.LayoutParams(-1, -1));
         paperRow.addView(paperChoice,
-                new LinearLayout.LayoutParams(0, dp(PAPER_ROW_HEIGHT_DP), 1f));
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        paperChoice.setMinimumHeight(dp(PAPER_ROW_HEIGHT_DP));
         panel.addView(paperRow,
-                new LinearLayout.LayoutParams(-1, dp(PAPER_ROW_HEIGHT_DP)));
+                new LinearLayout.LayoutParams(-1, -2));
+        paperRow.setMinimumHeight(dp(PAPER_ROW_HEIGHT_DP));
         return panel;
     }
 
@@ -2369,10 +2425,32 @@ public class MainActivity extends AppCompatActivity {
             final boolean active = id.equals(brandFilter);
             final Chip chip = new Chip(this);
             // A real filter chip, not an assist chip with a checkmark bolted
-            // on: the style owns its checked/disabled colours and state layer.
+            // on: the style owns its shape and typography, while the colour
+            // state lists are resolved from the theme at build time. Without
+            // these explicit lists a theme rebuild keeps the ChipDrawable's
+            // previous dark scheme after Dark -> Light.
             chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null,
                     0,
                     com.google.android.material.R.style.Widget_Material3_Chip_Filter));
+            final int chipSurface = m3Role(
+                    com.google.android.material.R.attr.colorSurfaceContainerLow,
+                    Palette.Role.SURFACE_ELEVATED);
+            final int chipSelected = m3Role(
+                    com.google.android.material.R.attr.colorSecondaryContainer,
+                    Palette.Role.ACCENT_SOFT);
+            final int chipText = m3Role(
+                    com.google.android.material.R.attr.colorOnSurfaceVariant,
+                    Palette.Role.MUTED_INK);
+            final int chipTextSelected = m3Role(
+                    com.google.android.material.R.attr.colorOnSecondaryContainer,
+                    Palette.Role.ACCENT);
+            final int chipOutline = m3Role(
+                    com.google.android.material.R.attr.colorOutlineVariant,
+                    Palette.Role.LINE);
+            chip.setChipBackgroundColor(checkedColors(chipSelected, chipSurface));
+            chip.setChipStrokeWidth(Math.max(1, dp(1)));
+            chip.setChipStrokeColor(checkedColors(chipSelected, chipOutline));
+            chip.setTextColor(checkedColors(chipTextSelected, chipText));
             chip.setId(View.generateViewId());
             chip.setCheckable(true);
             chip.setChecked(active);
@@ -2669,7 +2747,7 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.addView(buildOpticsHead(),
-                new LinearLayout.LayoutParams(-1, dp(SECTION_HEAD_HEIGHT_DP)));
+                new LinearLayout.LayoutParams(-1, -2));
         opticsPanel = new LinearLayout(this);
         opticsPanel.setOrientation(LinearLayout.VERTICAL);
         opticsPanel.setOnClickListener(v -> {
@@ -2683,7 +2761,7 @@ public class MainActivity extends AppCompatActivity {
                 halationAmount, v -> halationAmount = v);
         glareRow = opticsRow(opticsPanel, "GLARE 眩光", OpticsDelta.Param.GLARE,
                 glareAmount, v -> glareAmount = v);
-        panel.addView(opticsPanel, new LinearLayout.LayoutParams(-1, 0, 1f));
+        panel.addView(opticsPanel, new LinearLayout.LayoutParams(-1, -2));
         return panel;
     }
 
@@ -2694,7 +2772,7 @@ public class MainActivity extends AppCompatActivity {
      */
     private View buildOpticsHead() {
         final LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
 
         final LinearLayout titles = new LinearLayout(this);
@@ -2710,11 +2788,18 @@ public class MainActivity extends AppCompatActivity {
         opticsLockNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
         opticsLockNote.setVisibility(View.GONE);
         titles.addView(opticsLockNote, new LinearLayout.LayoutParams(-1, -2));
-        head.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
+        head.addView(titles, largeText()
+                ? new LinearLayout.LayoutParams(-1, -2)
+                : new LinearLayout.LayoutParams(0, -2, 1f));
 
         MaterialButton resetView = m3TextButton("重置当前页", "重置当前页",
                 m3OnSurfaceVariant(), this::resetOpticsPanel);
-        head.addView(resetView, new LinearLayout.LayoutParams(-2, dp(48)));
+        LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(android.view.Gravity.END);
+        actions.addView(resetView, new LinearLayout.LayoutParams(-2, dp(48)));
+        head.addView(actions, largeText()
+                ? new LinearLayout.LayoutParams(-1, -2)
+                : new LinearLayout.LayoutParams(-2, -2));
         return head;
     }
 
@@ -2727,7 +2812,7 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.addView(sectionHead("PHYSICAL SCALE / 光学尺度", this::resetFormatPanel),
-                new LinearLayout.LayoutParams(-1, dp(SECTION_HEAD_HEIGHT_DP)));
+                new LinearLayout.LayoutParams(-1, -2));
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
         scroll.setClipToPadding(false);
@@ -2892,7 +2977,7 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.addView(sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
-                new LinearLayout.LayoutParams(-1, dp(SECTION_HEAD_HEIGHT_DP)));
+                new LinearLayout.LayoutParams(-1, -2));
 
         final int onSurface = m3Role(
                 com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);

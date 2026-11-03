@@ -1,6 +1,12 @@
 # Material 3 Console — implementation spec
 
-Status: `ready-for-agent`. Tracker: GitHub Issues are disabled, so this spec
+Status: `device-audit complete with residual matrix`. The phone shell, themes,
+rail, JPEG import, scan/compare and JPEG export pass on `25128PNA1C` (API 37,
+400 dp). Ticket 11 fixed the 1.3× Readout/panel clipping; ticket 12 fixed the
+brand facet staying dark after Dark → Light. RAW import, brand fallback,
+TIFF/DNG export, TalkBack speech and a true 16 KB-page runtime were not
+executable on that device. Evidence: `.scratch/m3-console/issues/10-device-audit.md`.
+Tracker: GitHub Issues are disabled, so this spec
 lives in the repository until the tracker is enabled. Decision record:
 ADR-0004 (Material 3 as the Console design system). Vocabulary: `GLOSSARY.md`.
 Map and tickets: `.scratch/m3-console/`.
