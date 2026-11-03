@@ -39,6 +39,8 @@ file's bottom edge.
 explicit acceptance is recorded in ADR-0005, or after the engine fix ships and
 a >16.7 MP rebate export with the bottom band present has been verified on a
 device. `VersionCheck` fails the build if the channel and this line disagree.
+`scripts/announce.sh` writes `"channel": "stable"` unconditionally, so do not
+run it while this gate is open.
 
 **Verification for the eventual fix:** import a frame, enable the Rebate, set a
 Gate/Scale whose exported canvas is over 16,776,960 px, export, and confirm the
