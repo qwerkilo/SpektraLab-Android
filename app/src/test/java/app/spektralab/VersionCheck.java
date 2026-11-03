@@ -8,14 +8,15 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Pure JVM contract for the fork's version and its release gate.
+ * Pure JVM contract for the fork's version and its two update channels.
  *
- * <p>The version is written in four places by hand (two in the manifest and
- * the Gradle default, one in the announcement the updater reads), and they
- * have drifted before. More importantly, the known engine defect that loses
- * the bottom rebate print above ~16.7 MP is a release blocker: while
- * `docs/known-issues.md` says the gate is open, `update.json` may not point
- * existing clients at a `stable` build.
+ * <p>The version is written by hand in the manifest, Gradle, and the channel
+ * files, and they have drifted before. More importantly, the known engine
+ * defect that loses the bottom rebate print above ~16.7 MP is a release
+ * blocker: while `docs/known-issues.md` says the gate is open, the stable
+ * announcement (`update.json`, the file 1.3.4 clients read) may not carry the
+ * gated build. The preview build is announced in `preview.json`, which only a
+ * channel-aware client reads.
  */
 public final class VersionCheck {
     private static int checks;
@@ -29,7 +30,8 @@ public final class VersionCheck {
         final Path root = Paths.get("").toAbsolutePath();
         final String manifest = read(root.resolve("app/src/main/AndroidManifest.xml"));
         final String gradle = read(root.resolve("app/build.gradle"));
-        final String update = read(root.resolve("update.json"));
+        final String stable = read(root.resolve("update.json"));
+        final String preview = read(root.resolve("preview.json"));
         final String issues = read(root.resolve("docs/known-issues.md"));
 
         final int manifestCode = intGroup(manifest, "versionCode=\"(\\d+)\"", "manifest versionCode");
@@ -42,31 +44,54 @@ public final class VersionCheck {
         eq(CODE, gradleCode);
         eq(NAME, gradleName);
 
-        final org.json.JSONObject announcement = new org.json.JSONObject(update);
-        eq(CODE, announcement.optInt("latest_version_code"));
-        eq(NAME, announcement.optString("latest_version_name"));
-        eq(SITE, announcement.optString("url"));
-        ok("the fork does not claim the upstream 1.4.0 release",
-                !"1.4.0".equals(announcement.optString("latest_version_name"))
-                        && announcement.optInt("latest_version_code") != 100);
-        ok("the announcement is the fork's, not upstream's",
-                "https://spektralab.workshop.skin/".equals(announcement.optString("url")));
-        ok("the announcement notes name the fork build",
-                announcement.optJSONArray("notes") != null
-                        && announcement.optJSONArray("notes").toString().contains(NAME));
+        final org.json.JSONObject previewJson = new org.json.JSONObject(preview);
+        eq(CODE, previewJson.optInt("latest_version_code"));
+        eq(NAME, previewJson.optString("latest_version_name"));
+        eq(SITE, previewJson.optString("url"));
+        eq(UpdateGate.PREVIEW, previewJson.optString("channel"));
+        ok("the preview announcement is the fork's, not upstream's",
+                SITE.equals(previewJson.optString("url")));
+        ok("the preview notes name the fork build",
+                previewJson.optJSONArray("notes") != null
+                        && previewJson.optJSONArray("notes").toString().contains(NAME));
+        ok("the preview build does not claim the upstream 1.4.0 release",
+                !"1.4.0".equals(previewJson.optString("latest_version_name"))
+                        && previewJson.optInt("latest_version_code") != 100);
 
-        // The release gate is recorded next to the defect, and the update
-        // channel obeys it.
+        // The stable file is the one old clients read. It may not carry the
+        // gated build while the gate is open.
+        final org.json.JSONObject stableJson = new org.json.JSONObject(stable);
+        eq(UpdateGate.STABLE, stableJson.optString("channel"));
+        ok("the stable announcement has a code", stableJson.optInt("latest_version_code") > 0);
+        ok("the stable URL is allowlisted",
+                ReleaseUrl.DEFAULT.equals(ReleaseUrl.sanitize(stableJson.optString("url"))));
+
+        // The release gate is recorded next to the defect, and both channels
+        // obey it.
         ok("known issues record the >16.7 MP rebate defect",
                 issues.contains("16.7 MP") && issues.contains("16,776,960"));
         ok("known issues record the workaround",
                 issues.contains("Workaround"));
-        final boolean gateOpen = issues.contains("Release gate: open");
-        ok("known issues record a release-gate verdict",
-                gateOpen || issues.contains("Release gate: accepted"));
+        // The verdict is the bolded line, not the prose below it (which names
+        // both spellings while explaining how to change it).
+        final boolean gateOpen = issues.contains("**Release gate: open");
+        final boolean gateAccepted = issues.contains("**Release gate: accepted");
+        ok("known issues record a release-gate verdict", gateOpen != gateAccepted);
+
         if (gateOpen) {
-            ok("a build with the open rebate defect is not announced as stable",
-                    !"stable".equals(announcement.optString("channel")));
+            ok("the stable channel does not announce the gated build",
+                    stableJson.optInt("latest_version_code") < CODE
+                            || !NAME.equals(stableJson.optString("latest_version_name")));
+            ok("the gated build is only on the preview channel",
+                    CODE == previewJson.optInt("latest_version_code")
+                            && UpdateGate.PREVIEW.equals(previewJson.optString("channel")));
+            ok("a stable client is not offered the preview build",
+                    !UpdateGate.eligible(previewJson.optInt("latest_version_code"),
+                            previewJson.optString("channel"), 68, "1.3.4"));
+        }
+        if (gateAccepted) {
+            ok("an accepted gate may publish the build as stable",
+                    CODE == stableJson.optInt("latest_version_code"));
         }
 
         System.out.println("VersionCheck: " + checks + " checks passed");

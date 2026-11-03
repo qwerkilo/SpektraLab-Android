@@ -1,8 +1,8 @@
 {
-  "latest_version_code": 69,
-  "latest_version_name": "1.4.0-m3",
+  "latest_version_code": 68,
+  "latest_version_name": "1.3.4",
   "url": "https://spektralab.workshop.skin/",
-  "notes": ["1.4.0-m3：M3 控制台接入上游 1.4.0 的 22 项光学参数、相机滤镜与保护测光。", "新增片边 / 日期后背二级页；每张照片各自保存一份 Look，导出会完整重述整份 Look。", "RAW 导出现在使用独立会话，不再影响预览或另一张照片。", "这是测试版：大于 16.7 MP 的片边导出仍会丢失底边打印；引擎修复前不会发布稳定版。请见 docs/known-issues.md。"],
-  "updated_at": "2026-11-03T03:57:12Z",
-  "channel": "preview"
+  "notes": ["修好普通照片（JPEG）发灰、不通透、高光没有白：1.3.0 起导入 JPEG 时，应用漏掉了「这是 sRGB、相机已经测过光」这两个参数，sRGB 被当成 ProPhoto 线性数据读，还被二次测光。", "量化：同一张图最亮的 5% 从 126/255 回到 193/255，中调不再被压死，饱和也不再虚高 8 个点。RAW 不受影响（本来就应该按 ProPhoto 线性读、也应该测光）。", "1.3.0 ~ 1.3.3j 都有这个问题，直接装这一版覆盖即可。"],
+  "updated_at": "2026-11-02T07:27:03Z",
+  "channel": "stable"
 }
