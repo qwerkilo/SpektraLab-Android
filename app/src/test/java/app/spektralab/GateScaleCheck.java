@@ -13,7 +13,9 @@ public final class GateScaleCheck {
         everyShippedScaleSelectsItsGate();
         mismatchedPairsAreRejected();
         legacyScaleValuesNormaliseToMeasuredGate();
+        everyNormalisedPairIsValid();
         frameAspectFiltersGates();
+        rebateEligibilityFollowsTheShapeRule();
 
         System.out.println("GateScaleCheck: " + checks + " checks passed");
     }
@@ -77,6 +79,37 @@ public final class GateScaleCheck {
                 Math.abs(GateScale.resolve("120_6x17", 170f).longEdgeMm - 168f) < 0.001f);
     }
 
+    /**
+     * Both panels send one pair to the engine. Whatever Gate id and Scale they
+     * start from -- including the legacy 70/120/170 mm pages and a missing or
+     * unknown Gate -- the normalised pair names a shipped Gate and that Gate's
+     * own measured edge, so no invalid layout leaves the UI.
+     */
+    private static void everyNormalisedPairIsValid() {
+        final float[] legacyEdges = {36f, 56f, 69.5f, 70f, 84f, 112f, 120f, 168f, 170f};
+        final String[] ids = {"135", "135_half", "135_xpan", "120_645", "120_6x6",
+                "120_6x7", "120_6x8", "120_6x9", "120_6x12", "120_6x17",
+                "120_made_up", null};
+        for (String id : ids) {
+            for (float edge : legacyEdges) {
+                final GateScale.Gate pair = GateScale.pair(id, edge);
+                require("pair(" + id + ", " + edge + ") has a gate", pair != null);
+                require("pair(" + id + ", " + edge + ") carries a measured edge",
+                        pair.longEdgeMm > 0f);
+                require("pair(" + id + ", " + edge + ") is a valid layout",
+                        GateScale.pairIsValid(pair.id, pair.longEdgeMm));
+            }
+        }
+        require("a legacy 170 mm 6x17 pair normalises to 168 mm",
+                Math.abs(GateScale.pair("120_6x17", 170f).longEdgeMm - 168f) < 0.001f);
+        require("a legacy 120 mm 6x12 pair normalises to 112 mm",
+                Math.abs(GateScale.pair("120_6x12", 120f).longEdgeMm - 112f) < 0.001f);
+        require("a legacy 70 mm 6x7 pair normalises to 69.5 mm",
+                Math.abs(GateScale.pair("120_6x7", 70f).longEdgeMm - 69.5f) < 0.001f);
+        require("a missing gate resolves from the scale",
+                "135".equals(GateScale.pair(null, 36f).id));
+    }
+
     private static void frameAspectFiltersGates() {
         require("the full catalogue is offered before a Frame exists",
                 GateScale.available(0, 0).size() == 10);
@@ -99,6 +132,19 @@ public final class GateScaleCheck {
         require("a 3:2 Frame offers 135", contains(threeByTwo, "135"));
         require("a 3:2 Frame offers 6x9", contains(threeByTwo, "120_6x9"));
         require("a 3:2 Frame does not offer 6x6", !contains(threeByTwo, "120_6x6"));
+    }
+
+    /**
+     * The Rebate page may only switch on when the Frame's shape can hold one
+     * of the ten Gates. That is the same 5 % rule the Gate picker already
+     * applies, exposed as one predicate so the page cannot disagree with it.
+     */
+    private static void rebateEligibilityFollowsTheShapeRule() {
+        require("a 3:2 Frame can carry a rebate", GateScale.canHostRebate(6000, 4000));
+        require("a square Frame can carry a rebate", GateScale.canHostRebate(1000, 1000));
+        require("before a Frame exists every Gate is offered", GateScale.canHostRebate(0, 0));
+        require("a 4:1 Frame has no Gate", GateScale.available(4000, 1000).isEmpty());
+        require("a 4:1 Frame cannot carry a rebate", !GateScale.canHostRebate(4000, 1000));
     }
 
     private static boolean contains(java.util.List<GateScale.Gate> gates, String id) {

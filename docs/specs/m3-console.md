@@ -1,6 +1,12 @@
 # Material 3 Console — implementation spec
 
-Status: `ready-for-agent`. Tracker: GitHub Issues are disabled, so this spec
+Status: `device-audit complete with residual matrix`. The phone shell, themes,
+rail, JPEG import, scan/compare and JPEG export pass on `25128PNA1C` (API 37,
+400 dp). Ticket 11 fixed the 1.3× Readout/panel clipping; ticket 12 fixed the
+brand facet staying dark after Dark → Light. RAW import, brand fallback,
+TIFF/DNG export, TalkBack speech and a true 16 KB-page runtime were not
+executable on that device. Evidence: `.scratch/m3-console/issues/10-device-audit.md`.
+Tracker: GitHub Issues are disabled, so this spec
 lives in the repository until the tracker is enabled. Decision record:
 ADR-0004 (Material 3 as the Console design system). Vocabulary: `GLOSSARY.md`.
 Map and tickets: `.scratch/m3-console/`.
@@ -104,7 +110,10 @@ Adopt Material 3 as the control system while keeping the Console's identity:
 - **Shell.** A Material top app bar owns the wordmark, Theme mode, and Export.
   Phone widths use secondary tabs. Widths ≥600 dp use a navigation rail. Both
   reflect one `activeTab` value. `ConsoleLayout` remains the pure seam for the
-  breakpoint and column widths.
+  breakpoint and column widths. At the 600 dp floor the rail takes 80 dp and
+  the control column its 300 dp minimum, so the Frame column is 220 dp; the
+  spec records that consequence instead of carrying an unreachable 280 dp
+  stage floor. Wider windows return the surplus to the Frame.
 - **Panels.** Film chips/cards, Gate cards, optics sliders, paper pickers, and
   feedback migrate to Material components. The Look fields, defaults, ranges,
   and measured-value display do not change. Δ stays display-only.

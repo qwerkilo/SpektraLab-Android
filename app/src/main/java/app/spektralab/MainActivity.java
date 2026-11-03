@@ -1,12 +1,13 @@
 package app.spektralab;
 
-import android.app.Activity;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
@@ -14,16 +15,39 @@ import android.widget.LinearLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ScrollView;
 import android.widget.ProgressBar;
-import android.widget.SeekBar;
+import android.widget.RadioGroup;
 import android.widget.TextView;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
+import androidx.coordinatorlayout.widget.CoordinatorLayout;
+import androidx.core.view.ViewCompat;
+import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
+import com.google.android.material.appbar.AppBarLayout;
+import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.chip.Chip;
+import com.google.android.material.chip.ChipDrawable;
+import com.google.android.material.chip.ChipGroup;
+import com.google.android.material.color.DynamicColors;
+import com.google.android.material.color.MaterialColors;
+import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.navigation.NavigationBarView;
+import com.google.android.material.navigationrail.NavigationRailView;
+import com.google.android.material.radiobutton.MaterialRadioButton;
+import com.google.android.material.slider.Slider;
+import com.google.android.material.snackbar.Snackbar;
+import com.google.android.material.tabs.TabLayout;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
-public class MainActivity extends Activity {
+public class MainActivity extends AppCompatActivity {
     private SpektraLabEngine engine;
     /** This GPU's limits, read once per engine. Drives the import cap and the export tiers. */
     private DeviceProbe probe = DeviceProbe.parse("{}");
@@ -49,6 +73,10 @@ public class MainActivity extends Activity {
     private SpektraLabEngine.Session session;
     private boolean isRawFile = false;
     private String rawFilePath = null;
+    /** The caps the current RAW was opened with: an export re-decodes the
+     *  same frame in its own session instead of a differently capped one. */
+    private volatile int rawImportMaxPixels = 0;
+    private volatile int rawImportLongEdge = 0;
     // The last file that reached the gallery, so it can be handed straight to
     // another app. A picker that filters by MIME will not show a TIFF on a ROM
     // whose picture list does not know the type; an explicit ACTION_SEND does,
@@ -80,10 +108,6 @@ public class MainActivity extends Activity {
      *  a Portra 400 session, and must not render one behind their back. */
     private String filmStock = null;
     private String printStock = "kodak_portra_endura";
-    private float printExposure = OpticsDelta.EXPOSURE_DEFAULT;
-    private float grainAmount = OpticsDelta.GRAIN_DEFAULT;      // 0..2
-    private float halationAmount = OpticsDelta.HALATION_DEFAULT; // 0..4
-    private float glareAmount = OpticsDelta.GLARE_DEFAULT;      // 0..12 shown; engine 0..30
     private float filmFormatMm = 36.0f;    // frame's long edge, 135 = 36 mm
     private boolean uiReady = false;
     private String lastImportError = null;
@@ -157,17 +181,37 @@ public class MainActivity extends Activity {
     private float scanFraction = ScanSample.DEFAULT_FRACTION;
     private boolean scanVisible = false;
     private ScanOverlayView scanOverlay;
-    private TextView scanToggleChip, scanReadoutRgb, scanReadoutLambda;
-    private View scanToggleTouch, scanReadout;
+    private Chip scanToggleChip;
+    private TextView scanReadoutRgb, scanReadoutLambda;
+    private MaterialCardView scanReadout;
 
     private Typeface tfDisplay;      // Inter 300 — numbers and the wordmark
     private Typeface tfBody;         // Inter 400 — Latin labels
     private Typeface tfHan;          // OPPO Sans — Chinese, and anything mixed
     private View emptyState, rawState;
     private TextView fileLabel, rawName, busyLabel, originalLabel, paperValue, edgeValue, formatFootValue;
-    private OpticsRow exposureRow, grainRow, halationRow, glareRow;
+    /**
+     * The live Optics values for the current Frame: all 22 contract
+     * parameters plus the camera filter and protection norm. The Look owns
+     * them; the strip and the one slider only read and write this object, so a
+     * capture, a preview, and a restored JSON cannot drift apart.
+     */
+    private final Look optics = new Look();
+    private int activeOptics = 0;
+    /** True while the slider is being parked on a new parameter; no commit. */
+    private boolean syncingOptics = false;
+    /** True between a real touch-down and touch-up; mid-drag never commits. */
+    private boolean trackingOpticsTouch = false;
+    private HorizontalScrollView opticsStripScroll;
+    private LinearLayout opticsStrip;
+    private final List<Chip> opticsChips = new ArrayList<>();
+    private Slider opticsSlider;
+    private TextView opticsName, opticsValue, opticsUnit, opticsDelta, opticsRange;
+    private MaterialButton opticsReset, opticsFilterButton, opticsNormButton;
     private LinearLayout opticsPanel;
+    private TextView opticsLockNote;
     private boolean opticsUnlocked = false;
+    private final Runnable opticsCommitRunnable = this::commitOptics;
 
     // The Console shell's instrument readouts. The strip under the stage is
     // built from the same Look the panels edit, never from a second copy.
@@ -182,12 +226,44 @@ public class MainActivity extends Activity {
     private boolean overscanOn = false;
     private String overscanFormat = "135";
     private boolean dateOn = false;
+    /** A typed Date back text; null/empty means "follow the Frame's EXIF date". */
     private String dateText = null;
-    private Square overscanMark, dateMark;
+    /** The current file's own imprint date, cached until another image opens. */
+    private String defaultDateText = null;
+    /** The Rebate page's own controls. Dimming while off is presentation only:
+     *  these values stay live so re-enabling or switching Frame finds them. */
+    private boolean edgeTextOn = true;
+    private String edgeMode = "strip", edgeGate = "auto", edgeHoles = "white", edgeCarrier = "none";
+    private float edgeFog = 1f, edgeLeaks, frameNumber, edgeFNumber;
+    private int cameraSeed = 1, frameSeed = 1;
+    /** Date-back values; the page lands in a later ticket, the Look already
+     *  carries them and switching Frame must not drop them. */
+    private String datePlacement = "frame", dateCorner = "br", dateStyle = "lcd";
+    private float dateInsetX = 3f, dateInsetY = 2.4f, dateSize = 1f, dateEv = 3.5f;
+    private String dataText = "", dateTextB = "";
+    /** -1 = the two Edge entry cards, 0 = Rebate, 1 = Date back. */
+    private int edgePageIndex = -1;
+    /** True while a Look restore fills the page; its listeners must not render. */
+    private boolean syncingRebate = false;
+    private LinearLayout edgeHome, rebatePage, datePage, rebateControls, dateControls;
+    private MaterialSwitch rebateSwitch, edgeTextSwitch;
+    private MaterialCardView rebateGateCard;
+    private TextView rebateGateValue, rebateModeValue, rebateGateStyleValue;
+    private TextView rebateHolesValue, rebateCarrierValue;
+    private TextView rebateCameraSeedValue, rebateFrameSeedValue;
+    private TextView rebateFogValue, rebateLeaksValue, rebateFrameNoValue, rebateFNumberValue;
+    private Slider rebateFogSlider, rebateLeaksSlider, rebateFrameNoSlider, rebateFNumberSlider;
+    /** Each chosen row repaints its value and description from the live field. */
+    private final List<Runnable> rebateRefreshers = new ArrayList<>();
+    /** True while a Look restore sets switch state; the listener must not render. */
+    private boolean syncingToggles = false;
+    private MaterialSwitch dateSwitch;
     /** The date back's own line: the text shown while the imprint is on. */
     private TextView dateDetail;
-    /** The Edge toggles, kept so a Look restore can resync their checked state. */
-    private View overscanToggleRow, dateToggleRow;
+    private TextView dateTextValue, datePlacementValue, dateCornerValue, dateStyleValue;
+    private TextView dateDataValue, dateTextBValue;
+    private TextView dateInsetXValue, dateInsetYValue, dateSizeValue, dateEvValue;
+    private Slider dateInsetXSlider, dateInsetYSlider, dateSizeSlider, dateEvSlider;
 
     /** 片边: the Gates this Frame's shape can actually carry, in catalogue order. */
     private final List<String> edgeLabels = new ArrayList<>(), edgeIds = new ArrayList<>();
@@ -219,6 +295,7 @@ public class MainActivity extends Activity {
             formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
         }
         rebuildFormatCards();
+        syncRebatePage();
     }
     /** The shell: `body` stacks or splits into `mainCol` and `controls`. */
     private LinearLayout body, mainCol, controls, panelHolder, formatCardStrip;
@@ -262,20 +339,6 @@ public class MainActivity extends Activity {
      * the live source is replaced on every import, and a list holding those
      * would pin one 1024-px ARGB buffer per photograph.
      */
-    /** Everything the film page and the optics page own.
-     *
-     *  <p>A look belongs to the photograph it was chosen on. It used to be one
-     *  set of fields for the whole session, so re-opening the first frame after
-     *  picking a film on the second one developed the *second* film onto the
-     *  first: the shelf was a memory of photographs but only one memory of a
-     *  look. */
-    private static final class Look {
-        String filmStock;
-        String printStock;
-        float printExposure, grainAmount, halationAmount, glareAmount, filmFormatMm;
-        boolean overscanOn, dateOn;
-        String overscanFormat;
-    }
     private static final class Frame {
         final Uri uri;
         final boolean raw;
@@ -296,13 +359,16 @@ public class MainActivity extends Activity {
         /** "LOG SENSITIVITY", "DENSITY", or "" when nothing was shipped. */
         final String seriesLabel;
         final java.util.Map<String, String> info;
+        /** The paper this film declares it prints on; null when it declares none. */
+        final String targetPrint;
 
         FilmStock(SpectrumSamples samples, SpectrumCurve curve, String seriesLabel,
-                  java.util.Map<String, String> info) {
+                  java.util.Map<String, String> info, String targetPrint) {
             this.samples = samples;
             this.curve = curve;
             this.seriesLabel = seriesLabel;
             this.info = info;
+            this.targetPrint = targetPrint;
         }
     }
     private final java.util.List<Frame> frames = new java.util.ArrayList<>();
@@ -328,9 +394,16 @@ public class MainActivity extends Activity {
     /** The film panel's own views: brands, chips, curve, measured values, note. They
      *  read the current Look on every refresh; no field here is a second copy
      *  of `filmStock`. */
-    private LinearLayout brandRow, filmChipRow, filmMetricsRow;
+    private ChipGroup brandRow;
+    private LinearLayout filmChipRow, filmMetricsRow;
     private HorizontalScrollView filmChipScroll;
-    private FilmCurveView filmCurve;
+    private SpectrumCurveView filmCurve;
+    private MaterialCardView filmCurveCard;
+    /** The last curve this composition has already revealed; a rebuild must
+     *  not replay it. The curve object is stable per stock, so identity is
+     *  enough and the check never mistakes a render-state refresh for a new
+     *  curve. */
+    private SpectrumCurve revealedCurve = SpectrumCurve.unavailable();
     private TextView filmNote;
     /** One render at a time, whole sequence -- the engine's lock only covers a
      *  single call, so a queued render could otherwise swap parameters
@@ -341,13 +414,17 @@ public class MainActivity extends Activity {
     private volatile boolean pendingRender = false;
     private static final int PREVIEW_LONG_EDGE = 2048;
     private final List<View> formatCards = new ArrayList<>();
-    private static final int HEADER_HEIGHT_DP = 49;
+    private static final int TOP_APP_BAR_HEIGHT_DP = 64;
     private static final int READOUT_HEIGHT_DP = 52;
     private static final int SOURCE_HEIGHT_DP = 54;
-    private static final int TABS_HEIGHT_DP = 49;
-    /** 48 dp sliders plus their labels need more than the old 232 dp panel.
-     *  The brand row adds 48 dp; 292 leaves 4 dp for density rounding. */
-    private static final int PANEL_HEIGHT_DP = 304;
+    private static final int TABS_HEIGHT_DP = 48;
+    private static final int SECTION_HEAD_HEIGHT_DP = 48;
+    /** 48 dp sliders plus their M3 label/line-height rows need the panel's
+     *  height; the section head, paper row, and brand row are all 48 dp targets.
+     *  336 leaves 8 dp for the panel's bottom breathing room. */
+    private static final int PANEL_HEIGHT_DP = 336;
+    private static final int PAPER_ROW_HEIGHT_DP = 48;
+    private static final int FILM_METRICS_HEIGHT_DP = 36;
     /** Breathing room above the gesture bar; the root also carries the inset. */
     private static final int PANEL_BOTTOM_DP = 8;
     private static final int CONTROLS_OPEN_DP = PANEL_HEIGHT_DP + TABS_HEIGHT_DP;
@@ -355,6 +432,16 @@ public class MainActivity extends Activity {
     /** Android's minimum touch target for a primary control. */
     private static final int MIN_TOUCH_DP = 48;
     private static final int SLIDER_HEIGHT_DP = 48;
+    /** The film shelf's M3 card: two M3 label lines fit without clipping. */
+    private static final int FILM_CARD_WIDTH_DP = 120;
+    private static final int FILM_CARD_HEIGHT_DP = 52;
+    private static final int FILM_CARD_GAP_DP = 8;
+    /** The curve's M3 surface; 76 dp keeps the panel's fixed 336 dp budget. */
+    private static final int FILM_CURVE_HEIGHT_DP = 76;
+    /** The plotter reveal for a genuinely new curve, unless motion is reduced. */
+    private static final int FILM_CURVE_REVEAL_MS = 520;
+    /** Wait this long after a keyboard or TalkBack change before one render. */
+    private static final int OPTICS_COMMIT_DELAY_MS = 180;
     /** 反馈群：the one place a user can reach a human. Shown once per build. */
     private static final String QQ_GROUP = "1134320449";
     private static final String PROMO_PREFS = "promo";
@@ -363,20 +450,25 @@ public class MainActivity extends Activity {
 
     private static final String[] TAB_NAMES = {"胶片", "光学", "尺度", "边框"};
     private static final String[] TAB_ENGLISH = {"FILM", "OPTICS", "SCALE", "EDGE"};
-    private final View[] tabCells = new View[4];
-    private final View[] tabBars = new View[4];
-    private final TextView[] tabLabels = new TextView[4];
-    private final TextView[] tabIndices = new TextView[4];
-    private final TextView[] tabEnglish = new TextView[4];
+    /** The rail menu ids, in the same order as the phone tabs. */
+    private static final int[] TAB_ITEM_IDS = {
+            R.id.nav_film, R.id.nav_optics, R.id.nav_scale, R.id.nav_edge};
+    private TabLayout tabLayout;
+    /** The tablet navigation rail; it and the phone tabs share `activeTabIndex`. */
+    private NavigationRailView navigationRail;
+    /** True while a rebuild or a rail/tab sync selects a workspace; the
+     *  listener must not treat that as a user gesture. */
+    private boolean suppressWorkspaceSelection = false;
+    /** When the last real touch landed on a tab. A layout pass can dispatch a
+     *  reselect while the window changes size; that is not a collapse gesture. */
+    private long lastTabTouchAt = 0L;
     private android.widget.FrameLayout uiRoot;
-    private TextView inAppToast;
-    private final Runnable hideUiToast = () -> {
-        if (inAppToast == null) return;
-        inAppToast.animate().cancel();
-        inAppToast.animate().alpha(0f).translationY(dp(6))
-                .setDuration(motionDuration(160))
-                .withEndAction(() -> { if (inAppToast != null) inAppToast.setVisibility(View.GONE); }).start();
-    };
+    /** The M3 snackbar host. It lives inside the inset-padded root, so feedback
+     *  clears the gesture bar instead of sitting under it. */
+    private CoordinatorLayout snackbarHost;
+    private Snackbar currentSnackbar;
+    /** The one open bottom sheet. Opening a second one dismisses this first. */
+    private BottomSheetDialog openSheet;
     private final View[] panels = new View[4];
 
     private void loadUiFonts() {
@@ -397,10 +489,10 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Resolve the stored Theme mode before the Activity window is built.
-     * {@code AppTheme_Dark} exists in res/values/themes.xml as the launch-only
-     * mirror of the dark palette; a missing style falls back to the manifest
-     * theme instead of crashing.
+     * Resolve the stored Theme mode before the Activity window is built. The
+     * theme is applied here and again on every in-place theme switch; dynamic
+     * colour is re-applied after each setTheme so the overlay follows the
+     * Console's own light/dark choice, not the system's night mode.
      */
     private void applyLaunchTheme() {
         try {
@@ -410,29 +502,83 @@ public class MainActivity extends Activity {
             themeMode = ThemeMode.LIGHT;
         }
         palette = themeMode.palette();
+        applyTheme(themeMode);
+    }
+
+    private void applyTheme(ThemeMode mode) {
         try {
-            final String name = themeMode == ThemeMode.DARK ? "AppTheme_Dark" : "AppTheme";
-            final int id = getResources().getIdentifier(name, "style", getPackageName());
-            if (id != 0) {
-                setTheme(id);
-            } else {
-                // The staged res tree may not have been refreshed yet. Fall
-                // back to the framework's own light/dark window rather than
-                // starting a dark session on a light surface.
-                setTheme(themeMode == ThemeMode.DARK
-                        ? android.R.style.Theme_Material_NoActionBar
-                        : android.R.style.Theme_Material_Light_NoActionBar);
+            setTheme(mode == ThemeMode.DARK ? R.style.AppTheme_Dark : R.style.AppTheme);
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                DynamicColors.applyToActivityIfAvailable(this);
             }
         } catch (Throwable t) {
-            DebugSink.text("theme", "launch style: " + t);
+            DebugSink.text("theme", "apply style: " + t);
         }
     }
 
+    /** The M3 surface role, resolved from the active theme (dynamic on API 31+). */
+    private int m3Surface() {
+        return MaterialColors.getColor(this,
+                com.google.android.material.R.attr.colorSurface,
+                palette.color(Palette.Role.SYSTEM_BAR_BACKGROUND));
+    }
+
+    /** The M3 background role, used by the shell instead of Palette.BACKGROUND. */
+    private int m3Background() {
+        return m3Role(android.R.attr.colorBackground, Palette.Role.BACKGROUND);
+    }
+
+    private int m3OutlineVariant() {
+        return m3Role(com.google.android.material.R.attr.colorOutlineVariant, Palette.Role.LINE);
+    }
+
+    private int m3OnSurface() {
+        return m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
+    }
+
+    private int m3OnSurfaceVariant() {
+        return m3Role(com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+    }
+
+    private int m3Primary() {
+        return m3Role(com.google.android.material.R.attr.colorPrimary, Palette.Role.ACCENT);
+    }
+
+    /** A control colour role, with the Palette only as the pre-theme fallback. */
+    private int m3Role(int attr, Palette.Role fallback) {
+        return MaterialColors.getColor(this, attr, palette.color(fallback));
+    }
+
+    /** A two-state colour for a real checkable control (checked, then default). */
+    private static ColorStateList checkedColors(int checked, int unchecked) {
+        return new ColorStateList(
+                new int[][] { { android.R.attr.state_checked }, {} },
+                new int[] { checked, unchecked });
+    }
+
+    /** Replace a colour's alpha channel; RGB is kept. */
+    private static int withAlpha(int color, int alpha) {
+        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
+    }
+
+    /** Apply an M3 opacity token to a colour without changing its RGB. */
+    private static int withOpacity(int color, float opacity) {
+        return withAlpha(color, Math.round(opacity * 255f));
+    }
+
+    /** An M3 weight on the brand family; API 24–27 synthesises medium as normal. */
+    private static Typeface weighted(Typeface family, int weight) {
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            return Typeface.create(family, weight, false);
+        }
+        return Typeface.create(family, weight >= 600 ? Typeface.BOLD : Typeface.NORMAL);
+    }
     /** The window behind the first frame, so the launch never flashes paper in dark. */
     private void applyWindowPalette() {
         try {
             getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
-                    palette.color(Palette.Role.BACKGROUND)));
+                    m3Background()));
         } catch (Throwable t) {
             DebugSink.text("theme", "window: " + t);
         }
@@ -442,10 +588,10 @@ public class MainActivity extends Activity {
     private void applySystemBars() {
         try {
             getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-            // The Console header sits under the status bar, so the bar is the
-            // page, not the stage. Its glyphs follow that surface.
-            getWindow().setStatusBarColor(palette.color(Palette.Role.SYSTEM_BAR_BACKGROUND));
-            getWindow().setNavigationBarColor(palette.color(Palette.Role.SYSTEM_BAR_BACKGROUND));
+            // The M3 top app bar owns the status-bar edge; the navigation bar
+            // follows the control surface too.
+            getWindow().setStatusBarColor(m3Surface());
+            getWindow().setNavigationBarColor(m3Surface());
             final boolean lightBars = !palette.isDark();
             if (android.os.Build.VERSION.SDK_INT >= 30) {
                 android.view.WindowInsetsController c = getWindow().getInsetsController();
@@ -476,6 +622,7 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             DebugSink.text("theme", "save: " + t);
         }
+        applyTheme(next);
         rebuildForTheme();
     }
 
@@ -487,7 +634,9 @@ public class MainActivity extends Activity {
     private void rebuildForTheme() {
         if (isFinishing()) return;
         final UiState state = captureUiState();
-        inAppToast = null;
+        dismissOpenSheet();
+        currentSnackbar = null;
+        snackbarHost = null;
         buildUi();
         restoreUiState(state);
         if (uiRoot != null) {
@@ -508,6 +657,7 @@ public class MainActivity extends Activity {
         String fileName, rawNameText, status;
         float scanFraction;
         boolean scanVisible;
+        int edgePageIndex = -1;
     }
 
     private UiState captureUiState() {
@@ -526,6 +676,7 @@ public class MainActivity extends Activity {
         s.status = statusText == null ? null : String.valueOf(statusText.getText());
         s.scanFraction = scanFraction;
         s.scanVisible = scanVisible;
+        s.edgePageIndex = edgePageIndex;
         return s;
     }
 
@@ -553,6 +704,8 @@ public class MainActivity extends Activity {
         setTab(s.activeTab);
         setPanelCollapsed(s.panelCollapsed);
         setOpticsUnlocked(s.opticsUnlocked);
+        edgePageIndex = s.edgePageIndex;
+        openEdgePage(edgePageIndex);
         scanFraction = s.scanFraction;
         scanVisible = s.scanVisible;
         refreshFilmPanel();
@@ -590,9 +743,21 @@ public class MainActivity extends Activity {
      * foldable resize or a rotation does not rebuild the Frame or its Look.
      */
     private void applyResponsiveLayout(boolean wide, int widthDp) {
-        if (body == null || mainCol == null || controls == null || panelHolder == null) return;
+        if (body == null || mainCol == null || controls == null || panelHolder == null
+                || navigationRail == null) return;
         wideLayout = wide;
         body.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+
+        // The M3 navigation rail takes the leading edge only on a wide window;
+        // the phone keeps the secondary tabs under the stage.
+        LinearLayout.LayoutParams railLp =
+                (LinearLayout.LayoutParams) navigationRail.getLayoutParams();
+        railLp.width = dp(ConsoleLayout.railWidthDp(widthDp));
+        railLp.height = -1;
+        railLp.weight = 0f;
+        navigationRail.setLayoutParams(railLp);
+        navigationRail.setVisibility(wide ? View.VISIBLE : View.GONE);
+        if (tabLayout != null) tabLayout.setVisibility(wide ? View.GONE : View.VISIBLE);
 
         LinearLayout.LayoutParams mainLp = (LinearLayout.LayoutParams) mainCol.getLayoutParams();
         mainLp.width = wide ? 0 : -1;
@@ -618,22 +783,23 @@ public class MainActivity extends Activity {
         // the page colour would otherwise run on below the panel and read as
         // an unfinished half-column. The film curve then takes the rest of the
         // rail on the default tab instead of leaving its lower half empty.
-        final int rail = palette.color(wide ? Palette.Role.SURFACE : Palette.Role.BACKGROUND);
+        final int rail = wide ? m3Surface() : m3Background();
         controls.setBackgroundColor(rail);
         panelHolder.setBackgroundColor(rail);
         applyFilmCurveHeight(wide);
         updateStageReadoutWidths();
     }
 
-    /** Let the spectral curve own the film panel's spare height on tablets. */
+    /** Let the spectral curve's M3 surface own the film panel's spare height. */
     private void applyFilmCurveHeight(boolean wide) {
-        if (filmCurve == null) return;
+        final View surface = filmCurveCard != null ? filmCurveCard : filmCurve;
+        if (surface == null) return;
         LinearLayout.LayoutParams lp =
-                (LinearLayout.LayoutParams) filmCurve.getLayoutParams();
+                (LinearLayout.LayoutParams) surface.getLayoutParams();
         if (lp == null) return;
-        lp.height = wide ? 0 : dp(66);
+        lp.height = wide ? 0 : dp(FILM_CURVE_HEIGHT_DP);
         lp.weight = wide ? 1f : 0f;
-        filmCurve.setLayoutParams(lp);
+        surface.setLayoutParams(lp);
     }
 
     /** Keep the status line inside the stage when the stage is not full width. */
@@ -649,6 +815,16 @@ public class MainActivity extends Activity {
 
     /** Rotations and foldable resizes arrive here because the manifest keeps
      *  the Activity alive; no Frame, Look, or render is touched. */
+    /** System Back leaves a secondary page before it leaves the Console. */
+    @Override
+    public void onBackPressed() {
+        if (activeTabIndex == 3 && edgePageIndex >= 0) {
+            openEdgePage(-1);
+            return;
+        }
+        super.onBackPressed();
+    }
+
     @Override
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
@@ -688,50 +864,75 @@ public class MainActivity extends Activity {
 
     private static class TfSpan extends android.text.style.MetricAffectingSpan {
         private final Typeface tf;
-        TfSpan(Typeface tf) { this.tf = tf; }
-        @Override public void updateDrawState(android.text.TextPaint p) { p.setTypeface(tf); }
-        @Override public void updateMeasureState(android.text.TextPaint p) { p.setTypeface(tf); }
+        private final int weight;
+        TfSpan(Typeface tf) { this(tf, 400); }
+        TfSpan(Typeface tf, int weight) { this.tf = tf; this.weight = weight; }
+        @Override public void updateDrawState(android.text.TextPaint p) { apply(p); }
+        @Override public void updateMeasureState(android.text.TextPaint p) { apply(p); }
+        private void apply(android.text.TextPaint p) {
+            p.setTypeface(weighted(tf, weight));
+        }
     }
 
     private CharSequence mixedText(String text) {
+        return mixedText(text, 400);
+    }
+
+    private CharSequence mixedText(String text, int weight) {
         android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(text);
         int i = 0;
         while (i < text.length()) {
             final boolean cjk = isCjk(text.charAt(i));
             int j = i + 1;
             while (j < text.length() && isCjk(text.charAt(j)) == cjk) ++j;
-            sb.setSpan(new TfSpan(cjk ? tfHan : tfBody), i, j,
+            sb.setSpan(new TfSpan(cjk ? tfHan : tfBody, weight), i, j,
                     android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             i = j;
         }
         return sb;
     }
 
-    private TextView mixedLabel(String text, float sp, int color) {
-        TextView t = new TextView(this);
-        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp);
+    /** Mixed Chinese/Latin runs with one M3 role: size, weight, tracking, line height. */
+    private TextView mixedM3Label(String text, M3Tokens.TypeRole role, int color) {
+        final TextView t = new TextView(this);
+        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, role.sizeSp);
         t.setTextColor(color);
-        t.setText(mixedText(text));
+        t.setText(mixedText(text, role.weight));
         t.setIncludeFontPadding(false);
+        t.setLetterSpacing(role.letterSpacingEm);
+        applyM3LineHeight(t, role);
         return t;
+    }
+
+    /** Text with one M3 type role: size, weight, tracking, line height, brand family. */
+    private TextView m3Label(String text, M3Tokens.TypeRole role, int color, Typeface family) {
+        final TextView view = label(text, role.sizeSp, color, family);
+        applyTypeRole(view, role, family);
+        return view;
+    }
+
+    /** Apply a role to an existing TextView, including a Material component's label. */
+    private void applyTypeRole(TextView view, M3Tokens.TypeRole role, Typeface family) {
+        view.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, role.sizeSp);
+        view.setTypeface(weighted(family, role.weight));
+        view.setLetterSpacing(role.letterSpacingEm);
+        applyM3LineHeight(view, role);
+    }
+
+    /** Make each line exactly the role's M3 line height, not the font's default. */
+    private void applyM3LineHeight(TextView view, M3Tokens.TypeRole role) {
+        final android.graphics.Paint.FontMetrics metrics = view.getPaint().getFontMetrics();
+        final float natural = metrics.descent - metrics.ascent;
+        final float target = android.util.TypedValue.applyDimension(
+                android.util.TypedValue.COMPLEX_UNIT_SP, role.lineHeightSp,
+                getResources().getDisplayMetrics());
+        view.setLineSpacing(Math.max(0f, target - natural), 1f);
     }
 
     private View hairline(int color) {
         View v = new View(this);
         v.setBackgroundColor(color);
         return v;
-    }
-
-    /** clamp(30px, 8.6vw, 39px) */
-    private float wordmarkSp() {
-        float w = getResources().getConfiguration().screenWidthDp;
-        return Math.max(30f, Math.min(39f, 0.086f * w));
-    }
-
-    /** clamp(35px, 10.5vw, 48px) */
-    private float emptyTitleSp() {
-        float w = getResources().getConfiguration().screenWidthDp;
-        return Math.max(35f, Math.min(48f, 0.105f * w));
     }
 
     private void applySystemInsets(final View root) {
@@ -750,16 +951,39 @@ public class MainActivity extends Activity {
             // Android 15 paints edge-to-edge and ignores setStatusBarColor.
             // The inset is part of this view's background, so the page colour
             // has to live there as well.
-            v.setBackground(new EdgeBackdrop(palette));
+            v.setBackground(new EdgeBackdrop(m3Background()));
             return insets;
         });
+    }
+
+    /**
+     * The M3 snackbar's parent. A CoordinatorLayout is what Snackbar expects
+     * for anchoring and swipe behaviour; the width cap is the M3 600 dp
+     * maximum, so a tablet gets a readable bar rather than a full-window strip.
+     */
+    private static final class SnackbarHost extends CoordinatorLayout {
+        private final int maxWidthPx;
+
+        SnackbarHost(android.content.Context context) {
+            super(context);
+            maxWidthPx = Math.round(600f * context.getResources().getDisplayMetrics().density);
+        }
+
+        @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            final int mode = MeasureSpec.getMode(widthMeasureSpec);
+            if (mode != MeasureSpec.UNSPECIFIED) {
+                final int width = Math.min(MeasureSpec.getSize(widthMeasureSpec), maxWidthPx);
+                widthMeasureSpec = MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY);
+            }
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        }
     }
 
     private static class EdgeBackdrop extends android.graphics.drawable.Drawable {
         private final int background;
         private final android.graphics.Paint paint = new android.graphics.Paint();
-        EdgeBackdrop(Palette palette) {
-            this.background = palette.color(Palette.Role.BACKGROUND);
+        EdgeBackdrop(int background) {
+            this.background = background;
         }
         @Override public void draw(android.graphics.Canvas canvas) {
             paint.setColor(background);
@@ -829,257 +1053,51 @@ public class MainActivity extends Activity {
         }
     }
 
-    /**
-     * The film panel's Spectrum: the selected stock's shipped series across its
-     * measured wavelengths. Three channels, one point per real sample. A gap
-     * ends the line; nothing is interpolated, and no missing sample is drawn at
-     * zero. A stock without samples says so and carries no line at all.
-     */
-    private static class FilmCurveView extends View {
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final android.graphics.Path path = new android.graphics.Path();
-        private final int surfaceColor, lineColor, mutedColor, scanColor;
-        private final int[] seriesColors;
-        private final float density;
-        private SpectrumCurve curve = SpectrumCurve.unavailable();
-        private String seriesLabel = "";
-        private String emptyLabel = SpectrumCurve.UNAVAILABLE_LABEL;
-        private boolean scanMarkVisible;
-        private float scanMarkFraction = ScanSample.DEFAULT_FRACTION;
-        private android.animation.ValueAnimator revealAnimator;
-        private float reveal = 1f;
-
-        FilmCurveView(android.content.Context context, Palette palette) {
-            super(context);
-            density = getResources().getDisplayMetrics().density;
-            surfaceColor = palette.color(Palette.Role.SURFACE_ELEVATED);
-            lineColor = palette.color(Palette.Role.LINE);
-            mutedColor = palette.color(Palette.Role.MUTED_INK);
-            scanColor = palette.color(Palette.Role.ACCENT);
-            seriesColors = new int[]{
-                    palette.color(Palette.Role.SPECTRUM_RED),
-                    palette.color(Palette.Role.SPECTRUM_GREEN),
-                    palette.color(Palette.Role.SPECTRUM_BLUE),
-            };
-        }
-
-        private float dp(float v) {
-            return v * density;
-        }
-
-        void setCurve(SpectrumCurve curve, String seriesLabel, String emptyLabel,
-                      int durationMs) {
-            final SpectrumCurve next = curve == null ? SpectrumCurve.unavailable() : curve;
-            final boolean same = next == this.curve;
-            final boolean animate = durationMs > 0 && next.available() && !same;
-            this.curve = next;
-            this.seriesLabel = seriesLabel == null ? "" : seriesLabel;
-            this.emptyLabel = emptyLabel == null ? SpectrumCurve.UNAVAILABLE_LABEL : emptyLabel;
-            // A render-state refresh re-sends the same curve. Let the reveal
-            // finish instead of snapping it to the end on the second call.
-            if (same && revealAnimator != null && revealAnimator.isRunning()) {
-                invalidate();
-                return;
-            }
-            if (revealAnimator != null) {
-                revealAnimator.cancel();
-                revealAnimator = null;
-            }
-            if (animate) {
-                reveal = 0f;
-                revealAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f);
-                revealAnimator.setDuration(durationMs);
-                revealAnimator.setInterpolator(
-                        new android.view.animation.DecelerateInterpolator());
-                revealAnimator.addUpdateListener(a -> {
-                    reveal = (float) a.getAnimatedValue();
-                    invalidate();
-                });
-                revealAnimator.start();
-            } else {
-                reveal = 1f;
-            }
-            invalidate();
-        }
-
-        @Override protected void onDetachedFromWindow() {
-            if (revealAnimator != null) revealAnimator.cancel();
-            super.onDetachedFromWindow();
-        }
-
-        /** Scan inspect's fraction on the same axis as the wavelength series. */
-        void setScanMark(boolean visible, float fraction) {
-            final float next = Float.isNaN(fraction) ? ScanSample.DEFAULT_FRACTION : fraction;
-            final float clamped = Math.max(0f, Math.min(1f, next));
-            if (scanMarkVisible == visible && Math.abs(scanMarkFraction - clamped) < 1e-5f) return;
-            scanMarkVisible = visible;
-            scanMarkFraction = clamped;
-            invalidate();
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            final float w = getWidth(), h = getHeight();
-            final float pad = dp(8);
-            paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setColor(surfaceColor);
-            canvas.drawRoundRect(new android.graphics.RectF(0, 0, w, h), dp(2), dp(2), paint);
-
-            paint.setTypeface(android.graphics.Typeface.create("sans-serif", Typeface.NORMAL));
-            paint.setTextSize(dp(5.5f));
-            paint.setLetterSpacing(0.06f);
-            paint.setColor(mutedColor);
-
-            final boolean available = curve.available();
-            final String caption = available
-                    ? seriesLabel + " \u00b7 " + curve.sampleCount() + " SMP"
-                    : "SPECTRUM";
-            canvas.drawText(caption, pad, dp(9.5f), paint);
-
-            if (available) {
-                float legendRight = w - pad;
-                for (int channel = curve.channelCount() - 1; channel >= 0; --channel) {
-                    final String label = SpectrumCurve.channelLabel(channel);
-                    final float labelWidth = paint.measureText(label);
-                    paint.setColor(seriesColors[channel]);
-                    canvas.drawText(label, legendRight - labelWidth, dp(9.5f), paint);
-                    legendRight -= labelWidth + dp(6);
-                }
-            }
-
-            final float top = dp(16);
-            final float bottom = h - dp(12);
-            final float left = pad;
-            final float right = w - pad;
-
-            paint.setLetterSpacing(0);
-            paint.setStyle(android.graphics.Paint.Style.STROKE);
-            paint.setStrokeWidth(Math.max(1f, density * 0.5f));
-            paint.setColor(lineColor);
-            paint.setAlpha(64);
-            for (int i = 0; i <= 3; ++i) {
-                final float y = top + (bottom - top) * i / 3f;
-                canvas.drawLine(left, y, right, y, paint);
-            }
-            paint.setAlpha(255);
-
-            if (!available) {
-                paint.setStyle(android.graphics.Paint.Style.FILL);
-                paint.setColor(mutedColor);
-                paint.setTextSize(dp(6.5f));
-                paint.setLetterSpacing(0.06f);
-                final float textWidth = paint.measureText(emptyLabel);
-                canvas.drawText(emptyLabel, Math.max(pad, (w - textWidth) * 0.5f),
-                        (top + bottom) * 0.5f + dp(2), paint);
-                return;
-            }
-
-            final double minNm = curve.minNm();
-            double spanNm = curve.maxNm() - minNm;
-            if (!(spanNm > 0)) spanNm = 1;
-            paint.setStrokeWidth(dp(1.1f));
-            paint.setStrokeCap(android.graphics.Paint.Cap.ROUND);
-            paint.setStrokeJoin(android.graphics.Paint.Join.ROUND);
-
-            canvas.save();
-            canvas.clipRect(left, top, left + (right - left) * reveal, bottom + dp(2));
-            for (int channel = 0; channel < curve.channelCount(); ++channel) {
-                paint.setColor(seriesColors[channel]);
-                final int runs = curve.runCount(channel);
-                for (int run = 0; run < runs; ++run) {
-                    final int length = curve.runLength(channel, run);
-                    path.reset();
-                    float lastX = left, lastY = bottom;
-                    for (int point = 0; point < length; ++point) {
-                        final float x = left + (float) ((curve.nmAt(channel, run, point) - minNm)
-                                / spanNm) * (right - left);
-                        lastX = x;
-                        lastY = bottom - (float) curve.normalizedAt(channel, run, point)
-                                * (bottom - top);
-                        if (point == 0) path.moveTo(x, lastY);
-                        else path.lineTo(x, lastY);
-                    }
-                    if (length == 1) {
-                        paint.setStyle(android.graphics.Paint.Style.FILL);
-                        canvas.drawCircle(lastX, lastY, dp(1.4f), paint);
-                        paint.setStyle(android.graphics.Paint.Style.STROKE);
-                    } else {
-                        canvas.drawPath(path, paint);
-                    }
-                }
-            }
-            canvas.restore();
-
-            // A plotter head while the trace is being revealed. It disappears
-            // at rest, so the finished curve carries no extra chrome.
-            if (reveal < 1f) {
-                final float head = left + reveal * (right - left);
-                paint.setStyle(android.graphics.Paint.Style.STROKE);
-                paint.setStrokeWidth(Math.max(1f, density * 0.5f));
-                paint.setColor(scanColor);
-                paint.setAlpha(90);
-                canvas.drawLine(head, top - dp(2), head, bottom + dp(2), paint);
-                paint.setAlpha(255);
-            }
-
-            // Scan inspect's position, on the same fraction axis as the curve.
-            if (scanMarkVisible) {
-                final float x = left + scanMarkFraction * (right - left);
-                paint.setStyle(android.graphics.Paint.Style.STROKE);
-                paint.setStrokeWidth(Math.max(1f, density));
-                paint.setColor(scanColor);
-                paint.setAlpha(210);
-                canvas.drawLine(x, top - dp(2), x, bottom + dp(2), paint);
-                paint.setStyle(android.graphics.Paint.Style.FILL);
-                canvas.drawCircle(x, top - dp(2), dp(1.6f), paint);
-                paint.setAlpha(255);
-            }
-
-            paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setColor(mutedColor);
-            paint.setTextSize(dp(5f));
-            paint.setLetterSpacing(0.04f);
-            final String lo = formatNm(curve.minNm());
-            final String hi = formatNm(curve.maxNm()) + " nm";
-            canvas.drawText(lo, left, h - dp(2), paint);
-            canvas.drawText(hi, right - paint.measureText(hi), h - dp(2), paint);
-        }
-
-        private static String formatNm(double nm) {
-            return String.format(java.util.Locale.US, "%.0f", nm);
-        }
-    }
-
     private void buildUi() {
         if (tfBody == null) loadUiFonts();
         applyWindowPalette();
         applySystemBars();
 
         final android.widget.FrameLayout root = new android.widget.FrameLayout(this);
-        root.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
+        root.setBackgroundColor(m3Background());
         applySystemInsets(root);
         setContentView(root);
         uiRoot = root;
 
         LinearLayout app = new LinearLayout(this);
         app.setOrientation(LinearLayout.VERTICAL);
-        app.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
+        app.setBackgroundColor(m3Background());
         root.addView(app, new android.widget.FrameLayout.LayoutParams(-1, -1));
+
+        // Feedback is an overlay at the bottom of the inset-padded root. The
+        // root's padding owns the gesture bar, so the snackbar cannot land on
+        // top of it, and the bottom edge is below the photograph's centre.
+        snackbarHost = new SnackbarHost(this);
+        android.widget.FrameLayout.LayoutParams snackbarLp =
+                new android.widget.FrameLayout.LayoutParams(-1, -2,
+                        android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
+        snackbarLp.bottomMargin = dp(8);
+        root.addView(snackbarHost, snackbarLp);
 
         // The Console shell: a header on the page, then the photograph as a
         // full-bleed stage, its instrument readout strip, the source strip,
         // and the four tabs that own the panel. Below the tablet breakpoint
         // those two groups stack; at or above it they become two columns.
-        app.addView(buildHeader(), new LinearLayout.LayoutParams(-1, dp(HEADER_HEIGHT_DP)));
+        app.addView(buildTopAppBar(),
+                new LinearLayout.LayoutParams(-1, dp(TOP_APP_BAR_HEIGHT_DP)));
 
         body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        body.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
+        body.setBackgroundColor(m3Background());
         app.addView(body, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        navigationRail = buildNavigationRail();
+        body.addView(navigationRail, new LinearLayout.LayoutParams(
+                dp(ConsoleLayout.RAIL_WIDTH_DP), -1));
 
         mainCol = new LinearLayout(this);
         mainCol.setOrientation(LinearLayout.VERTICAL);
-        mainCol.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
+        mainCol.setBackgroundColor(m3Background());
         body.addView(mainCol, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         android.widget.FrameLayout stage = new android.widget.FrameLayout(this);
@@ -1089,7 +1107,9 @@ public class MainActivity extends Activity {
         stage.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
                 updateStageReadoutWidths());
 
-        compare = new CompareView(this, palette);
+        compare = new CompareView(this,
+                m3Role(com.google.android.material.R.attr.colorOutline, Palette.Role.LINE),
+                m3Surface(), m3Primary());
         compare.setVisibility(View.GONE);
         stage.addView(compare, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
@@ -1114,12 +1134,13 @@ public class MainActivity extends Activity {
         load.setBackground(pressableFill(Palette.Role.SURFACE_ELEVATED));
         load.setPadding(dp(18), 0, dp(18), 0);
         load.setOnClickListener(v -> showImportMenu());
-        load.addView(label("选择照片", 9, palette.color(Palette.Role.ACCENT), tfHan));
+        load.addView(m3Label("选择照片", M3Tokens.TypeRole.LABEL_LARGE,
+                m3Primary(), tfHan));
         ArrowView loadArrow = new ArrowView(this, palette.color(Palette.Role.ACCENT));
         LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(14), dp(14));
         arrowLp.leftMargin = dp(8);
         load.addView(loadArrow, arrowLp);
-        empty.addView(load, new LinearLayout.LayoutParams(-2, dp(38)));
+        empty.addView(load, new LinearLayout.LayoutParams(-2, dp(48)));
         stage.addView(empty, new android.widget.FrameLayout.LayoutParams(-1, -1));
         emptyState = empty;
 
@@ -1152,10 +1173,10 @@ public class MainActivity extends Activity {
         addScanControls(stage);
         // TalkBack reaches the scan line after the chip that turns it on,
         // even though the overlay was added before the corner controls.
-        if (scanToggleTouch != null) {
-            scanToggleTouch.setId(View.generateViewId());
+        if (scanToggleChip != null) {
+            scanToggleChip.setId(View.generateViewId());
             scanOverlay.setId(View.generateViewId());
-            scanOverlay.setAccessibilityTraversalAfter(scanToggleTouch.getId());
+            scanOverlay.setAccessibilityTraversalAfter(scanToggleChip.getId());
         }
 
         shelfHandle = buildShelfHandle();
@@ -1182,21 +1203,25 @@ public class MainActivity extends Activity {
 
         mainCol.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
         mainCol.addView(buildReadoutStrip(),
-                new LinearLayout.LayoutParams(-1, dp(READOUT_HEIGHT_DP)));
+                new LinearLayout.LayoutParams(-1, -2));
         mainCol.addView(buildSourceBar(),
                 new LinearLayout.LayoutParams(-1, dp(SOURCE_HEIGHT_DP)));
 
         controls = new LinearLayout(this);
         controls.setOrientation(LinearLayout.VERTICAL);
-        controls.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
+        controls.setBackgroundColor(m3Background());
 
         panelHolder = new LinearLayout(this);
         panelHolder.setOrientation(LinearLayout.VERTICAL);
         panelHolder.setPadding(dp(16), 0, dp(16), dp(PANEL_BOTTOM_DP));
-        panelHolder.addView(buildFilmPanel(), new LinearLayout.LayoutParams(-1, -1));
-        panelHolder.addView(buildOpticsPanel(), new LinearLayout.LayoutParams(-1, -1));
-        panelHolder.addView(buildFormatPanel(), new LinearLayout.LayoutParams(-1, -1));
-        panelHolder.addView(buildEdgePanel(), new LinearLayout.LayoutParams(-1, -1));
+        panelHolder.addView(scrollablePanel(buildFilmPanel()),
+                new LinearLayout.LayoutParams(-1, -1));
+        panelHolder.addView(scrollablePanel(buildOpticsPanel()),
+                new LinearLayout.LayoutParams(-1, -1));
+        panelHolder.addView(scrollablePanel(buildFormatPanel()),
+                new LinearLayout.LayoutParams(-1, -1));
+        panelHolder.addView(scrollablePanel(buildEdgePanel()),
+                new LinearLayout.LayoutParams(-1, -1));
         for (int i = 0; i < 4; ++i) panels[i] = panelHolder.getChildAt(i);
 
         controls.addView(buildTabs(), new LinearLayout.LayoutParams(-1, dp(TABS_HEIGHT_DP)));
@@ -1236,92 +1261,98 @@ public class MainActivity extends Activity {
         });
     }
 
-    /** All in-app messages use this paper/ink toast, never Android's Toast. */
-    void showInAppToast(final CharSequence message) {
+    /** All in-app messages use a real M3 snackbar, never Android's Toast. */
+    void showSnackbar(final CharSequence message) {
+        showSnackbar(message, Snackbar.LENGTH_LONG);
+    }
+
+    private void showSnackbar(final CharSequence message, final int duration) {
+        showSnackbar(message, null, null, duration);
+    }
+
+    private void showSnackbar(final CharSequence message, final String action,
+                              final View.OnClickListener onAction, final int duration) {
         if (message == null || message.length() == 0) return;
         if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
-            runOnUiThread(() -> showInAppToast(message));
+            runOnUiThread(() -> showSnackbar(message, action, onAction, duration));
             return;
         }
-        if (uiRoot == null) return;
-        if (inAppToast == null) {
-            inAppToast = label(String.valueOf(message), 10, palette.color(Palette.Role.ON_OVERLAY), tfHan);
-            inAppToast.setMaxWidth(Math.round(getResources().getConfiguration().screenWidthDp
-                    * 0.82f * getResources().getDisplayMetrics().density));
-            inAppToast.setGravity(android.view.Gravity.CENTER);
-            inAppToast.setMaxLines(4);
-            inAppToast.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            inAppToast.setPadding(dp(14), dp(10), dp(14), dp(10));
-            inAppToast.setBackgroundColor(palette.color(Palette.Role.OVERLAY));
-            inAppToast.setElevation(dp(6));
-            android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
-                    -2, -2, android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
-            lp.bottomMargin = dp(76);
-            uiRoot.addView(inAppToast, lp);
+        if (snackbarHost == null) return;
+        if (currentSnackbar != null) currentSnackbar.dismiss();
+        final Snackbar bar = Snackbar.make(snackbarHost, message, duration);
+        final TextView text = bar.getView().findViewById(
+                com.google.android.material.R.id.snackbar_text);
+        if (text != null) {
+            text.setMaxLines(4);
+            text.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            text.setTypeface(tfHan);
         }
-        inAppToast.animate().cancel();
-        inAppToast.setText(message);
-        inAppToast.setVisibility(View.VISIBLE);
-        inAppToast.setAlpha(0f);
-        inAppToast.setTranslationY(dp(8));
-        inAppToast.animate().alpha(1f).translationY(0f)
-                .setDuration(motionDuration(150)).start();
-        inAppToast.removeCallbacks(hideUiToast);
-        inAppToast.postDelayed(hideUiToast, 2200);
+        if (action != null && onAction != null) {
+            bar.setAction(action, onAction);
+            final TextView actionView = bar.getView().findViewById(
+                    com.google.android.material.R.id.snackbar_action);
+            if (actionView != null) actionView.setTypeface(tfHan);
+        }
+        bar.addCallback(new Snackbar.Callback() {
+            @Override public void onDismissed(Snackbar dismissed, int event) {
+                if (currentSnackbar == dismissed) currentSnackbar = null;
+            }
+        });
+        bar.show();
+        currentSnackbar = bar;
     }
 
     /**
-     * The Console header: brand, Theme mode, and export sit on the page, not
-     * over the photograph. The bar under it is the only chrome on this row.
+     * A failure's first line is the snackbar; the full, copyable report stays
+     * behind the 详情 action. That keeps feedback over the controls without
+     * losing the detail that made E-9000 unfixable for two releases.
      */
-    private View buildHeader() {
-        LinearLayout outer = new LinearLayout(this);
-        outer.setOrientation(LinearLayout.VERTICAL);
-        outer.setBackgroundColor(palette.color(Palette.Role.BACKGROUND));
+    private void showErrorSnackbar(String title, String body) {
+        final String shownTitle = (title == null || title.isEmpty()) ? "错误" : title;
+        final String shownBody = (body == null || body.isEmpty()) ? "[E-0000] 未知错误" : body;
+        // An error with a copyable report must not time out before it can be
+        // read; swiping it away is the dismissal.
+        final String first = firstLine(shownBody).trim();
+        showSnackbar(first.isEmpty() ? shownTitle : shownTitle + " · " + first, "详情",
+                v -> showErrorDialog(shownTitle, shownBody), Snackbar.LENGTH_INDEFINITE);
+    }
 
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(14), 0, dp(8), 0);
+    private static String firstLine(String text) {
+        final int newline = text.indexOf('\n');
+        return newline < 0 ? text : text.substring(0, newline);
+    }
 
-        LinearLayout brand = new LinearLayout(this);
-        brand.setOrientation(LinearLayout.HORIZONTAL);
-        brand.setGravity(android.view.Gravity.BOTTOM);
-        TextView word = label("SpektraLab", 18, palette.color(Palette.Role.INK), tfDisplay);
-        word.setLetterSpacing(-0.045f);
-        word.setSingleLine(true);
-        word.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        word.setOnLongClickListener(v -> { showAbout(); return true; });
-        brand.addView(word, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView console = label("/ CONSOLE", 6.5f,
-                palette.color(Palette.Role.MUTED_INK), tfBody);
-        console.setLetterSpacing(0.14f);
-        console.setSingleLine(true);
-        LinearLayout.LayoutParams consoleLp = new LinearLayout.LayoutParams(-2, -2);
-        consoleLp.leftMargin = dp(6);
-        consoleLp.bottomMargin = dp(3);
-        brand.addView(console, consoleLp);
-        header.addView(brand, new LinearLayout.LayoutParams(0, -2, 1f));
-
-        // Theme mode. The chip shows the active mode; the touch target around
-        // it is 48 dp even though the chip is 30.
+    /**
+     * The M3 small top app bar: the wordmark, Theme mode, and Export. It owns
+     * the control scheme's surface; the photograph and its readouts stay below
+     * on the Palette stage.
+     */
+    private View buildTopAppBar() {
         final boolean dark = themeMode == ThemeMode.DARK;
-        TextView themeChip = mixedLabel(dark ? "暗 DARK" : "亮 LIGHT", 7.5f,
-                palette.color(Palette.Role.INK));
-        themeChip.setGravity(android.view.Gravity.CENTER);
-        themeChip.setLetterSpacing(0.06f);
-        android.graphics.drawable.GradientDrawable themeBg =
-                new android.graphics.drawable.GradientDrawable();
-        themeBg.setColor(palette.color(Palette.Role.SURFACE_ELEVATED));
-        themeBg.setStroke(Math.max(1, dp(1)), palette.color(Palette.Role.LINE));
-        themeBg.setCornerRadius(dp(99));
-        themeChip.setBackground(themeBg);
-        themeChip.setPadding(dp(11), 0, dp(11), 0);
-        final android.widget.FrameLayout themeTouch = touchTarget(themeChip, 58);
-        themeTouch.setContentDescription(dark
-                ? "当前深色主题，点击切换到浅色"
-                : "当前浅色主题，点击切换到深色");
-        themeTouch.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+
+        final AppBarLayout appBar = new AppBarLayout(this);
+        appBar.setElevation(0);
+        appBar.setLiftOnScroll(false);
+
+        final MaterialToolbar toolbar = new MaterialToolbar(this);
+        toolbar.setTitle(typed("SpektraLab", tfDisplay));
+        toolbar.setSubtitle(mixedText("/ CONSOLE"));
+        toolbar.setLongClickable(true);
+        toolbar.setOnLongClickListener(v -> { showAbout(); return true; });
+
+        final LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        sharePill = actionButton(mixedText("分享"), "分享最近一次导出");
+        sharePill.setVisibility(View.GONE);
+        sharePill.setOnClickListener(v -> shareLastExport());
+        actions.addView(sharePill, actionButtonParams());
+
+        final MaterialButton themeButton = actionButton(
+                mixedText(dark ? "暗 DARK" : "亮 LIGHT"),
+                dark ? "当前深色主题，点击切换到浅色" : "当前浅色主题，点击切换到深色");
+        themeButton.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(
                     View host, android.view.accessibility.AccessibilityNodeInfo info) {
                 super.onInitializeAccessibilityNodeInfo(host, info);
@@ -1330,60 +1361,89 @@ public class MainActivity extends Activity {
                 info.setChecked(dark);
             }
         });
-        themeTouch.setOnClickListener(v -> toggleTheme());
-        header.addView(themeTouch, new LinearLayout.LayoutParams(-2, dp(48)));
+        themeButton.setOnClickListener(v -> toggleTheme());
+        actions.addView(themeButton, actionButtonParams());
 
-        sharePill = label("分享", 9, palette.color(Palette.Role.ACCENT), tfHan);
-        sharePill.setGravity(android.view.Gravity.CENTER);
-        android.graphics.drawable.GradientDrawable shareBg = new android.graphics.drawable.GradientDrawable();
-        shareBg.setColor(palette.color(Palette.Role.SURFACE_ELEVATED));
-        shareBg.setAlpha(220);
-        shareBg.setCornerRadius(dp(99));
-        sharePill.setBackground(shareBg);
-        sharePill.setPadding(dp(11), 0, dp(11), 0);
-        sharePill.setVisibility(View.GONE);
-        sharePill.setOnClickListener(v -> shareLastExport());
-        LinearLayout.LayoutParams shareLp = new LinearLayout.LayoutParams(-2, dp(30));
-        shareLp.rightMargin = dp(6);
-        header.addView(sharePill, shareLp);
+        final MaterialButton export = actionButton(mixedText("导出"), "导出 EXPORT 照片");
+        export.setOnClickListener(v -> showExportDialog());
+        actions.addView(export, actionButtonParams());
 
-        // Export carries a rule, like the prototype's underlined command. The
-        // rule is the accent; the word stays ink-dark for contrast.
-        LinearLayout exportCol = new LinearLayout(this);
-        exportCol.setOrientation(LinearLayout.VERTICAL);
-        exportCol.setGravity(android.view.Gravity.CENTER);
-        TextView exportText = mixedLabel("导出 EXPORT", 7.5f,
-                palette.color(Palette.Role.ACCENT));
-        exportText.setLetterSpacing(0.06f);
-        exportText.setSingleLine(true);
-        exportCol.addView(exportText);
-        View exportRule = new View(this);
-        exportRule.setBackgroundColor(palette.color(Palette.Role.ACCENT));
-        // A deliberate rule width keeps this WRAP_CONTENT column from
-        // measuring to the header's whole remaining width through a
-        // MATCH_PARENT child, which used to starve the weighted brand.
-        LinearLayout.LayoutParams ruleLp = new LinearLayout.LayoutParams(dp(56), dp(1));
-        ruleLp.topMargin = dp(3);
-        exportCol.addView(exportRule, ruleLp);
-        final android.widget.FrameLayout exportTouch = touchTarget(exportCol, 66);
-        exportTouch.setContentDescription("导出照片");
-        exportTouch.setOnClickListener(v -> showExportDialog());
-        header.addView(exportTouch, new LinearLayout.LayoutParams(-2, dp(48)));
-
-        outer.addView(header, new LinearLayout.LayoutParams(-1, 0, 1f));
-        outer.addView(hairline(palette.color(Palette.Role.LINE)),
-                new LinearLayout.LayoutParams(-1, dp(1)));
-        return outer;
+        toolbar.addView(actions, new Toolbar.LayoutParams(
+                -2, dp(48), android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL));
+        appBar.addView(toolbar, new AppBarLayout.LayoutParams(-1, -1));
+        return appBar;
     }
 
-    /** A 48 dp touch target around a smaller visual control. */
-    private android.widget.FrameLayout touchTarget(View content, int minWidthDp) {
-        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
-        box.setMinimumWidth(dp(minWidthDp));
-        box.setFocusable(true);
-        box.addView(content, new android.widget.FrameLayout.LayoutParams(
-                -2, -2, android.view.Gravity.CENTER));
-        return box;
+    /** A top app bar action: the real M3 text-button style, 48 dp tall. */
+    private MaterialButton actionButton(CharSequence text, String description) {
+        final MaterialButton button = new MaterialButton(this);
+        button.setText(text);
+        button.setAllCaps(false);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setInsetTop(0);
+        button.setInsetBottom(0);
+        button.setPadding(dp(12), 0, dp(12), 0);
+        button.setGravity(android.view.Gravity.CENTER);
+        button.setSingleLine(true);
+        button.setContentDescription(description);
+        return button;
+    }
+
+    private LinearLayout.LayoutParams actionButtonParams() {
+        return new LinearLayout.LayoutParams(-2, dp(48));
+    }
+
+    /**
+     * A section action as a real M3 text button: its state layer, ripple, and
+     * 48 dp target replace the underlined bare TextView the review found.
+     */
+    private MaterialButton m3TextButton(CharSequence text, String description,
+                                        int color, Runnable action) {
+        final MaterialButton button = new MaterialButton(this);
+        button.setText(text);
+        button.setAllCaps(false);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setMinHeight(0);
+        button.setMinimumHeight(0);
+        button.setInsetTop(0);
+        button.setInsetBottom(0);
+        button.setPadding(dp(8), 0, dp(8), 0);
+        button.setGravity(android.view.Gravity.CENTER);
+        button.setSingleLine(true);
+        button.setTextColor(color);
+        button.setBackgroundTintList(ColorStateList.valueOf(android.graphics.Color.TRANSPARENT));
+        button.setRippleColor(ColorStateList.valueOf(
+                withOpacity(color, M3Tokens.StateLayer.PRESSED.opacity)));
+        button.setElevation(0f);
+        button.setStateListAnimator(null);
+        button.setContentDescription(description);
+        applyTypeRole(button, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
+        button.setOnClickListener(v -> action.run());
+        return button;
+    }
+
+    /** A run with one family, for the wordmark's Inter Light. */
+    private CharSequence typed(String text, Typeface face) {
+        final android.text.SpannableString span = new android.text.SpannableString(text);
+        span.setSpan(new TfSpan(face), 0, span.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return span;
+    }
+
+    /** Text inside a Material component: one M3 type role, brand families. */
+    private void applyTypeface(android.view.View root, Typeface face) {
+        if (root instanceof TextView) {
+            ((TextView) root).setTypeface(face);
+            return;
+        }
+        if (root instanceof android.view.ViewGroup) {
+            final android.view.ViewGroup group = (android.view.ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); ++i) {
+                applyTypeface(group.getChildAt(i), face);
+            }
+        }
     }
 
     /**
@@ -1393,69 +1453,105 @@ public class MainActivity extends Activity {
     private View buildReadoutStrip() {
         LinearLayout outer = new LinearLayout(this);
         outer.setOrientation(LinearLayout.VERTICAL);
-        outer.setBackgroundColor(palette.color(Palette.Role.SURFACE));
-        outer.addView(hairline(palette.color(Palette.Role.LINE)),
+        outer.setBackgroundColor(m3Surface());
+        outer.setMinimumHeight(dp(READOUT_HEIGHT_DP));
+        outer.addView(hairline(m3OutlineVariant()),
                 new LinearLayout.LayoutParams(-1, dp(1)));
 
-        LinearLayout strip = new LinearLayout(this);
-        strip.setOrientation(LinearLayout.HORIZONTAL);
         final String[] titles = {
                 "FILM / 胶片", "PAPER / 相纸", "EXPOSURE / 曝光", "SPECTRUM / 光谱"};
-        for (int i = 0; i < titles.length; ++i) {
-            if (i > 0) {
-                strip.addView(hairline(palette.color(Palette.Role.LINE)),
-                        new LinearLayout.LayoutParams(dp(1), -1));
+        // Two columns at every width. Four columns at 400 dp clip the section
+        // titles and the longer stock names even at the default font scale;
+        // the readout is an instrument strip, not a race to fit four cells.
+        final int columns = 2;
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        for (int rowIndex = 0; rowIndex * columns < titles.length; ++rowIndex) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setMinimumHeight(dp(READOUT_HEIGHT_DP));
+            for (int column = 0; column < columns; ++column) {
+                final int i = rowIndex * columns + column;
+                if (i >= titles.length) break;
+                if (column > 0) {
+                    row.addView(hairline(m3OutlineVariant()),
+                            new LinearLayout.LayoutParams(dp(1), -1));
+                }
+                row.addView(readoutCell(i, titles[i]),
+                        new LinearLayout.LayoutParams(0, -2, 1f));
             }
-            final LinearLayout cell = new LinearLayout(this);
-            cell.setOrientation(LinearLayout.VERTICAL);
-            cell.setPadding(dp(9), dp(5), dp(6), dp(3));
-
-            TextView title = label(titles[i], 6.5f,
-                    palette.color(Palette.Role.MUTED_INK), tfHan);
-            title.setLetterSpacing(0.08f);
-            title.setSingleLine(true);
-            title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            cell.addView(title, new LinearLayout.LayoutParams(-1, -2));
-
-            LinearLayout valueRow = new LinearLayout(this);
-            valueRow.setOrientation(LinearLayout.HORIZONTAL);
-            valueRow.setGravity(android.view.Gravity.BOTTOM);
-            TextView value = label("\u2014", 12,
-                    palette.color(Palette.Role.INK), i == 2 ? tfDisplay : tfHan);
-            value.setSingleLine(true);
-            value.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            valueRow.addView(value, new LinearLayout.LayoutParams(0, -2, 1f));
-            TextView unit = label("", 6.5f,
-                    palette.color(Palette.Role.MUTED_INK), tfBody);
-            LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
-            unitLp.leftMargin = dp(2);
-            unitLp.bottomMargin = dp(1);
-            valueRow.addView(unit, unitLp);
-            LinearLayout.LayoutParams valueRowLp = new LinearLayout.LayoutParams(-1, -2);
-            valueRowLp.topMargin = dp(2);
-            cell.addView(valueRow, valueRowLp);
-
-            TextView detail = label("", 6.5f,
-                    palette.color(Palette.Role.MUTED_INK), tfBody);
-            detail.setSingleLine(true);
-            detail.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            LinearLayout.LayoutParams detailLp = new LinearLayout.LayoutParams(-1, -2);
-            detailLp.topMargin = dp(1);
-            cell.addView(detail, detailLp);
-
-            if (i == 0) readoutFilm = value;
-            if (i == 1) readoutPaper = value;
-            if (i == 2) readoutExposure = value;
-            if (i == 3) {
-                readoutSpectrumValue = value;
-                readoutSpectrumUnit = unit;
-                readoutSpectrumDetail = detail;
-                readoutSpectrumCell = cell;
+            grid.addView(row, new LinearLayout.LayoutParams(-1, -2));
+            if ((rowIndex + 1) * columns < titles.length) {
+                grid.addView(hairline(m3OutlineVariant()),
+                        new LinearLayout.LayoutParams(-1, dp(1)));
             }
-            strip.addView(cell, new LinearLayout.LayoutParams(0, -1, 1f));
         }
-        outer.addView(strip, new LinearLayout.LayoutParams(-1, 0, 1f));
+        outer.addView(grid, new LinearLayout.LayoutParams(-1, -2));
         return outer;
+    }
+
+    /** A panel's content scrolls inside the fixed panel height when text grows. */
+    private View scrollablePanel(View content) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setClipToPadding(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        scroll.addView(content, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        return scroll;
+    }
+
+    private View readoutCell(int i, String titleText) {
+        final LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setPadding(dp(9), dp(3), dp(6), dp(3));
+
+        TextView title = m3Label(titleText, M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfHan);
+        title.setSingleLine(true);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        cell.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout valueRow = new LinearLayout(this);
+        valueRow.setOrientation(LinearLayout.HORIZONTAL);
+        valueRow.setGravity(android.view.Gravity.BOTTOM);
+        TextView value = m3Label("—", M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurface(), i == 2 ? tfDisplay : tfHan);
+        value.setSingleLine(true);
+        value.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        valueRow.addView(value, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView unit = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfBody);
+        LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
+        unitLp.leftMargin = dp(2);
+        unitLp.bottomMargin = dp(1);
+        valueRow.addView(unit, unitLp);
+        LinearLayout.LayoutParams valueRowLp = new LinearLayout.LayoutParams(-1, -2);
+        valueRowLp.topMargin = dp(1);
+        cell.addView(valueRow, valueRowLp);
+
+        TextView detail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfBody);
+        detail.setSingleLine(false);
+        detail.setMaxLines(2);
+        detail.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        cell.addView(detail, new LinearLayout.LayoutParams(-1, -2));
+
+        if (i == 0) readoutFilm = value;
+        if (i == 1) readoutPaper = value;
+        if (i == 2) readoutExposure = value;
+        if (i == 3) {
+            readoutSpectrumValue = value;
+            readoutSpectrumUnit = unit;
+            readoutSpectrumDetail = detail;
+            readoutSpectrumCell = cell;
+        }
+        return cell;
+    }
+
+    /** True when the system font scale makes four readout columns too narrow. */
+    private boolean largeText() {
+        return getResources().getConfiguration().fontScale >= 1.15f;
     }
 
     /**
@@ -1464,7 +1560,8 @@ public class MainActivity extends Activity {
      * spectrum cell only reports samples the catalogue actually carries.
      */
     private void refreshReadoutStrip() {
-        final String exposure = String.format(java.util.Locale.US, "%.2f", printExposure);
+        final String exposure = OpticsDelta.valueText(
+                optics.get(OpticsDelta.Param.EXPOSURE));
         if (stageExposureValue != null) stageExposureValue.setText(exposure);
         if (readoutExposure == null) return;
         readoutExposure.setText(exposure);
@@ -1497,30 +1594,15 @@ public class MainActivity extends Activity {
         if (id == null || id.isEmpty()) return "\u2014";
         final int i = ids.indexOf(id);
         if (i < 0 || i >= labels.size()) return id;
-        return shortReadoutName(labels.get(i));
+        return StockNames.readout(labels.get(i));
     }
 
-    /**
-     * The Readout strip is a glance, not the shelf: drop a leading maker and
-     * the "Professional" tier so "Kodak Professional Portra Endura" reads as
-     * "Portra Endura" at cell width. The full name stays in the pickers.
-     */
-    private String shortReadoutName(String label) {
-        String name = shortStockName(label);
-        final int space = name.indexOf(' ');
-        if (space > 0) {
-            final String maker = name.substring(0, space).toLowerCase(java.util.Locale.US);
-            if (maker.equals("kodak") || maker.equals("fujifilm") || maker.equals("ilford")
-                    || maker.equals("cinestill") || maker.equals("foma")
-                    || maker.equals("fomapan") || maker.equals("agfa")) {
-                name = name.substring(space + 1);
-            }
-        }
-        final String professional = "Professional ";
-        if (name.startsWith(professional)) {
-            name = name.substring(professional.length());
-        }
-        return name;
+    /** The picker's full name for the same record. */
+    private String fullStockLabel(String id, List<String> ids, List<String> labels) {
+        if (id == null || id.isEmpty()) return "\u2014";
+        final int i = ids.indexOf(id);
+        if (i < 0 || i >= labels.size()) return id;
+        return StockNames.full(labels.get(i));
     }
 
     /**
@@ -1633,64 +1715,101 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Scan inspect's two controls: a small toggle under the file readout, and
-     * a readout above the shelf handle. The readout is deliberately away from
-     * the print-exposure corner, the status line, and the folded shelf so the
-     * three never share a corner.
+     * Scan inspect's two controls: a checkable M3 chip under the file readout,
+     * and an M3 filled-card readout above the shelf handle. The readout is
+     * deliberately away from the print-exposure corner, the status line, and
+     * the folded shelf so the three never share a corner.
      */
     private void addScanControls(android.widget.FrameLayout stage) {
-        scanToggleChip = mixedLabel("SCAN · 扫描", 7.5f,
-                palette.color(Palette.Role.STAGE_INK));
-        scanToggleChip.setGravity(android.view.Gravity.CENTER);
-        scanToggleChip.setLetterSpacing(0.06f);
-        scanToggleChip.setSingleLine(true);
-        scanToggleChip.setPadding(dp(12), 0, dp(12), 0);
-        scanToggleTouch = touchTarget(scanToggleChip, 92);
-        scanToggleTouch.setOnClickListener(v -> toggleScan());
+        final int chipSurface = m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerLow,
+                Palette.Role.SURFACE_ELEVATED);
+        final int chipSelected = m3Role(
+                com.google.android.material.R.attr.colorSecondaryContainer,
+                Palette.Role.ACCENT_SOFT);
+        final int chipText = m3Role(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+        final int chipTextSelected = m3Role(
+                com.google.android.material.R.attr.colorOnSecondaryContainer,
+                Palette.Role.ACCENT);
+        final int chipOutline = m3Role(
+                com.google.android.material.R.attr.colorOutlineVariant,
+                Palette.Role.LINE);
+        final Chip chip = new Chip(this, null,
+                com.google.android.material.R.attr.chipStyle);
+        chip.setCheckable(true);
+        chip.setCheckedIconVisible(false);
+        chip.setChipIconVisible(false);
+        chip.setEnsureMinTouchTargetSize(true);
+        chip.setText(mixedText("SCAN · 扫描", M3Tokens.TypeRole.LABEL_LARGE.weight));
+        applyTypeRole(chip, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
+        chip.setGravity(android.view.Gravity.CENTER);
+        chip.setSingleLine(true);
+        chip.setChipBackgroundColor(checkedColors(chipSelected, chipSurface));
+        chip.setChipStrokeWidth(Math.max(1, dp(1)));
+        chip.setChipStrokeColor(checkedColors(chipSelected, chipOutline));
+        chip.setTextColor(checkedColors(chipTextSelected, chipText));
+        chip.setContentDescription("扫描检视，点击开启");
+        chip.setOnClickListener(v -> toggleScan());
+        scanToggleChip = chip;
         android.widget.FrameLayout.LayoutParams toggleLp =
                 new android.widget.FrameLayout.LayoutParams(
-                        -2, dp(48), android.view.Gravity.TOP | android.view.Gravity.START);
+                        -2, -2, android.view.Gravity.TOP | android.view.Gravity.START);
         toggleLp.leftMargin = dp(14);
         toggleLp.topMargin = dp(34);
-        stage.addView(scanToggleTouch, toggleLp);
+        stage.addView(chip, toggleLp);
+
+        // A filled M3 card is the readout surface; the numbers inside stay
+        // measured text, and the card remains a non-interactive announcement.
+        final int cardSurface = m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainer,
+                Palette.Role.SURFACE_ELEVATED);
+        final int cardText = m3Role(
+                com.google.android.material.R.attr.colorOnSurface,
+                Palette.Role.INK);
+        final int cardMuted = m3Role(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+        final MaterialCardView card = new MaterialCardView(this, null,
+                com.google.android.material.R.attr.materialCardViewFilledStyle);
+        card.setCardBackgroundColor(cardSurface);
+        card.setRadius(dp(M3Tokens.ShapeRole.SMALL.radiusDp));
+        card.setCardElevation(0f);
+        card.setUseCompatPadding(false);
+        card.setClickable(false);
+        card.setFocusable(false);
+        card.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        card.setVisibility(View.GONE);
+        scanReadout = card;
 
         final LinearLayout block = new LinearLayout(this);
         block.setOrientation(LinearLayout.VERTICAL);
-        block.setPadding(dp(9), dp(5), dp(10), dp(6));
-        final android.graphics.drawable.GradientDrawable bg =
-                new android.graphics.drawable.GradientDrawable();
-        bg.setColor(palette.color(Palette.Role.STAGE_SCRIM_TOP));
-        bg.setCornerRadius(dp(2));
-        block.setBackground(bg);
-        block.setClickable(false);
-        block.setVisibility(View.GONE);
-        scanReadout = block;
+        block.setPadding(dp(12), dp(7), dp(12), dp(8));
+        card.addView(block, new android.widget.FrameLayout.LayoutParams(-2, -2));
 
-        final TextView caption = label("SCAN INSPECT · CENTRE ROW", 5f,
-                palette.color(Palette.Role.STAGE_INK), tfBody);
-        caption.setAlpha(0.72f);
-        caption.setLetterSpacing(0.10f);
-        caption.setSingleLine(true);
-        caption.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
         // A bare addView in a vertical LinearLayout takes MATCH_PARENT width,
         // so the caption used to be measured against the narrower RGB line and
         // clipped at 390 dp. Wrapping it makes the caption the block's widest
         // child and gives the readout one stable width while the numbers change.
+        final TextView caption = m3Label("SCAN INSPECT · CENTRE ROW",
+                M3Tokens.TypeRole.LABEL_SMALL, cardMuted, tfBody);
+        caption.setSingleLine(true);
+        caption.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         block.addView(caption, new LinearLayout.LayoutParams(-2, -2));
 
-        scanReadoutRgb = label("R \u2014  G \u2014  B \u2014", 8f,
-                palette.color(Palette.Role.STAGE_INK), tfBody);
+        scanReadoutRgb = m3Label("R \u2014  G \u2014  B \u2014",
+                M3Tokens.TypeRole.BODY_SMALL, cardText, tfBody);
         scanReadoutRgb.setSingleLine(true);
-        scanReadoutRgb.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
+        scanReadoutRgb.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         final LinearLayout.LayoutParams rgbLp = new LinearLayout.LayoutParams(-2, -2);
-        rgbLp.topMargin = dp(2);
+        rgbLp.topMargin = dp(3);
         block.addView(scanReadoutRgb, rgbLp);
 
-        scanReadoutLambda = label("\u03bb \u2014", 8f,
-                palette.color(Palette.Role.STAGE_INK), tfDisplay);
+        scanReadoutLambda = m3Label("\u03bb \u2014",
+                M3Tokens.TypeRole.BODY_SMALL, cardText, tfDisplay);
         scanReadoutLambda.setSingleLine(true);
-        scanReadoutLambda.setLetterSpacing(0.02f);
-        scanReadoutLambda.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
+        scanReadoutLambda.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         block.addView(scanReadoutLambda, new LinearLayout.LayoutParams(-2, -2));
 
         android.widget.FrameLayout.LayoutParams readoutLp =
@@ -1699,14 +1818,14 @@ public class MainActivity extends Activity {
         readoutLp.leftMargin = dp(14);
         // Clear of the 62 dp shelf handle and its 12 dp margin.
         readoutLp.bottomMargin = dp(84);
-        stage.addView(block, readoutLp);
+        stage.addView(card, readoutLp);
         updateScanToggleVisual(false);
     }
 
     /** Turn Scan inspect on or off. It never renders and never edits a Look. */
     private void toggleScan() {
         if (scanBitmap() == null) {
-            showInAppToast("先导入一张照片");
+            showSnackbar("先导入一张照片");
             return;
         }
         scanVisible = !scanVisible;
@@ -1743,56 +1862,37 @@ public class MainActivity extends Activity {
             scanReadout.setVisibility(show ? View.VISIBLE : View.GONE);
         }
         updateScanToggleVisual(available);
-        if (filmCurve != null) filmCurve.setScanMark(show, scanFraction);
     }
 
-    /** The toggle's chip: enabled only when there is a preview to read. */
+    /** The toggle's chip state: enabled only when there is a preview to read. */
     private void updateScanToggleVisual(boolean enabled) {
         if (scanToggleChip == null) return;
-        final android.graphics.drawable.GradientDrawable bg =
-                new android.graphics.drawable.GradientDrawable();
-        bg.setColor(palette.color(Palette.Role.STAGE_SCRIM_TOP));
-        bg.setCornerRadius(dp(99));
-        final int stroke = palette.color(scanVisible
-                ? Palette.Role.ACCENT : Palette.Role.STAGE_INK);
-        bg.setStroke(Math.max(1, dp(1)), scanVisible
-                ? stroke : withAlpha(stroke, 0x66));
-        scanToggleChip.setBackground(bg);
-        scanToggleChip.setTextColor(palette.color(Palette.Role.STAGE_INK));
-        if (scanToggleTouch != null) {
-            scanToggleTouch.setEnabled(enabled);
-            scanToggleTouch.setAlpha(enabled ? 1f : 0.38f);
-            final String state = scanVisible
-                    ? (enabled ? "扫描检视已开启，点击关闭"
-                            : "扫描检视已开启，等待预览")
-                    : (enabled ? "扫描检视，点击开启"
-                            : "扫描检视，需先导入照片");
-            scanToggleTouch.setContentDescription(state);
-        }
-    }
-
-    private static int withAlpha(int color, int alpha) {
-        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
+        scanToggleChip.setChecked(scanVisible);
+        scanToggleChip.setEnabled(enabled);
+        scanToggleChip.setAlpha(enabled ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
+        final String state = scanVisible
+                ? (enabled ? "扫描检视已开启，点击关闭"
+                        : "扫描检视已开启，等待预览")
+                : (enabled ? "扫描检视，点击开启"
+                        : "扫描检视，需先导入照片");
+        scanToggleChip.setContentDescription(state);
     }
 
     /** The overlay reports every move; the readout and the curve follow it. */
     private void onScanSample(ScanSample sample, float fraction) {
         scanFraction = fraction;
         if (scanReadoutRgb != null) {
-            scanReadoutRgb.setText(sample.available()
-                    ? sample.rgbText() : "R \u2014  G \u2014  B \u2014");
+            scanReadoutRgb.setText(sample.rgbReadoutText());
         }
         if (scanReadoutLambda != null) {
-            scanReadoutLambda.setText(sample.hasWavelength()
-                    ? "\u03bb " + sample.wavelengthText() + " nm"
-                    : "\u03bb \u2014");
+            scanReadoutLambda.setText(sample.lambdaText());
         }
         if (scanReadout != null) {
             scanReadout.setContentDescription(sample.description()
                     + "，位置 " + Math.round(fraction * 100f) + "%");
         }
         if (filmCurve != null) {
-            filmCurve.setScanMark(scanVisible && scanBitmap() != null, fraction);
+            filmCurve.setScanMark(scanVisible && scanBitmap() != null, sample);
         }
     }
 
@@ -1815,7 +1915,7 @@ public class MainActivity extends Activity {
         // focused slider keeps its own arrow keys.
         final View focus = getCurrentFocus();
         if (scanVisible && scanOverlay != null
-                && !(focus instanceof android.widget.SeekBar)
+                && !(focus instanceof Slider)
                 && scanOverlay.handleKey(keyCode, event.isShiftPressed())) {
             return true;
         }
@@ -1832,9 +1932,9 @@ public class MainActivity extends Activity {
     private View buildSourceBar() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.VERTICAL);
-        bar.setBackgroundColor(palette.color(Palette.Role.SURFACE));
+        bar.setBackgroundColor(m3Surface());
         sourceBar = bar;
-        bar.addView(hairline(palette.color(Palette.Role.LINE)),
+        bar.addView(hairline(m3OutlineVariant()),
                 new LinearLayout.LayoutParams(-1, dp(1)));
 
         LinearLayout row = new LinearLayout(this);
@@ -1843,7 +1943,8 @@ public class MainActivity extends Activity {
         row.setPadding(dp(10), 0, dp(4), 0);
         sourceRow = row;
 
-        TextView add = label("\uff0b", 17, palette.color(Palette.Role.ACCENT), tfDisplay);
+        TextView add = m3Label("\uff0b", M3Tokens.TypeRole.TITLE_LARGE,
+                m3Primary(), tfDisplay);
         add.setGravity(android.view.Gravity.CENTER);
         add.setFocusable(true);
         add.setContentDescription("导入照片");
@@ -1862,7 +1963,8 @@ public class MainActivity extends Activity {
         thumbScroll.addView(thumbStrip, new android.widget.FrameLayout.LayoutParams(-2, -1));
         row.addView(thumbScroll, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
-        TextView fold = label("\u2039", 15, palette.color(Palette.Role.MUTED_INK), tfHan);
+        TextView fold = m3Label("\u2039", M3Tokens.TypeRole.TITLE_SMALL,
+                m3OnSurfaceVariant(), tfHan);
         fold.setGravity(android.view.Gravity.CENTER);
         fold.setFocusable(true);
         fold.setContentDescription("收起胶片条");
@@ -1920,56 +2022,111 @@ public class MainActivity extends Activity {
     }
 
     private Look captureLook() {
-        final Look look = new Look();
+        return captureLook(false);
+    }
+
+    /**
+     * Capture the live controls into the Frame's Look. A save from an existing
+     * Frame starts from a detached copy of that Frame's stored Look, so a field
+     * this build does not yet expose is carried through instead of being reset
+     * by a Frame switch. A brand-new photograph starts from a fresh Look and
+     * inherits nothing. Nothing is clamped on the way in.
+     */
+    private Look captureLook(boolean preserveHidden) {
+        final Look look = preserveHidden
+                && currentFrame >= 0 && currentFrame < frames.size()
+                && frames.get(currentFrame).look != null
+                ? frames.get(currentFrame).look.copy()
+                : new Look();
         look.filmStock = filmStock;
         look.printStock = printStock;
-        look.printExposure = printExposure;
-        look.grainAmount = grainAmount;
-        look.halationAmount = halationAmount;
-        look.glareAmount = glareAmount;
         look.filmFormatMm = filmFormatMm;
+        for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
+            look.set(param, optics.get(param));
+        }
+        look.cameraFilter = optics.cameraFilter;
+        look.sceneNorm = optics.sceneNorm;
         look.overscanOn = overscanOn;
         look.overscanFormat = overscanFormat;
         look.dateOn = dateOn;
+        look.edgeTextOn = edgeTextOn;
+        look.edgeMode = edgeMode;
+        look.edgeGate = edgeGate;
+        look.edgeHoles = edgeHoles;
+        look.edgeCarrier = edgeCarrier;
+        look.edgeFog = edgeFog;
+        look.edgeLeaks = edgeLeaks;
+        look.frameNumber = frameNumber;
+        look.edgeFNumber = edgeFNumber;
+        look.cameraSeed = cameraSeed;
+        look.frameSeed = frameSeed;
+        look.datePlacement = datePlacement;
+        look.dateCorner = dateCorner;
+        look.dateStyle = dateStyle;
+        look.dateInsetX = dateInsetX;
+        look.dateInsetY = dateInsetY;
+        look.dateSize = dateSize;
+        look.dateEv = dateEv;
+        look.dataText = dataText;
+        look.dateTextB = dateTextB;
+        // Only a *typed* text is part of the Look; the EXIF default stays with
+        // the Frame's file, so a Frame with no typed date keeps following it.
+        look.dateText = dateText == null ? "" : dateText;
         return look;
     }
 
     /** Put a frame's own look back, controls included: a slider that says 1.00
-     *  while the render used 1.40 is worse than no slider. `setBarProgress`
-     *  goes through `onProgressChanged`, so the number and the field move
-     *  together. */
+     *  while the render used 1.40 is worse than no slider. The stored value is
+     *  restored as-is; the slider only clamps the thumb it can reach, so a
+     *  glare above its 12.0 cap still reaches the engine. */
     private void applyLook(Look look) {
         if (look == null) return;
         filmStock = look.filmStock;
         printStock = look.printStock;
-        printExposure = look.printExposure;
-        grainAmount = look.grainAmount;
-        halationAmount = look.halationAmount;
-        glareAmount = look.glareAmount;
         filmFormatMm = look.filmFormatMm;
+        for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
+            optics.set(param, look.get(param));
+        }
+        // Unknown choice ids stay on the Look so a later save does not erase
+        // them; the page shows the documented fallback until the user picks.
+        optics.cameraFilter = look.cameraFilter;
+        optics.sceneNorm = look.sceneNorm;
         overscanOn = look.overscanOn;
         overscanFormat = look.overscanFormat;
         dateOn = look.dateOn;
-        final GateScale.Gate gate = GateScale.resolve(overscanFormat, filmFormatMm);
+        edgeTextOn = look.edgeTextOn;
+        edgeMode = look.edgeMode;
+        edgeGate = look.edgeGate;
+        edgeHoles = look.edgeHoles;
+        edgeCarrier = look.edgeCarrier;
+        edgeFog = look.edgeFog;
+        edgeLeaks = look.edgeLeaks;
+        frameNumber = look.frameNumber;
+        edgeFNumber = look.edgeFNumber;
+        cameraSeed = look.cameraSeed;
+        frameSeed = look.frameSeed;
+        datePlacement = look.datePlacement;
+        dateCorner = look.dateCorner;
+        dateStyle = look.dateStyle;
+        dateInsetX = look.dateInsetX;
+        dateInsetY = look.dateInsetY;
+        dateSize = look.dateSize;
+        dateEv = look.dateEv;
+        dataText = look.dataText == null ? "" : look.dataText;
+        dateTextB = look.dateTextB == null ? "" : look.dateTextB;
+        dateText = look.dateText == null || look.dateText.isEmpty() ? null : look.dateText;
+        final GateScale.Gate pair = GateScale.pair(overscanFormat, filmFormatMm);
         // One piece of film geometry: a stored Gate and Scale that disagree are
         // pulled onto the Gate's measured edge before either control can draw.
-        overscanFormat = gate.id;
-        filmFormatMm = gate.longEdgeMm;
-        if (exposureRow != null) exposureRow.setValue(printExposure);
-        if (grainRow != null) grainRow.setValue(grainAmount);
-        if (halationRow != null) halationRow.setValue(halationAmount);
-        if (glareRow != null) glareRow.setValue(glareAmount);
-        if (overscanMark != null) overscanMark.setLit(overscanOn);
-        if (dateMark != null) dateMark.setLit(dateOn);
+        overscanFormat = pair.id;
+        filmFormatMm = pair.longEdgeMm;
+        if (opticsSlider != null) bindActiveOptics();
+        syncOpticsChoices();
         syncToggleRows();
-        if (edgeValue != null) edgeValue.setText(gate.label);
-        if (dateDetail != null) {
-            dateDetail.setText(dateOn
-                    ? (dateText != null ? dateText : imprintDate())
-                    : "关闭");
-        }
+        syncDateDetail();
+        if (edgeValue != null) edgeValue.setText(pair.label);
         if (formatFootValue != null) {
-            formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
+            formatFootValue.setText(mmText(pair.longEdgeMm) + " mm");
         }
         refreshFilmPanel();
         refreshPaperLabel();
@@ -1983,11 +2140,7 @@ public class MainActivity extends Activity {
     private Look defaultLook() {
         final Look look = new Look();
         look.filmStock = null;
-        look.printStock = "kodak_portra_endura";
-        look.printExposure = OpticsDelta.EXPOSURE_DEFAULT;
-        look.grainAmount = OpticsDelta.GRAIN_DEFAULT;
-        look.halationAmount = OpticsDelta.HALATION_DEFAULT;
-        look.glareAmount = OpticsDelta.GLARE_DEFAULT;
+        look.printStock = Look.DEFAULT_PRINT_STOCK;
         look.filmFormatMm = GateScale.defaultGate().longEdgeMm;
         look.overscanOn = false;
         look.overscanFormat = GateScale.defaultGate().id;
@@ -1997,7 +2150,7 @@ public class MainActivity extends Activity {
 
     private void saveLookIntoFrames() {
         if (currentFrame < 0 || currentFrame >= frames.size()) return;
-        frames.get(currentFrame).look = captureLook();
+        frames.get(currentFrame).look = captureLook(true);
     }
 
     private void updateShelfHandle() {
@@ -2083,9 +2236,9 @@ public class MainActivity extends Activity {
             final boolean active = index == currentFrame;
             android.widget.FrameLayout box = new android.widget.FrameLayout(this);
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-            bg.setColor(palette.color(Palette.Role.SURFACE));
+            bg.setColor(m3Surface());
             bg.setStroke(dp(active ? 2 : 1),
-                    palette.color(active ? Palette.Role.ACCENT : Palette.Role.LINE));
+                    active ? m3Primary() : m3OutlineVariant());
             box.setBackground(bg);
             box.setPadding(dp(3), dp(3), dp(3), dp(3));
             ImageView img = new ImageView(this);
@@ -2185,34 +2338,53 @@ public class MainActivity extends Activity {
     }
 
     private View sectionHead(String title, Runnable reset) {
+        return sectionHead(title, null, null, reset);
+    }
+
+    private View sectionHead(String title, String actionLabel, Runnable action, Runnable reset) {
         LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView titleView = mixedLabel(title, 8.5f, palette.color(Palette.Role.INK));
-        titleView.setLetterSpacing(0.06f);
-        head.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView resetView = label("重置当前页", 8.5f, palette.color(Palette.Role.MUTED_INK), tfHan);
-        resetView.setPaintFlags(resetView.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
-        resetView.setPadding(dp(8), dp(10), 0, dp(10));
-        resetView.setFocusable(true);
-        resetView.setOnClickListener(v -> reset.run());
-        head.addView(resetView);
+        head.setMinimumHeight(dp(SECTION_HEAD_HEIGHT_DP));
+        TextView titleView = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
+        titleView.setMaxLines(2);
+        titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        head.addView(titleView, new LinearLayout.LayoutParams(
+                largeText() ? -1 : 0, -2, largeText() ? 0f : 1f));
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(android.view.Gravity.END);
+        if (actionLabel != null && action != null) {
+            MaterialButton actionView = m3TextButton(actionLabel, actionLabel,
+                    m3Primary(), action);
+            actions.addView(actionView, new LinearLayout.LayoutParams(-2, dp(48)));
+        }
+        MaterialButton resetView = m3TextButton("重置当前页", "重置当前页",
+                m3OnSurfaceVariant(), reset);
+        actions.addView(resetView, new LinearLayout.LayoutParams(-2, dp(48)));
+        head.addView(actions, largeText()
+                ? new LinearLayout.LayoutParams(-1, -2)
+                : new LinearLayout.LayoutParams(-2, -2));
         return head;
     }
 
     private View buildFilmPanel() {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(sectionHead("FILM STOCK / 胶片", this::resetFilmPanel),
-                new LinearLayout.LayoutParams(-1, dp(38)));
+        panel.addView(sectionHead("FILM STOCK / 胶片",
+                        "全部胶片", this::showFilmPicker, this::resetFilmPanel),
+                new LinearLayout.LayoutParams(-1, -2));
 
         HorizontalScrollView brandScroll = new HorizontalScrollView(this);
         brandScroll.setHorizontalScrollBarEnabled(false);
         brandScroll.setClipToPadding(false);
         brandScroll.setFillViewport(false);
-        brandRow = new LinearLayout(this);
-        brandRow.setOrientation(LinearLayout.HORIZONTAL);
-        brandRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        brandRow = new ChipGroup(this);
+        brandRow.setSingleLine(true);
+        brandRow.setSingleSelection(true);
+        brandRow.setSelectionRequired(true);
+        brandRow.setChipSpacingHorizontal(dp(4));
+        brandRow.setChipSpacingVertical(0);
         brandScroll.addView(brandRow, new android.widget.FrameLayout.LayoutParams(-2, -2));
         panel.addView(brandScroll, new LinearLayout.LayoutParams(-1, dp(MIN_TOUCH_DP)));
 
@@ -2224,60 +2396,80 @@ public class MainActivity extends Activity {
         filmChipRow.setOrientation(LinearLayout.HORIZONTAL);
         filmChipRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
         filmChipScroll.addView(filmChipRow, new android.widget.FrameLayout.LayoutParams(-2, -1));
-        panel.addView(filmChipScroll, new LinearLayout.LayoutParams(-1, dp(48)));
+        panel.addView(filmChipScroll, new LinearLayout.LayoutParams(-1, dp(FILM_CARD_HEIGHT_DP)));
 
-        filmCurve = new FilmCurveView(this, palette);
-        panel.addView(filmCurve, new LinearLayout.LayoutParams(-1, dp(66)));
+        // The plot is a custom view inside a real M3 card: the surface, radius,
+        // and outline are Material's; ticket 08 owns the plot's geometry.
+        filmCurveCard = new MaterialCardView(this);
+        filmCurveCard.setCardElevation(0f);
+        filmCurveCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
+        filmCurveCard.setCardBackgroundColor(m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainer,
+                Palette.Role.SURFACE_ELEVATED));
+        filmCurveCard.setStrokeWidth(dp(1));
+        filmCurveCard.setStrokeColor(m3Role(
+                com.google.android.material.R.attr.colorOutlineVariant,
+                Palette.Role.LINE));
+        filmCurve = new SpectrumCurveView(this, palette, tfBody);
+        filmCurveCard.addView(filmCurve, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        panel.addView(filmCurveCard, new LinearLayout.LayoutParams(-1, dp(FILM_CURVE_HEIGHT_DP)));
 
         filmMetricsRow = new LinearLayout(this);
         filmMetricsRow.setOrientation(LinearLayout.HORIZONTAL);
         filmMetricsRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        panel.addView(filmMetricsRow, new LinearLayout.LayoutParams(-1, dp(30)));
+        panel.addView(filmMetricsRow,
+                new LinearLayout.LayoutParams(-1, -2));
+        filmMetricsRow.setMinimumHeight(dp(FILM_METRICS_HEIGHT_DP));
 
-        filmNote = label("", 6.5f, palette.color(Palette.Role.MUTED_INK), tfBody);
-        filmNote.setSingleLine(true);
+        filmNote = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfBody);
+        filmNote.setSingleLine(false);
+        filmNote.setMaxLines(2);
         filmNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        filmNote.setLetterSpacing(0.04f);
-        panel.addView(filmNote, new LinearLayout.LayoutParams(-1, dp(20)));
+        panel.addView(filmNote, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout paperRow = new LinearLayout(this);
         paperRow.setOrientation(LinearLayout.HORIZONTAL);
         paperRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        paperRow.addView(label("相纸 / 拷贝片", 8.5f,
-                palette.color(Palette.Role.MUTED_INK), tfHan));
-        LinearLayout paperChoice = new LinearLayout(this);
-        paperChoice.setOrientation(LinearLayout.HORIZONTAL);
-        paperChoice.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
+        paperRow.addView(mixedM3Label("相纸 / 拷贝片",
+                M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant()));
+        MaterialCardView paperChoice = new MaterialCardView(this);
+        paperChoice.setCardElevation(0f);
+        paperChoice.setRadius(dp(M3Tokens.ShapeRole.SMALL.radiusDp));
+        paperChoice.setCardBackgroundColor(m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerHigh,
+                Palette.Role.SURFACE_ELEVATED));
+        paperChoice.setStrokeWidth(0);
+        paperChoice.setClickable(true);
         paperChoice.setFocusable(true);
         paperChoice.setContentDescription("选择相纸 / 拷贝片");
+        paperChoice.setRippleColor(ColorStateList.valueOf(
+                withOpacity(m3Primary(), M3Tokens.StateLayer.PRESSED.opacity)));
         paperChoice.setOnClickListener(v -> showPaperPicker());
-        paperValue = label("Kodak Portra Endura", 9.5f, palette.color(Palette.Role.INK), tfHan);
+        LinearLayout paperInner = new LinearLayout(this);
+        paperInner.setOrientation(LinearLayout.HORIZONTAL);
+        paperInner.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
+        paperInner.setPadding(dp(12), 0, dp(10), 0);
+        paperValue = m3Label("Kodak Portra Endura",
+                M3Tokens.TypeRole.BODY_MEDIUM, m3OnSurface(), tfHan);
         paperValue.setSingleLine(true);
         paperValue.setEllipsize(android.text.TextUtils.TruncateAt.END);
         paperValue.setGravity(android.view.Gravity.END);
-        paperChoice.addView(paperValue, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView paperArrow = label("↓", 10, palette.color(Palette.Role.ACCENT), tfBody);
+        paperInner.addView(paperValue, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView paperArrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
+                m3Primary(), tfBody);
         LinearLayout.LayoutParams paperArrowLp = new LinearLayout.LayoutParams(-2, -2);
         paperArrowLp.leftMargin = dp(7);
-        paperChoice.addView(paperArrow, paperArrowLp);
-        paperRow.addView(paperChoice, new LinearLayout.LayoutParams(0, dp(30), 1f));
-        panel.addView(paperRow, new LinearLayout.LayoutParams(-1, dp(30)));
+        paperInner.addView(paperArrow, paperArrowLp);
+        paperChoice.addView(paperInner,
+                new android.widget.FrameLayout.LayoutParams(-1, -1));
+        paperRow.addView(paperChoice,
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        paperChoice.setMinimumHeight(dp(PAPER_ROW_HEIGHT_DP));
+        panel.addView(paperRow,
+                new LinearLayout.LayoutParams(-1, -2));
+        paperRow.setMinimumHeight(dp(PAPER_ROW_HEIGHT_DP));
         return panel;
-    }
-
-    private String shortStockName(String label) {
-        if (label == null) return "";
-        int cut = label.indexOf(" · ");
-        return cut > 0 ? label.substring(0, cut) : label;
-    }
-
-    /** A card's border: the shared selected/unselected treatment. */
-    private android.graphics.drawable.GradientDrawable cardBorder(boolean active) {
-        android.graphics.drawable.GradientDrawable bg =
-                new android.graphics.drawable.GradientDrawable();
-        bg.setColor(palette.color(Palette.Role.SURFACE));
-        bg.setStroke(dp(1), palette.color(active ? Palette.Role.ACCENT : Palette.Role.LINE));
-        return bg;
     }
 
     /** A film record currently on the strip, or null when none is chosen. */
@@ -2300,31 +2492,30 @@ public class MainActivity extends Activity {
         addFilmChip("original", "原图", "ORIGINAL", showingOriginal);
 
         // The active stock is the one the curve and the readout describe. If
-        // another brand is selected, pin it first so the shelf never hides the
-        // Look that is still in force.
-        final int active = filmStock == null || showingOriginal
-                ? -1 : filmIds.indexOf(filmStock);
-        final boolean pinnedActive = active >= 0
-                && !FilmBrand.matches(filmStock, brandFilter);
-        if (pinnedActive) {
-            addFilmChip(filmStock, shortStockName(filmLabels.get(active)),
-                    chipSubtitle(active, filmStocks.get(filmStock)), true);
-        }
-        for (int i = 0; i < filmIds.size(); ++i) {
-            final String id = filmIds.get(i);
-            if (!FilmBrand.matches(id, brandFilter)) continue;
-            if (pinnedActive && i == active) continue;
-            addFilmChip(id, shortStockName(filmLabels.get(i)),
+        // another brand is selected, FilmBrand.shelf pins it first so the
+        // shelf never hides the Look that is still in force.
+        final String activeId = filmStock == null || showingOriginal ? null : filmStock;
+        for (String id : FilmBrand.shelf(filmIds, brandFilter, activeId)) {
+            final int i = filmIds.indexOf(id);
+            if (i < 0) continue;
+            addFilmChip(id, StockNames.shelf(filmLabels.get(i)),
                     chipSubtitle(i, filmStocks.get(id)),
-                    filmStock != null && !showingOriginal && id.equals(filmStock));
+                    activeId != null && id.equals(activeId));
         }
         if (filmChipScroll != null) filmChipScroll.post(() -> filmChipScroll.scrollTo(keepScroll, 0));
 
         final FilmStock stock = currentFilmStock();
-        filmCurve.setCurve(stock == null ? SpectrumCurve.unavailable() : stock.curve,
+        final SpectrumCurve nextCurve =
+                stock == null ? SpectrumCurve.unavailable() : stock.curve;
+        // A new curve reveals once. A render-state refresh re-sends the same
+        // object, and a theme rebuild finds it already revealed, so neither
+        // replays the plotter. Reduced motion shortens the reveal to zero.
+        final boolean revealNow = nextCurve.available() && nextCurve != revealedCurve;
+        filmCurve.setCurve(nextCurve,
                 stock == null ? "" : stock.seriesLabel,
                 filmStock == null ? "NO FILM STOCK SELECTED" : SpectrumCurve.UNAVAILABLE_LABEL,
-                motionDuration(520));
+                revealNow ? motionDuration(FILM_CURVE_REVEAL_MS) : 0);
+        if (revealNow) revealedCurve = nextCurve;
         filmCurve.setContentDescription(curveDescription(stock));
         refreshFilmMetrics(stock);
         filmNote.setText(filmNoteText(stock));
@@ -2334,7 +2525,7 @@ public class MainActivity extends Activity {
         syncScanAvailability();
     }
 
-    /** The brand facet: counts come from the catalogue, empty brands stay out. */
+    /** The brand facet: M3 filter chips, with counts from the catalogue. */
     private void refreshBrandRow() {
         if (brandRow == null) return;
         brandRow.removeAllViews();
@@ -2342,24 +2533,49 @@ public class MainActivity extends Activity {
             final int count = FilmBrand.count(filmIds, id);
             if (count == 0 && !FilmBrand.ALL.equals(id)) continue;
             final boolean active = id.equals(brandFilter);
-            TextView tab = label(FilmBrand.label(id) + " " + count, 8.5f,
-                    palette.color(active ? Palette.Role.ACCENT : Palette.Role.MUTED_INK),
-                    FilmBrand.ALL.equals(id) ? tfHan : tfBody);
-            tab.setGravity(android.view.Gravity.CENTER);
-            tab.setSingleLine(true);
-            tab.setPadding(dp(2), 0, dp(18), 0);
-            tab.setMinWidth(dp(MIN_TOUCH_DP));
-            if (active) tab.setPaintFlags(tab.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
-            tab.setFocusable(true);
-            tab.setClickable(true);
-            tab.setContentDescription(FilmBrand.label(id) + "，" + count + " 支胶片"
+            final Chip chip = new Chip(this);
+            // A real filter chip, not an assist chip with a checkmark bolted
+            // on: the style owns its shape and typography, while the colour
+            // state lists are resolved from the theme at build time. Without
+            // these explicit lists a theme rebuild keeps the ChipDrawable's
+            // previous dark scheme after Dark -> Light.
+            chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null,
+                    0,
+                    com.google.android.material.R.style.Widget_Material3_Chip_Filter));
+            final int chipSurface = m3Role(
+                    com.google.android.material.R.attr.colorSurfaceContainerLow,
+                    Palette.Role.SURFACE_ELEVATED);
+            final int chipSelected = m3Role(
+                    com.google.android.material.R.attr.colorSecondaryContainer,
+                    Palette.Role.ACCENT_SOFT);
+            final int chipText = m3Role(
+                    com.google.android.material.R.attr.colorOnSurfaceVariant,
+                    Palette.Role.MUTED_INK);
+            final int chipTextSelected = m3Role(
+                    com.google.android.material.R.attr.colorOnSecondaryContainer,
+                    Palette.Role.ACCENT);
+            final int chipOutline = m3Role(
+                    com.google.android.material.R.attr.colorOutlineVariant,
+                    Palette.Role.LINE);
+            chip.setChipBackgroundColor(checkedColors(chipSelected, chipSurface));
+            chip.setChipStrokeWidth(Math.max(1, dp(1)));
+            chip.setChipStrokeColor(checkedColors(chipSelected, chipOutline));
+            chip.setTextColor(checkedColors(chipTextSelected, chipText));
+            chip.setId(View.generateViewId());
+            chip.setCheckable(true);
+            chip.setChecked(active);
+            chip.setSingleLine(true);
+            chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            chip.setText(mixedText(FilmBrand.label(id) + " " + count));
+            chip.setContentDescription(FilmBrand.label(id) + "，" + count + " 支胶片"
                     + (active ? "，已选中" : "，筛选"));
-            tab.setOnClickListener(v -> {
+            chip.setOnClickListener(v -> {
                 if (id.equals(brandFilter)) return;
                 brandFilter = id;
                 refreshFilmPanel(true);
             });
-            brandRow.addView(tab, new LinearLayout.LayoutParams(-2, dp(MIN_TOUCH_DP)));
+            brandRow.addView(chip,
+                    new android.view.ViewGroup.LayoutParams(-2, dp(MIN_TOUCH_DP)));
         }
     }
 
@@ -2377,41 +2593,74 @@ public class MainActivity extends Activity {
     }
 
     private void addFilmChip(final String id, String title, String subtitle, boolean active) {
-        LinearLayout chip = new LinearLayout(this);
-        chip.setOrientation(LinearLayout.VERTICAL);
-        chip.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        chip.setPadding(dp(8), dp(3), dp(8), dp(3));
+        // A real MaterialCardView carries pressed, focused, selected, and
+        // disabled state; the state lists below only name M3 roles, so a
+        // dynamic scheme and the brand fallback both read as the same component.
+        final int[][] states = new int[][]{
+                { android.R.attr.state_enabled, android.R.attr.state_checked },
+                { android.R.attr.state_enabled },
+                { -android.R.attr.state_enabled },
+        };
+        final int checkedBg = m3Role(com.google.android.material.R.attr.colorSecondaryContainer,
+                Palette.Role.ACCENT_SOFT);
+        final int restBg = m3Role(com.google.android.material.R.attr.colorSurfaceContainerHighest,
+                Palette.Role.SURFACE_ELEVATED);
+        final int disabledBg = m3Role(com.google.android.material.R.attr.colorSurfaceContainerLow,
+                Palette.Role.SURFACE);
+        final int checkedInk = m3Role(com.google.android.material.R.attr.colorOnSecondaryContainer,
+                Palette.Role.ON_ACCENT);
+        final int restInk = m3Role(com.google.android.material.R.attr.colorOnSurface,
+                Palette.Role.INK);
+        final int restMuted = m3Role(com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+        final int disabledInk = withOpacity(restMuted, M3Tokens.DISABLED_CONTENT_ALPHA);
+        final android.content.res.ColorStateList ink = new android.content.res.ColorStateList(
+                states, new int[]{checkedInk, restInk, disabledInk});
+        final android.content.res.ColorStateList muted = new android.content.res.ColorStateList(
+                states, new int[]{withOpacity(checkedInk, M3Tokens.MEDIUM_EMPHASIS_ALPHA),
+                        restMuted, disabledInk});
 
-        android.graphics.drawable.GradientDrawable bg =
-                new android.graphics.drawable.GradientDrawable();
-        bg.setColor(palette.color(active
-                ? Palette.Role.ACCENT_SOFT : Palette.Role.SURFACE_ELEVATED));
-        bg.setCornerRadius(dp(2));
-        bg.setStroke(dp(active ? 2 : 1),
-                palette.color(active ? Palette.Role.ACCENT : Palette.Role.LINE));
-        chip.setBackground(bg);
+        final MaterialCardView card = new MaterialCardView(this);
+        card.setCheckable(true);
+        card.setChecked(active);
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
+        card.setStrokeWidth(dp(1));
+        card.setCardBackgroundColor(new android.content.res.ColorStateList(
+                states, new int[]{checkedBg, restBg, disabledBg}));
+        card.setStrokeColor(new android.content.res.ColorStateList(states, new int[]{
+                m3Role(com.google.android.material.R.attr.colorOutline, Palette.Role.ACCENT),
+                m3Role(com.google.android.material.R.attr.colorOutlineVariant, Palette.Role.LINE),
+                withOpacity(restMuted, M3Tokens.StateLayer.DRAGGED.opacity)}));
+        card.setCheckedIconSize(dp(16));
+        card.setCheckedIconMargin(dp(4));
+        card.setCheckedIconGravity(MaterialCardView.CHECKED_ICON_GRAVITY_TOP_END);
+        card.setCheckedIconTint(android.content.res.ColorStateList.valueOf(checkedInk));
 
-        TextView name = label(title, 8, palette.color(active
-                ? Palette.Role.ACCENT : Palette.Role.INK), tfHan);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        content.setPadding(dp(8), dp(4), dp(24), dp(4));
+
+        TextView name = m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM, restInk, tfHan);
+        name.setTextColor(ink);
         name.setSingleLine(true);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        chip.addView(name, new LinearLayout.LayoutParams(-1, -2));
+        content.addView(name, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView kind = label(subtitle, 5.5f,
-                palette.color(Palette.Role.MUTED_INK), tfBody);
+        TextView kind = m3Label(subtitle, M3Tokens.TypeRole.LABEL_SMALL, restMuted, tfBody);
+        kind.setTextColor(muted);
         kind.setSingleLine(true);
-        kind.setLetterSpacing(0.08f);
         kind.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-1, -2);
-        kindLp.topMargin = dp(2);
-        chip.addView(kind, kindLp);
+        kindLp.topMargin = dp(1);
+        content.addView(kind, kindLp);
+        card.addView(content, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
-        chip.setClickable(true);
-        chip.setFocusable(true);
-        chip.setSelected(active);
-        chip.setContentDescription(title + (subtitle.isEmpty() ? "" : "，" + subtitle)
+        card.setContentDescription(title + (subtitle.isEmpty() ? "" : "，" + subtitle)
                 + (active ? "，已选中，双击切换" : "，未选中，双击选择"));
-        chip.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+        card.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(
                     View host, android.view.accessibility.AccessibilityNodeInfo info) {
                 super.onInitializeAccessibilityNodeInfo(host, info);
@@ -2420,14 +2669,14 @@ public class MainActivity extends Activity {
                 info.setChecked(active);
             }
         });
-        chip.setOnClickListener(v -> {
+        card.setOnClickListener(v -> {
             if ("original".equals(id)) toggleOriginal();
             else pickFilmChip(id);
         });
-        LinearLayout.LayoutParams lp =
-                new LinearLayout.LayoutParams(dp(92), dp(MIN_TOUCH_DP));
-        lp.rightMargin = dp(6);
-        filmChipRow.addView(chip, lp);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                dp(FILM_CARD_WIDTH_DP), dp(FILM_CARD_HEIGHT_DP));
+        lp.rightMargin = dp(FILM_CARD_GAP_DP);
+        filmChipRow.addView(card, lp);
     }
 
     /** A stock chip is a Look choice: same path as any other stock change. */
@@ -2436,8 +2685,15 @@ public class MainActivity extends Activity {
         if (index < 0) return;
         if (id.equals(filmStock) && !showingOriginal) return;
         filmStock = id;
+        // Upstream's `selectFilmStock` rule: the Film the user picks brings its
+        // own paper. An explicit paper chosen afterwards stays until the next
+        // Film selection; a Frame restore keeps its stored Film/paper pair.
+        final FilmStock chosen = filmStocks.get(id);
+        printStock = PrintTarget.choose(printStock,
+                chosen == null ? null : chosen.targetPrint, printIds);
         showingOriginal = false;
         refreshFilmPanel();
+        refreshPaperLabel();
         onStockChanged();
     }
 
@@ -2458,8 +2714,8 @@ public class MainActivity extends Activity {
         if (filmMetricsRow == null) return;
         filmMetricsRow.removeAllViews();
         if (stock == null) {
-            final String label = filmStock == null ? "—" : shortStockName(
-                    stockLabel(filmStock, filmIds, filmLabels));
+            final String label = filmStock == null ? "—" : stockLabel(
+                    filmStock, filmIds, filmLabels);
             addMetricCell("FILM", label);
             return;
         }
@@ -2489,13 +2745,13 @@ public class MainActivity extends Activity {
         LinearLayout cell = new LinearLayout(this);
         cell.setOrientation(LinearLayout.VERTICAL);
         cell.setPadding(dp(1), dp(2), dp(6), dp(1));
-        TextView head = label(caption, 5.5f,
-                palette.color(Palette.Role.MUTED_INK), tfBody);
-        head.setLetterSpacing(0.08f);
+        TextView head = m3Label(caption, M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfBody);
         head.setSingleLine(true);
         head.setEllipsize(android.text.TextUtils.TruncateAt.END);
         cell.addView(head, new LinearLayout.LayoutParams(-1, -2));
-        TextView text = label(value, 8.5f, palette.color(Palette.Role.INK), tfHan);
+        TextView text = m3Label(value, M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurface(), tfHan);
         text.setSingleLine(true);
         text.setEllipsize(android.text.TextUtils.TruncateAt.END);
         cell.addView(text, new LinearLayout.LayoutParams(-1, -2));
@@ -2516,7 +2772,9 @@ public class MainActivity extends Activity {
         }
         if (description != null && !description.isEmpty()) return description;
         final java.util.List<String> parts = new java.util.ArrayList<>();
-        final String target = stock.info.get("target_print");
+        // The same declaration the Film choice applies, so the note cannot
+        // claim a paper the Look would not move to.
+        final String target = stock.targetPrint;
         if (target != null && !target.isEmpty()) {
             parts.add("TARGET " + stockLabel(target, printIds, printLabels)
                     .toUpperCase(java.util.Locale.US));
@@ -2552,55 +2810,480 @@ public class MainActivity extends Activity {
 
     private void refreshPaperLabel() {
         if (paperValue != null) {
-            int i = printIds.indexOf(printStock);
-            paperValue.setText(i >= 0 && i < printLabels.size()
-                    ? shortReadoutName(printLabels.get(i)) : printStock);
+            // The picker value is the full catalogue name; only the Readout
+            // strip shortens it. Both read the same printLabels record.
+            paperValue.setText(fullStockLabel(printStock, printIds, printLabels));
         }
         refreshReadoutStrip();
     }
 
+    /**
+     * The film picker is the full catalogue, not the brand-filtered shelf. The
+     * shelf card and the Readout strip keep their short working names; the
+     * sheet lists the record's full label.
+     */
+    private void showFilmPicker() {
+        if (filmIds.isEmpty()) {
+            showSnackbar("片库还没有载入");
+            return;
+        }
+        final List<String> names = new ArrayList<>();
+        names.add("原图");
+        names.addAll(filmLabels);
+        final int filmIndex = filmStock == null ? -1 : filmIds.indexOf(filmStock);
+        final int current = showingOriginal ? 0 : (filmIndex < 0 ? -1 : 1 + filmIndex);
+        showChoiceSheet("选择胶片", "共 " + filmIds.size() + " 支，品牌标签只筛片架",
+                names, current, picked -> {
+                    if (picked == 0) {
+                        if (!showingOriginal) toggleOriginal();
+                        return;
+                    }
+                    final int index = picked - 1;
+                    if (index >= 0 && index < filmIds.size()) {
+                        pickFilmChip(filmIds.get(index));
+                    }
+                });
+    }
+
     private void showPaperPicker() {
-        if (printIds.isEmpty()) return;
-        showChoiceSheet("选择相纸 / 拷贝片", printLabels, printStock, picked -> {
-            int i = printLabels.indexOf(picked);
-            if (i < 0 || printStock.equals(printIds.get(i))) return;
-            printStock = printIds.get(i);
-            refreshPaperLabel();
-            showingOriginal = false;
-            onStockChanged();
-        });
+        if (printIds.isEmpty()) {
+            showSnackbar("没有可用的相纸");
+            return;
+        }
+        final int current = printIds.indexOf(printStock);
+        showChoiceSheet("选择相纸 / 拷贝片", "当前 Look 会沿这张相纸显影",
+                printLabels, current, picked -> {
+                    if (picked < 0 || picked >= printIds.size()
+                            || printStock.equals(printIds.get(picked))) return;
+                    printStock = printIds.get(picked);
+                    refreshPaperLabel();
+                    showingOriginal = false;
+                    onStockChanged();
+                });
     }
 
     private LinearLayout buildOpticsPanel() {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(sectionHead("OPTICS / 光学调整", this::resetOpticsPanel),
-                new LinearLayout.LayoutParams(-1, dp(38)));
-        opticsPanel = new LinearLayout(this);
-        opticsPanel.setOrientation(LinearLayout.VERTICAL);
+        opticsPanel = panel;
         opticsPanel.setOnClickListener(v -> {
-            if (!opticsUnlocked) {
-                showInAppToast(session == null ? "先导入一张照片"
-                        : "先选择胶片或相纸，完成一次渲染");
+            if (!opticsUnlocked) showSnackbar(opticsLockReason());
+        });
+        panel.addView(buildOpticsHead(),
+                new LinearLayout.LayoutParams(-1, -2));
+
+        // The strip: one M3 chip per contract parameter, in the engine's own
+        // order. It scrolls sideways instead of clipping, so 390 dp and large
+        // text both keep every parameter reachable.
+        opticsStrip = new LinearLayout(this);
+        opticsStrip.setOrientation(LinearLayout.HORIZONTAL);
+        opticsStrip.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        opticsChips.clear();
+        for (int i = 0; i < OpticsDelta.Param.values().length; ++i) {
+            final int index = i;
+            final OpticsDelta.Param spec = OpticsDelta.paramAt(i);
+            final Chip chip = new Chip(this);
+            styleOpticsChip(chip);
+            chip.setId(View.generateViewId());
+            chip.setCheckable(true);
+            chip.setSingleLine(true);
+            chip.setText(mixedText(spec.glyph + "  " + spec.label));
+            chip.setContentDescription(spec.label + "，参数 " + (i + 1) + " / "
+                    + OpticsDelta.Param.values().length);
+            chip.setMinimumHeight(dp(MIN_TOUCH_DP));
+            chip.setOnClickListener(v -> {
+                if (!opticsUnlocked) {
+                    showSnackbar(opticsLockReason());
+                    return;
+                }
+                selectOptics(index);
+            });
+            final LinearLayout.LayoutParams chipLp =
+                    new LinearLayout.LayoutParams(-2, -2);
+            chipLp.rightMargin = dp(6);
+            opticsStrip.addView(chip, chipLp);
+            opticsChips.add(chip);
+        }
+        opticsStripScroll = new HorizontalScrollView(this);
+        opticsStripScroll.setHorizontalScrollBarEnabled(false);
+        opticsStripScroll.setClipToPadding(false);
+        opticsStripScroll.setFillViewport(false);
+        opticsStripScroll.addView(opticsStrip,
+                new android.widget.FrameLayout.LayoutParams(-2, -2));
+        panel.addView(opticsStripScroll, new LinearLayout.LayoutParams(-1, -2));
+
+        // The one active row: name, value, unit, display-only Δ, and reset.
+        panel.addView(buildOpticsReadout(), new LinearLayout.LayoutParams(-1, -2));
+
+        opticsSlider = new Slider(this);
+        opticsSlider.setId(View.generateViewId());
+        opticsSlider.setMinimumHeight(dp(SLIDER_HEIGHT_DP));
+        // The head already shows the live value; a floating tooltip would be
+        // clipped by the row and repeat it.
+        opticsSlider.setLabelBehavior(
+                com.google.android.material.slider.LabelFormatter.LABEL_GONE);
+        opticsSlider.setLabelFormatter(value -> {
+            final OpticsDelta.Param spec = activeOptics();
+            return OpticsDelta.valueText(value) + " " + spec.unit;
+        });
+        opticsSlider.addOnChangeListener((slider, value, fromUser) -> {
+            if (syncingOptics) return;
+            final OpticsDelta.Param spec = activeOptics();
+            optics.set(spec, value);
+            showActiveOptics(value);
+            refreshReadoutStrip();
+            // One render per completed gesture: a touch release commits at
+            // once; keyboard, switch access, and TalkBack changes coalesce so
+            // a held arrow key does not queue a render per key. The guard at
+            // the top keeps a Look restore and a chip rebind silent.
+            if (!trackingOpticsTouch) scheduleOpticsCommit(slider);
+        });
+        opticsSlider.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+            @Override public void onStartTrackingTouch(Slider slider) {
+                trackingOpticsTouch = true;
+                slider.removeCallbacks(opticsCommitRunnable);
+            }
+            @Override public void onStopTrackingTouch(Slider slider) {
+                trackingOpticsTouch = false;
+                slider.removeCallbacks(opticsCommitRunnable);
+                commitOptics();
             }
         });
-        exposureRow = opticsRow(opticsPanel, "EXPOSURE 曝光", "EV",
-                0.25f, 4.0f, printExposure, OpticsDelta.EXPOSURE_DEFAULT, v -> printExposure = v);
-        grainRow = opticsRow(opticsPanel, "GRAIN 颗粒", "×",
-                0.0f, 2.0f, grainAmount, OpticsDelta.GRAIN_DEFAULT, v -> grainAmount = v);
-        halationRow = opticsRow(opticsPanel, "HALATION 光晕", "×",
-                0.0f, 4.0f, halationAmount, OpticsDelta.HALATION_DEFAULT, v -> halationAmount = v);
-        glareRow = opticsRow(opticsPanel, "GLARE 眩光", "×",
-                0.0f, 12.0f, glareAmount, OpticsDelta.GLARE_DEFAULT, v -> glareAmount = v);
-        panel.addView(opticsPanel, new LinearLayout.LayoutParams(-1, 0, 1f));
+        panel.addView(opticsSlider,
+                new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
+
+        // The two choices the engine models separately from the 22 numbers.
+        opticsFilterButton = opticsChoiceRow(panel, "镜头滤镜 / CAMERA FILTER",
+                this::showCameraFilterPicker);
+        opticsNormButton = opticsChoiceRow(panel, "保护基准 / PROTECTION NORM",
+                this::showProtectionNormPicker);
+
+        bindActiveOptics();
+        syncOpticsChoices();
         return panel;
+    }
+
+    /** Set a chip's M3 filter style from the current theme's roles. */
+    private void styleOpticsChip(Chip chip) {
+        chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null, 0,
+                com.google.android.material.R.style.Widget_Material3_Chip_Filter));
+        final int chipSurface = m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerLow,
+                Palette.Role.SURFACE_ELEVATED);
+        final int chipSelected = m3Role(
+                com.google.android.material.R.attr.colorSecondaryContainer,
+                Palette.Role.ACCENT_SOFT);
+        final int chipText = m3Role(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+        final int chipTextSelected = m3Role(
+                com.google.android.material.R.attr.colorOnSecondaryContainer,
+                Palette.Role.ACCENT);
+        final int chipOutline = m3Role(
+                com.google.android.material.R.attr.colorOutlineVariant,
+                Palette.Role.LINE);
+        chip.setChipBackgroundColor(checkedColors(chipSelected, chipSurface));
+        chip.setChipStrokeWidth(Math.max(1, dp(1)));
+        chip.setChipStrokeColor(checkedColors(chipSelected, chipOutline));
+        chip.setTextColor(checkedColors(chipTextSelected, chipText));
+        chip.setEnsureMinTouchTargetSize(true);
+    }
+
+    /**
+     * The active parameter's readout, above the slider: name and reset on one
+     * line, then value, unit, display-only Δ, and the contract's visible range.
+     */
+    private View buildOpticsReadout() {
+        final LinearLayout block = new LinearLayout(this);
+        block.setOrientation(LinearLayout.VERTICAL);
+        block.setPadding(0, dp(6), 0, 0);
+
+        final LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        opticsName = m3Label("", M3Tokens.TypeRole.TITLE_SMALL,
+                m3OnSurface(), tfHan);
+        opticsName.setSingleLine(true);
+        opticsName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        ViewCompat.setAccessibilityHeading(opticsName, true);
+        top.addView(opticsName, new LinearLayout.LayoutParams(0, -2, 1f));
+        opticsReset = m3TextButton("重置", "重置当前参数",
+                m3OnSurfaceVariant(), this::resetActiveOptics);
+        top.addView(opticsReset, new LinearLayout.LayoutParams(-2, dp(48)));
+        block.addView(top, new LinearLayout.LayoutParams(-1, -2));
+
+        final LinearLayout values = new LinearLayout(this);
+        values.setOrientation(LinearLayout.HORIZONTAL);
+        values.setGravity(android.view.Gravity.BOTTOM);
+        opticsValue = m3Label("", M3Tokens.TypeRole.HEADLINE_SMALL,
+                m3Primary(), tfDisplay);
+        values.addView(opticsValue);
+        opticsUnit = m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurfaceVariant(), tfBody);
+        final LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
+        unitLp.leftMargin = dp(4);
+        unitLp.bottomMargin = dp(4);
+        values.addView(opticsUnit, unitLp);
+        opticsDelta = m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurfaceVariant(), tfDisplay);
+        final LinearLayout.LayoutParams deltaLp = new LinearLayout.LayoutParams(-2, -2);
+        deltaLp.leftMargin = dp(10);
+        deltaLp.bottomMargin = dp(4);
+        values.addView(opticsDelta, deltaLp);
+        block.addView(values, new LinearLayout.LayoutParams(-1, -2));
+
+        opticsRange = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfHan);
+        opticsRange.setSingleLine(false);
+        block.addView(opticsRange, new LinearLayout.LayoutParams(-1, -2));
+        return block;
+    }
+
+    /** A label + current choice + arrow, the same shape as the paper picker. */
+    private MaterialButton opticsChoiceRow(LinearLayout parent, String title,
+                                           Runnable open) {
+        final boolean stacked = largeText();
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(MIN_TOUCH_DP));
+        final TextView titleView = m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurfaceVariant(), tfHan);
+        row.addView(titleView, stacked
+                ? new LinearLayout.LayoutParams(-1, -2)
+                : new LinearLayout.LayoutParams(0, -2, 1f));
+        final MaterialButton button = m3TextButton("", title, m3Primary(), open);
+        button.setGravity(stacked
+                ? (android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL)
+                : (android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL));
+        button.setSingleLine(false);
+        button.setMaxLines(2);
+        row.addView(button, stacked
+                ? new LinearLayout.LayoutParams(-1, dp(MIN_TOUCH_DP))
+                : new LinearLayout.LayoutParams(-2, dp(MIN_TOUCH_DP)));
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return button;
+    }
+
+    private OpticsDelta.Param activeOptics() {
+        return OpticsDelta.paramAt(activeOptics);
+    }
+
+    /** Bind the one slider and the readout to the strip's active parameter. */
+    private void bindActiveOptics() {
+        if (opticsSlider == null) return;
+        final OpticsDelta.Param spec = activeOptics();
+        final float stored = optics.get(spec);
+        syncingOptics = true;
+        try {
+            // Every contract range contains 1.0, so parking the thumb there is
+            // always inside the previous range. The step is cleared, the upper
+            // bound widened, and only then are the real bounds stated: this
+            // survives every transition, including one into a range whose
+            // lower bound equals the previous upper bound (switch -> filter
+            // strength). The real value is restored below.
+            opticsSlider.setValue(1.0f);
+            opticsSlider.setStepSize(0f);
+            opticsSlider.setValueTo(200.0f);
+            opticsSlider.setValueFrom(spec.min);
+            opticsSlider.setValueTo(spec.max);
+            opticsSlider.setStepSize(spec.step);
+            opticsSlider.setValue(spec.snap(stored));
+        } finally {
+            syncingOptics = false;
+        }
+        showActiveOptics(stored);
+        refreshOpticsChips();
+    }
+
+    /** Show a value in the head without moving the slider or committing. */
+    private void showActiveOptics(float value) {
+        final OpticsDelta.Param spec = activeOptics();
+        final String number = OpticsDelta.valueText(value);
+        final String delta = OpticsDelta.text(value, spec.defaultValue);
+        final boolean moved = !spec.isDefault(value);
+        final int color = moved ? m3Primary() : m3OnSurfaceVariant();
+        opticsName.setText(spec.label);
+        opticsValue.setText(number);
+        opticsUnit.setText(spec.unit);
+        opticsDelta.setText("Δ " + delta);
+        opticsDelta.setTextColor(color);
+        opticsReset.setTextColor(color);
+        opticsRange.setText("范围 " + OpticsDelta.valueText(spec.min) + " – "
+                + OpticsDelta.valueText(spec.max) + " " + spec.unit
+                + " · 步进 " + stepText(spec.step)
+                + outsideRangeNote(spec, value));
+        opticsSlider.setContentDescription(spec.label);
+        // The slider's own RangeInfo carries the real float range; the state
+        // description carries the value the Look actually holds, which may be
+        // outside the M3 slider's cap on an older Look.
+        ViewCompat.setStateDescription(opticsSlider,
+                number + " " + spec.unit + "，Δ " + delta + outsideRangeNote(spec, value));
+        opticsReset.setContentDescription("重置" + spec.label + "为 "
+                + OpticsDelta.valueText(spec.defaultValue) + " " + spec.unit);
+    }
+
+    private static String outsideRangeNote(OpticsDelta.Param spec, float value) {
+        if (value > spec.max + 0.0005f) {
+            return "，高于滑杆上限 " + OpticsDelta.valueText(spec.max) + " " + spec.unit;
+        }
+        if (value < spec.min - 0.0005f) {
+            return "，低于滑杆下限 " + OpticsDelta.valueText(spec.min) + " " + spec.unit;
+        }
+        return "";
+    }
+
+    private static String stepText(float step) {
+        return Math.abs(step - Math.round(step)) < 0.001f
+                ? String.format(java.util.Locale.US, "%.0f", step)
+                : String.format(java.util.Locale.US, "%.2f", step);
+    }
+
+    /** Select a strip chip: one UI selection, no Look change and no render. */
+    private void selectOptics(int index) {
+        final OpticsDelta.Param spec = OpticsDelta.paramAt(index);
+        if (activeOptics == spec.ordinal() && opticsSlider != null) {
+            // A checkable chip toggles itself on click; the strip has exactly
+            // one selection, so put the check back where it belongs.
+            refreshOpticsChips();
+            return;
+        }
+        activeOptics = spec.ordinal();
+        bindActiveOptics();
+    }
+
+    private void refreshOpticsChips() {
+        for (int i = 0; i < opticsChips.size(); ++i) {
+            final Chip chip = opticsChips.get(i);
+            final boolean active = i == activeOptics;
+            chip.setChecked(active);
+            chip.setContentDescription(OpticsDelta.paramAt(i).label + "，参数 "
+                    + (i + 1) + " / " + opticsChips.size()
+                    + (active ? "，已选中" : "，未选中"));
+        }
+        if (opticsStripScroll != null && activeOptics >= 0
+                && activeOptics < opticsChips.size()) {
+            final Chip active = opticsChips.get(activeOptics);
+            opticsStripScroll.post(() -> opticsStripScroll.smoothScrollTo(
+                    Math.max(0, active.getLeft() - dp(24)), 0));
+        }
+    }
+
+    /** One render after a settled keyboard/TalkBack change. */
+    private void scheduleOpticsCommit(Slider slider) {
+        slider.removeCallbacks(opticsCommitRunnable);
+        slider.postDelayed(opticsCommitRunnable, OPTICS_COMMIT_DELAY_MS);
+    }
+
+    /** Reset only the active parameter; already at default is a no-op. */
+    private void resetActiveOptics() {
+        if (!opticsUnlocked) {
+            showSnackbar(opticsLockReason());
+            return;
+        }
+        final OpticsDelta.Param spec = activeOptics();
+        if (spec.isDefault(optics.get(spec))) return;
+        optics.reset(spec);
+        bindActiveOptics();
+        refreshReadoutStrip();
+        commitOptics();
+    }
+
+    private void showCameraFilterPicker() {
+        if (!opticsUnlocked) {
+            showSnackbar(opticsLockReason());
+            return;
+        }
+        final OpticsDelta.CameraFilter[] all = OpticsDelta.CameraFilter.values();
+        final List<String> labels = new ArrayList<>();
+        for (OpticsDelta.CameraFilter filter : all) labels.add(filter.label);
+        final int selected = OpticsDelta.CameraFilter.fromWire(optics.cameraFilter).ordinal();
+        showChoiceSheet("镜头滤镜 / CAMERA FILTER",
+                "Wratten 滤镜在镜头前；放大机的滤色片属于相纸阶段",
+                labels, selected, picked -> {
+                    if (picked < 0 || picked >= all.length) return;
+                    final OpticsDelta.CameraFilter chosen = all[picked];
+                    if (chosen.wire.equals(optics.cameraFilter)) return;
+                    optics.cameraFilter = chosen.wire;
+                    syncOpticsChoices();
+                    commitOptics();
+                });
+    }
+
+    private void showProtectionNormPicker() {
+        if (!opticsUnlocked) {
+            showSnackbar(opticsLockReason());
+            return;
+        }
+        final OpticsDelta.ProtectionNorm[] all = OpticsDelta.ProtectionNorm.values();
+        final List<String> labels = new ArrayList<>();
+        for (OpticsDelta.ProtectionNorm norm : all) labels.add(norm.label);
+        final int selected = OpticsDelta.ProtectionNorm.fromWire(optics.sceneNorm).ordinal();
+        showChoiceSheet("保护基准 / PROTECTION NORM",
+                "高光与暗部保护按这个场景测量计算，不改变保护量",
+                labels, selected, picked -> {
+                    if (picked < 0 || picked >= all.length) return;
+                    final OpticsDelta.ProtectionNorm chosen = all[picked];
+                    if (chosen.wire.equals(optics.sceneNorm)) return;
+                    optics.sceneNorm = chosen.wire;
+                    syncOpticsChoices();
+                    commitOptics();
+                });
+    }
+
+    private void syncOpticsChoices() {
+        if (opticsFilterButton != null) {
+            final String label = OpticsDelta.CameraFilter.fromWire(optics.cameraFilter).label;
+            opticsFilterButton.setText(label + "  ↓");
+            opticsFilterButton.setContentDescription(
+                    "镜头滤镜，当前 " + label + "，双击选择");
+        }
+        if (opticsNormButton != null) {
+            final String label = OpticsDelta.ProtectionNorm.fromWire(optics.sceneNorm).label;
+            opticsNormButton.setText(label + "  ↓");
+            opticsNormButton.setContentDescription(
+                    "保护基准，当前 " + label + "，双击选择");
+        }
+    }
+
+    /**
+     * The Optics head: title and the locked reason. The reset lives on the
+     * active parameter's row, so it can only touch the one parameter in view.
+     */
+    private View buildOpticsHead() {
+        final LinearLayout head = new LinearLayout(this);
+        head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        final LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(LinearLayout.VERTICAL);
+        titles.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView titleView = mixedM3Label("OPTICS / 光学调整",
+                M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
+        titles.addView(titleView, new LinearLayout.LayoutParams(-1, -2));
+
+        opticsLockNote = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+                m3OnSurfaceVariant(), tfHan);
+        opticsLockNote.setSingleLine(true);
+        opticsLockNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        opticsLockNote.setVisibility(View.GONE);
+        titles.addView(opticsLockNote, new LinearLayout.LayoutParams(-1, -2));
+        head.addView(titles, largeText()
+                ? new LinearLayout.LayoutParams(-1, -2)
+                : new LinearLayout.LayoutParams(0, -2, 1f));
+        return head;
+    }
+
+    /** The one sentence a locked Optics panel shows and repeats on tap. */
+    private String opticsLockReason() {
+        return session == null ? "先导入一张照片" : "先选择胶片或相纸，完成一次渲染";
     }
 
     private LinearLayout buildFormatPanel() {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.addView(sectionHead("PHYSICAL SCALE / 光学尺度", this::resetFormatPanel),
-                new LinearLayout.LayoutParams(-1, dp(38)));
+                new LinearLayout.LayoutParams(-1, -2));
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
         scroll.setClipToPadding(false);
@@ -2614,10 +3297,11 @@ public class MainActivity extends Activity {
         LinearLayout foot = new LinearLayout(this);
         foot.setOrientation(LinearLayout.HORIZONTAL);
         foot.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        foot.addView(label("片门与尺度联动 · 不裁切构图", 8.5f, palette.color(Palette.Role.MUTED_INK), tfHan),
+        foot.addView(m3Label("片门与尺度联动 · 不裁切构图",
+                M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant(), tfHan),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        formatFootValue = label(mmText(GateScale.resolve(overscanFormat, filmFormatMm).longEdgeMm) + " mm",
-                9, palette.color(Palette.Role.ACCENT), tfBody);
+        formatFootValue = m3Label(mmText(GateScale.resolve(overscanFormat, filmFormatMm).longEdgeMm) + " mm",
+                M3Tokens.TypeRole.LABEL_LARGE, m3Primary(), tfBody);
         foot.addView(formatFootValue);
         panel.addView(foot, new LinearLayout.LayoutParams(-1, dp(28)));
         panel.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
@@ -2631,8 +3315,8 @@ public class MainActivity extends Activity {
         formatCardStrip.removeAllViews();
         formatCards.clear();
         if (edgeIds.isEmpty()) {
-            TextView none = label("这张长宽比没有可用片门", 8.5f,
-                    palette.color(Palette.Role.MUTED_INK), tfHan);
+            TextView none = m3Label("这张长宽比没有可用片门",
+                    M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant(), tfHan);
             LinearLayout.LayoutParams noneLp = new LinearLayout.LayoutParams(-2, dp(105));
             noneLp.leftMargin = dp(2);
             formatCardStrip.addView(none, noneLp);
@@ -2644,61 +3328,82 @@ public class MainActivity extends Activity {
             if (gate == null) continue;
             final boolean active = gate.id.equals(overscanFormat);
 
-            android.widget.FrameLayout card = new android.widget.FrameLayout(this);
-            card.setBackground(cardBorder(active));
-            card.setPadding(dp(1), dp(1), dp(1), dp(1));
+            final int surface = m3Role(
+                    com.google.android.material.R.attr.colorSurfaceContainerLow,
+                    Palette.Role.SURFACE_ELEVATED);
+            final int selectedSurface = m3Role(
+                    com.google.android.material.R.attr.colorSecondaryContainer,
+                    Palette.Role.SURFACE_ELEVATED);
+            final int outline = m3Role(
+                    com.google.android.material.R.attr.colorOutlineVariant,
+                    Palette.Role.LINE);
+            final int selectedOutline = m3Role(
+                    com.google.android.material.R.attr.colorPrimary,
+                    Palette.Role.ACCENT);
+            final int onSurface = m3Role(
+                    com.google.android.material.R.attr.colorOnSurface,
+                    Palette.Role.INK);
+            final int onSelected = m3Role(
+                    com.google.android.material.R.attr.colorOnSecondaryContainer,
+                    Palette.Role.INK);
+            final int onSurfaceVariant = m3Role(
+                    com.google.android.material.R.attr.colorOnSurfaceVariant,
+                    Palette.Role.MUTED_INK);
+
+            final MaterialCardView card = new MaterialCardView(this);
+            card.setCardElevation(0f);
+            card.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
+            card.setStrokeWidth(dp(1));
+            card.setCardBackgroundColor(checkedColors(selectedSurface, surface));
+            card.setStrokeColor(checkedColors(selectedOutline, outline));
+            card.setCheckable(true);
+            card.setChecked(active);
+            card.setCheckedIconResource(
+                    com.google.android.material.R.drawable.mtrl_ic_check_mark);
+            card.setCheckedIconTint(android.content.res.ColorStateList.valueOf(onSelected));
+            card.setCheckedIconSize(dp(14));
+            card.setCheckedIconMargin(dp(4));
+            card.setCheckedIconGravity(MaterialCardView.CHECKED_ICON_GRAVITY_TOP_END);
+            card.setClickable(true);
+            card.setFocusable(true);
             card.setContentDescription(gate.label + "，" + mmText(gate.longEdgeMm) + " 毫米"
                     + (active ? "，已选" : ""));
 
-            LinearLayout top = new LinearLayout(this);
-            top.setOrientation(LinearLayout.VERTICAL);
-            top.setPadding(dp(8), dp(16), dp(7), dp(2));
+            LinearLayout stack = new LinearLayout(this);
+            stack.setOrientation(LinearLayout.VERTICAL);
+            stack.setPadding(dp(9), dp(11), dp(8), dp(7));
 
             LinearLayout valueRow = new LinearLayout(this);
             valueRow.setOrientation(LinearLayout.HORIZONTAL);
             valueRow.setGravity(android.view.Gravity.BOTTOM);
-            TextView value = label(mmText(gate.longEdgeMm),
-                    22, palette.color(active ? Palette.Role.ACCENT : Palette.Role.MUTED_INK), tfDisplay);
-            value.setLetterSpacing(-0.05f);
+            TextView value = m3Label(mmText(gate.longEdgeMm),
+                    M3Tokens.TypeRole.TITLE_LARGE, active ? onSelected : onSurface, tfDisplay);
             valueRow.addView(value);
-            TextView unit = label("mm", 8,
-                    palette.color(active ? Palette.Role.ACCENT : Palette.Role.MUTED_INK), tfBody);
+            TextView unit = m3Label("mm", M3Tokens.TypeRole.LABEL_SMALL,
+                    onSurfaceVariant, tfBody);
             LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
             unitLp.leftMargin = dp(2);
             unitLp.bottomMargin = dp(2);
             valueRow.addView(unit, unitLp);
-            top.addView(valueRow);
+            stack.addView(valueRow);
 
-            TextView kind = label(gate.panoramic() ? "宽幅" : "常规", 7,
-                    palette.color(Palette.Role.MUTED_INK), tfHan);
+            TextView kind = m3Label(gate.panoramic() ? "宽幅" : "常规",
+                    M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
             LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-2, -2);
             kindLp.topMargin = dp(4);
-            top.addView(kind, kindLp);
-            card.addView(top, new android.widget.FrameLayout.LayoutParams(-1, -1));
+            stack.addView(kind, kindLp);
 
-            TextView name = label(gate.label, 8.5f, palette.color(active
-                    ? Palette.Role.ACCENT : Palette.Role.INK), tfHan);
+            View spacer = new View(this);
+            stack.addView(spacer, new LinearLayout.LayoutParams(1, 0, 1f));
+
+            TextView name = m3Label(gate.label, M3Tokens.TypeRole.LABEL_MEDIUM,
+                    active ? onSelected : onSurface, tfHan);
             name.setSingleLine(true);
             name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            name.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            name.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
-            name.setPadding(dp(8), 0, dp(7), 0);
-            card.addView(name, new android.widget.FrameLayout.LayoutParams(
-                    -1, dp(34), android.view.Gravity.BOTTOM));
+            stack.addView(name);
 
-            if (active) {
-                View mark = new View(this);
-                mark.setBackgroundColor(palette.color(Palette.Role.ACCENT));
-                android.widget.FrameLayout.LayoutParams markLp = new android.widget.FrameLayout.LayoutParams(
-                        dp(6), dp(6), android.view.Gravity.TOP | android.view.Gravity.END);
-                markLp.topMargin = dp(4);
-                markLp.rightMargin = dp(4);
-                card.addView(mark, markLp);
-            }
+            card.addView(stack, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
-            card.setClickable(true);
-            card.setFocusable(true);
-            card.setSelected(active);
             card.setAccessibilityDelegate(new View.AccessibilityDelegate() {
                 @Override public void onInitializeAccessibilityNodeInfo(
                         View host, android.view.accessibility.AccessibilityNodeInfo info) {
@@ -2709,7 +3414,7 @@ public class MainActivity extends Activity {
                 }
             });
             card.setOnClickListener(v -> pickScale(gate.id));
-            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(dp(80), dp(105));
+            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(dp(84), dp(105));
             cardLp.rightMargin = dp(9);
             formatCardStrip.addView(card, cardLp);
             formatCards.add(card);
@@ -2736,173 +3441,842 @@ public class MainActivity extends Activity {
             final View target = formatCards.get(index);
             formatScroll.post(() -> formatScroll.smoothScrollTo(Math.max(0, target.getLeft() - dp(8)), 0));
         }
+        syncRebatePage();
         onEdgeChanged();
     }
 
     private LinearLayout buildEdgePanel() {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
-                new LinearLayout.LayoutParams(-1, dp(38)));
+        rebateRefreshers.clear();
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        edgeHome = buildEdgeHome();
+        rebatePage = buildRebatePage();
+        datePage = buildDatePage();
+        root.addView(edgeHome, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(rebatePage, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(datePage, new LinearLayout.LayoutParams(-1, -2));
+        openEdgePage(edgePageIndex);
+        syncRebatePage();
+        syncDatePage();
+        return root;
+    }
 
-        overscanMark = new Square(this, palette.color(Palette.Role.ACCENT),
-                palette.color(Palette.Role.MARK_OFF));
-        overscanToggleRow = toggleRow("片边（胶片边缘）", null, overscanMark,
-                () -> overscanOn, on -> {
-                    if (on && edgeIds.isEmpty()) {
-                        showInAppToast("这张图的长宽比不对应任何片门");
-                        return;
-                    }
-                    overscanOn = on;
-                    onEdgeChanged();
-                });
-        panel.addView(overscanToggleRow, new LinearLayout.LayoutParams(-1, dp(52)));
+    /** The Edge landing page: one card per edge feature. */
+    private LinearLayout buildEdgeHome() {
+        final LinearLayout home = new LinearLayout(this);
+        home.setOrientation(LinearLayout.VERTICAL);
+        home.addView(sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
+                new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout edgeChoiceRow = new LinearLayout(this);
-        edgeChoiceRow.setOrientation(LinearLayout.HORIZONTAL);
-        edgeChoiceRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        edgeChoiceRow.addView(label("片门格式", 9, palette.color(Palette.Role.MUTED_INK), tfHan));
-        LinearLayout edgeButton = new LinearLayout(this);
-        edgeButton.setOrientation(LinearLayout.HORIZONTAL);
-        edgeButton.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
-        edgeButton.setFocusable(true);
-        edgeButton.setContentDescription("选择片门格式");
-        edgeButton.setOnClickListener(v -> showEdgePicker());
-        edgeValue = label(GateScale.resolve(overscanFormat, filmFormatMm).label,
-                10, palette.color(Palette.Role.INK), tfHan);
-        edgeValue.setGravity(android.view.Gravity.END);
-        edgeButton.addView(edgeValue, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView edgeArrow = label("↓", 10, palette.color(Palette.Role.ACCENT), tfBody);
-        LinearLayout.LayoutParams edgeArrowLp = new LinearLayout.LayoutParams(-2, -2);
-        edgeArrowLp.leftMargin = dp(7);
-        edgeButton.addView(edgeArrow, edgeArrowLp);
-        edgeChoiceRow.addView(edgeButton, new LinearLayout.LayoutParams(0, dp(52), 1f));
-        panel.addView(edgeChoiceRow, new LinearLayout.LayoutParams(-1, dp(52)));
+        final HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        scroll.setClipToPadding(false);
+        final LinearLayout strip = new LinearLayout(this);
+        strip.setOrientation(LinearLayout.HORIZONTAL);
+        strip.setPadding(0, dp(4), 0, dp(4));
 
-        dateMark = new Square(this, palette.color(Palette.Role.ACCENT),
-                palette.color(Palette.Role.MARK_OFF));
-        dateDetail = label(dateOn
-                        ? (dateText != null ? dateText : imprintDate())
-                        : "关闭",
-                7, palette.color(Palette.Role.MUTED_INK), tfBody);
-        dateToggleRow = toggleRow("日期水印", dateDetail, dateMark, () -> dateOn, on -> {
-            dateOn = on;
-            if (dateOn && dateText == null) dateText = imprintDate();
-            dateDetail.setText(dateOn ? imprintDate() : "关闭");
-            onEdgeChanged();
+        final MaterialCardView rebateCard = edgeEntryCard("片边  REBATE",
+                this::rebateSummary, "打开片边设置", () -> openEdgePage(0));
+        strip.addView(rebateCard, edgeCardParams());
+        final MaterialCardView dateCard = edgeEntryCard("日期水印  DATE BACK",
+                this::dateSummary, "打开日期水印设置", () -> openEdgePage(1));
+        strip.addView(dateCard, edgeCardParams());
+
+        scroll.addView(strip, new android.widget.FrameLayout.LayoutParams(-2, -2));
+        home.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
+
+        final TextView note = m3Label("片门与尺度联动；片边只在这张图可用的片门里选",
+                M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfHan);
+        final LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
+        noteLp.topMargin = dp(8);
+        home.addView(note, noteLp);
+        return home;
+    }
+
+    private LinearLayout.LayoutParams edgeCardParams() {
+        final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(176), -2);
+        lp.rightMargin = dp(8);
+        return lp;
+    }
+
+    /**
+     * One Edge entry card: the feature name, a live summary, and a chevron.
+     * The summary is a supplier so the card never keeps a second copy of the
+     * Look; {@link #refreshEdgeCards()} repaints it after every change.
+     */
+    private MaterialCardView edgeEntryCard(String title,
+                                           java.util.function.Supplier<String> summary,
+                                           String description, Runnable onOpen) {
+        final MaterialCardView card = new MaterialCardView(this);
+        card.setCardElevation(0f);
+        card.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
+        card.setStrokeWidth(dp(1));
+        card.setCardBackgroundColor(m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerLow,
+                Palette.Role.SURFACE_ELEVATED));
+        card.setStrokeColor(m3OutlineVariant());
+        card.setClickable(true);
+        card.setFocusable(true);
+
+        final LinearLayout stack = new LinearLayout(this);
+        stack.setOrientation(LinearLayout.VERTICAL);
+        stack.setPadding(dp(12), dp(10), dp(12), dp(10));
+
+        final LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        final TextView name = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
+        name.setMaxLines(2);
+        titleRow.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+        titleRow.addView(m3Label("›", M3Tokens.TypeRole.TITLE_SMALL, m3OnSurfaceVariant(), tfBody));
+        stack.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
+
+        final TextView summaryView = m3Label(summary.get(),
+                M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfHan);
+        final LinearLayout.LayoutParams summaryLp = new LinearLayout.LayoutParams(-1, -2);
+        summaryLp.topMargin = dp(6);
+        stack.addView(summaryView, summaryLp);
+
+        card.addView(stack, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        card.setOnClickListener(v -> onOpen.run());
+        rebateRefreshers.add(() -> {
+            final String text = summary.get();
+            summaryView.setText(text);
+            card.setContentDescription(description + "，" + text);
         });
-        panel.addView(dateToggleRow, new LinearLayout.LayoutParams(-1, dp(52)));
+        return card;
+    }
 
-        TextView note = label("片门与尺度联动；片边只在这张图可用的片门里选", 8,
-                palette.color(Palette.Role.MUTED_INK), tfHan);
-        LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
-        noteLp.topMargin = dp(12);
-        panel.addView(note, noteLp);
-        return panel;
+    /**
+     * The Rebate secondary page. Its switch owns whether the controls are
+     * enabled; they stay visible and dimmed while off, so the page explains
+     * what is available without pretending the controls work.
+     */
+    private LinearLayout buildRebatePage() {
+        final LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setVisibility(View.GONE);
+        page.addView(edgePageHead("片边 / REBATE"), new LinearLayout.LayoutParams(-1, -2));
+
+        final int onSurface = m3Role(
+                com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
+        final int onSurfaceVariant = m3Role(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+
+        rebateSwitch = new MaterialSwitch(this);
+        page.addView(switchRow("开启片边", null, rebateSwitch, () -> overscanOn, on -> {
+            if (on && !GateScale.canHostRebate(sourceWidth, sourceHeight)) {
+                showSnackbar("这张图的长宽比不对应任何片门");
+                syncRebatePage();
+                return;
+            }
+            overscanOn = on;
+            syncRebatePage();
+            commitRebate();
+        }), new LinearLayout.LayoutParams(-1, dp(56)));
+
+        rebateControls = new LinearLayout(this);
+        rebateControls.setOrientation(LinearLayout.VERTICAL);
+
+        rebateGateValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateGateCard = new MaterialCardView(this);
+        rebateGateCard.setCardElevation(0f);
+        rebateGateCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
+        rebateGateCard.setStrokeWidth(dp(1));
+        rebateGateCard.setCardBackgroundColor(m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerLow,
+                Palette.Role.SURFACE_ELEVATED));
+        rebateGateCard.setStrokeColor(m3OutlineVariant());
+        rebateGateCard.setClickable(true);
+        rebateGateCard.setFocusable(true);
+        rebateGateCard.setOnClickListener(v -> showEdgePicker());
+        final LinearLayout gateRow = new LinearLayout(this);
+        gateRow.setOrientation(LinearLayout.HORIZONTAL);
+        gateRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        gateRow.setPadding(dp(14), 0, dp(14), 0);
+        gateRow.addView(m3Label("片门格式", M3Tokens.TypeRole.BODY_MEDIUM,
+                onSurfaceVariant, tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
+        rebateGateValue.setGravity(android.view.Gravity.END);
+        gateRow.addView(rebateGateValue, new LinearLayout.LayoutParams(-2, -2));
+        final TextView gateArrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
+                onSurfaceVariant, tfBody);
+        final LinearLayout.LayoutParams gateArrowLp = new LinearLayout.LayoutParams(-2, -2);
+        gateArrowLp.leftMargin = dp(7);
+        gateRow.addView(gateArrow, gateArrowLp);
+        rebateGateCard.addView(gateRow,
+                new android.widget.FrameLayout.LayoutParams(-1, -1));
+        rebateRefreshers.add(() -> {
+            final String label = edgeIds.isEmpty()
+                    ? "无可用片门"
+                    : GateScale.resolve(overscanFormat, filmFormatMm).label;
+            rebateGateValue.setText(label);
+            rebateGateCard.setContentDescription("片门格式，" + label);
+        });
+        final LinearLayout.LayoutParams gateLp = new LinearLayout.LayoutParams(-1, dp(52));
+        gateLp.bottomMargin = dp(4);
+        rebateControls.addView(rebateGateCard, gateLp);
+
+        edgeTextSwitch = new MaterialSwitch(this);
+        rebateControls.addView(switchRow("片边文字（厂标 / 张数）", null,
+                edgeTextSwitch, () -> edgeTextOn, on -> {
+                    edgeTextOn = on;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, dp(56)));
+
+        rebateFogValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateFogSlider = rebateSliderRow(rebateControls, "片基雾",
+                "片基本身的灰雾。0 是完全透明，越大越脏",
+                RebateControls.FOG_MIN, RebateControls.FOG_MAX, 0.05f,
+                RebateControls.clampFog(edgeFog),
+                value -> String.format(java.util.Locale.US, "%.2f", value),
+                value -> edgeFog = RebateControls.clampFog(value),
+                () -> edgeFog, rebateFogValue);
+
+        rebateLeaksValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateLeaksSlider = rebateSliderRow(rebateControls, "漏光",
+                "卷轴漏进来的光，从片边渗向画面",
+                RebateControls.LEAKS_MIN, RebateControls.LEAKS_MAX, 0.05f,
+                RebateControls.clampLeaks(edgeLeaks),
+                value -> String.format(java.util.Locale.US, "%.2f", value),
+                value -> edgeLeaks = RebateControls.clampLeaks(value),
+                () -> edgeLeaks, rebateLeaksValue);
+
+        rebateFrameNoValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateFrameNoSlider = rebateSliderRow(rebateControls, "片边张数",
+                "片边上印的张数。0 = 按 seed 随机",
+                RebateControls.FRAME_NUMBER_MIN, RebateControls.FRAME_NUMBER_MAX, 1f,
+                RebateControls.clampFrameNumber(frameNumber),
+                value -> value < 0.5f ? "自动" : String.valueOf(Math.round(value)),
+                value -> frameNumber = RebateControls.clampFrameNumber(value),
+                () -> frameNumber, rebateFrameNoValue);
+
+        rebateFNumberValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateFNumberSlider = rebateSliderRow(rebateControls, "光圈值",
+                "相机记录的 f 值。决定片门边缘的虚化。0 = 未知（按 f/5.6）",
+                RebateControls.F_NUMBER_MIN, RebateControls.F_NUMBER_MAX, 1f,
+                RebateControls.clampFNumber(edgeFNumber),
+                value -> value < 0.5f
+                        ? "未知"
+                        : "f/" + String.format(java.util.Locale.US, "%.1f", value),
+                value -> edgeFNumber = RebateControls.clampFNumber(value),
+                () -> edgeFNumber, rebateFNumberValue);
+
+        rebateModeValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateControls.addView(edgeChoiceRow("片边模式", rebateModeValue, RebateControls.MODES,
+                () -> edgeMode, id -> {
+                    edgeMode = id;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateGateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateControls.addView(edgeChoiceRow("片门形状", rebateGateStyleValue,
+                RebateControls.GATE_STYLES, () -> edgeGate, id -> {
+                    edgeGate = id;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateHolesValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateControls.addView(edgeChoiceRow("齿孔", rebateHolesValue, RebateControls.HOLES,
+                () -> edgeHoles, id -> {
+                    edgeHoles = id;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateCarrierValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        rebateControls.addView(edgeChoiceRow("片夹", rebateCarrierValue,
+                RebateControls.CARRIERS, () -> edgeCarrier, id -> {
+                    edgeCarrier = id;
+                    syncRebatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateCameraSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateControls.addView(rebateValueRow("片边种子", rebateCameraSeedValue,
+                () -> String.valueOf(cameraSeed),
+                () -> askSeed("片边随机种子（0 – 2147483647）", cameraSeed, value -> {
+                    cameraSeed = value;
+                    syncRebatePage();
+                    commitRebate();
+                })), new LinearLayout.LayoutParams(-1, -2));
+
+        rebateFrameSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
+                () -> String.valueOf(frameSeed),
+                () -> askSeed("帧随机种子（0 – 2147483647）", frameSeed, value -> {
+                    frameSeed = value;
+                    syncRebatePage();
+                    commitRebate();
+                })), new LinearLayout.LayoutParams(-1, -2));
+
+        page.addView(rebateControls, new LinearLayout.LayoutParams(-1, -2));
+        return page;
+    }
+
+    /**
+     * The Date back secondary page. It follows the Rebate page's shape: its
+     * switch owns whether the controls are enabled, and the controls stay
+     * visible and dimmed while off. The default text comes from the Frame's
+     * EXIF capture date; a custom text is sent to the engine exactly as typed.
+     */
+    private LinearLayout buildDatePage() {
+        final LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setVisibility(View.GONE);
+        page.addView(edgePageHead("日期水印 / DATE BACK"), new LinearLayout.LayoutParams(-1, -2));
+
+        final int onSurface = m3Role(
+                com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
+        final int onSurfaceVariant = m3Role(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+
+        dateSwitch = new MaterialSwitch(this);
+        dateDetail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
+        page.addView(switchRow("开启日期水印", dateDetail, dateSwitch, () -> dateOn, on -> {
+            dateOn = on;
+            syncDatePage();
+            commitRebate();
+        }), new LinearLayout.LayoutParams(-1, dp(56)));
+
+        dateControls = new LinearLayout(this);
+        dateControls.setOrientation(LinearLayout.VERTICAL);
+
+        // The one field the app used to decide for the user: the EXIF date is
+        // the default, but the imprint has always been editable.
+        dateTextValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(rebateValueRow("日期文字", dateTextValue,
+                this::effectiveDateText, () -> {
+                    askText("印在画面上的日期（可以自己写）", effectiveDateText(), value -> {
+                        dateText = value == null || value.trim().isEmpty()
+                                ? null : value.trim();
+                        syncDatePage();
+                        commitRebate();
+                    });
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        dateInsetXValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        dateInsetXSlider = rebateSliderRow(dateControls, "左右内边距",
+                "字到片门左右边的距离，毫米",
+                DateBack.INSET_MIN, DateBack.INSET_MAX, 0.1f,
+                DateBack.clampInset(dateInsetX),
+                value -> String.format(java.util.Locale.US, "%.1f mm", value),
+                value -> dateInsetX = DateBack.clampInset(value),
+                () -> dateInsetX, dateInsetXValue);
+
+        dateInsetYValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        dateInsetYSlider = rebateSliderRow(dateControls, "上下内边距",
+                "字到片门上下边的距离，毫米",
+                DateBack.INSET_MIN, DateBack.INSET_MAX, 0.1f,
+                DateBack.clampInset(dateInsetY),
+                value -> String.format(java.util.Locale.US, "%.1f mm", value),
+                value -> dateInsetY = DateBack.clampInset(value),
+                () -> dateInsetY, dateInsetYValue);
+
+        dateSizeValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        dateSizeSlider = rebateSliderRow(dateControls, "日期大小",
+                "相对该样式的字高",
+                DateBack.SIZE_MIN, DateBack.SIZE_MAX, 0.05f,
+                DateBack.clampSize(dateSize),
+                value -> String.format(java.util.Locale.US, "%.2f×", value),
+                value -> dateSize = DateBack.clampSize(value),
+                () -> dateSize, dateSizeValue);
+
+        dateEvValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        dateEvSlider = rebateSliderRow(dateControls, "日期亮度",
+                "红光在 18% 灰之上的曝光，单位挡",
+                DateBack.EV_MIN, DateBack.EV_MAX, 0.1f,
+                DateBack.clampEv(dateEv),
+                value -> String.format(java.util.Locale.US, "%+.1f EV", value),
+                value -> dateEv = DateBack.clampEv(value),
+                () -> dateEv, dateEvValue);
+
+        datePlacementValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(edgeChoiceRow("日期位置", datePlacementValue,
+                DateBack.PLACEMENTS, () -> datePlacement, id -> {
+                    datePlacement = id;
+                    syncDatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        dateCornerValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(edgeChoiceRow("日期角位", dateCornerValue,
+                DateBack.CORNERS, () -> dateCorner, id -> {
+                    dateCorner = id;
+                    syncDatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        dateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(edgeChoiceRow("日期样式", dateStyleValue,
+                DateBack.STYLES, () -> dateStyle, id -> {
+                    dateStyle = id;
+                    syncDatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        dateDataValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(rebateValueRow("拍摄数据", dateDataValue,
+                () -> dataText.isEmpty() ? "（空）" : dataText,
+                () -> askText("拍摄数据（和日期一起印在片边）", dataText, value -> {
+                    dataText = value == null ? "" : value.trim();
+                    syncDatePage();
+                    commitRebate();
+                })), new LinearLayout.LayoutParams(-1, -2));
+
+        dateTextBValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(rebateValueRow("第二帧日期", dateTextBValue,
+                () -> dateTextB.isEmpty() ? "（空）" : dateTextB,
+                () -> askText("半格对的第二帧日期（用不到就留空）", dateTextB, value -> {
+                    dateTextB = value == null ? "" : value.trim();
+                    syncDatePage();
+                    commitRebate();
+                })), new LinearLayout.LayoutParams(-1, -2));
+
+        page.addView(dateControls, new LinearLayout.LayoutParams(-1, -2));
+        return page;
+    }
+
+    /** Back plus the page name; the two pages share one header shape. */
+    private View edgePageHead(String title) {
+        final LinearLayout head = new LinearLayout(this);
+        head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        final MaterialButton back = m3TextButton("‹ 返回", "返回边框页",
+                m3Primary(), () -> openEdgePage(-1));
+        head.addView(back, new LinearLayout.LayoutParams(-2, dp(48)));
+        final TextView name = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL,
+                m3OnSurfaceVariant());
+        final LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
+                largeText() ? -1 : 0, -2, largeText() ? 0f : 1f);
+        nameLp.leftMargin = largeText() ? 0 : dp(8);
+        head.addView(name, nameLp);
+        return head;
+    }
+
+    /** -1 = the two cards, 0 = the Rebate page, 1 = the Date back page. */
+    private void openEdgePage(int which) {
+        edgePageIndex = which;
+        if (edgeHome != null) {
+            edgeHome.setVisibility(which < 0 ? View.VISIBLE : View.GONE);
+        }
+        if (rebatePage != null) {
+            rebatePage.setVisibility(which == 0 ? View.VISIBLE : View.GONE);
+        }
+        if (datePage != null) {
+            datePage.setVisibility(which == 1 ? View.VISIBLE : View.GONE);
+        }
+        if (which == 0) syncRebatePage();
+        if (which == 1) syncDatePage();
+        refreshEdgeCards();
+        // The panel is one ScrollView; a page opens at its own top.
+        if (panels != null && activeTabIndex == 3 && panels[3] instanceof ScrollView) {
+            ((ScrollView) panels[3]).scrollTo(0, 0);
+        }
+    }
+
+    /** Repaint the entry cards and every chosen row from the live Look. */
+    private void refreshEdgeCards() {
+        for (int i = 0; i < rebateRefreshers.size(); ++i) rebateRefreshers.get(i).run();
+    }
+
+    private String rebateSummary() {
+        if (!GateScale.canHostRebate(sourceWidth, sourceHeight)) return "这张图没有可用片门";
+        if (!overscanOn) return "未开启 · 点进去设置";
+        final String gate = edgeIds.isEmpty()
+                ? gateLabel(overscanFormat)
+                : GateScale.resolve(overscanFormat, filmFormatMm).label;
+        return gate + " · 雾 " + fmt1(edgeFog) + " · 漏光 " + fmt1(edgeLeaks)
+                + " · 张数 " + (frameNumber < 0.5f
+                        ? "自动" : String.valueOf(Math.round(frameNumber)));
+    }
+
+    private String dateSummary() {
+        if (!dateOn) return "未开启 · 点进去设置";
+        return ControlChoice.labelOf(DateBack.PLACEMENTS, datePlacement)
+                + ControlChoice.labelOf(DateBack.CORNERS, dateCorner)
+                + " · " + ControlChoice.labelOf(DateBack.STYLES, dateStyle)
+                + " · " + effectiveDateText();
+    }
+
+    private static String fmt1(float value) {
+        return String.format(java.util.Locale.US, "%.1f", value);
+    }
+
+    /**
+     * Fill the Rebate page from the live fields. It runs after a Look restore,
+     * a Gate change, or a page open, so the page never keeps a second copy of
+     * the Look. The switch guard keeps the slider listeners from committing a
+     * render while they are being moved into place.
+     */
+    private void syncRebatePage() {
+        if (rebateSwitch == null) return;
+        syncingRebate = true;
+        syncingToggles = true;
+        try {
+            rebateSwitch.setChecked(overscanOn);
+            rebateSwitch.setContentDescription(toggleDescription("开启片边", overscanOn));
+            if (edgeTextSwitch != null) {
+                edgeTextSwitch.setChecked(edgeTextOn);
+                edgeTextSwitch.setContentDescription(
+                        toggleDescription("片边文字（厂标 / 张数）", edgeTextOn));
+            }
+            refreshEdgeCards();
+        } finally {
+            syncingRebate = false;
+            syncingToggles = false;
+        }
+        setEnabledDeep(rebateControls, overscanOn);
+    }
+
+    /**
+     * Fill the Date back page from the live fields. Like the Rebate page it
+     * runs after a Look restore or a page open, and its guard keeps the slider
+     * listeners from committing a render while they are being moved into place.
+     */
+    private void syncDatePage() {
+        if (dateSwitch == null) return;
+        syncingRebate = true;
+        syncingToggles = true;
+        try {
+            dateSwitch.setChecked(dateOn);
+            dateSwitch.setContentDescription(toggleDescription("开启日期水印", dateOn));
+            syncDateDetail();
+            refreshEdgeCards();
+        } finally {
+            syncingRebate = false;
+            syncingToggles = false;
+        }
+        setEnabledDeep(dateControls, dateOn);
+    }
+
+    /** Dim and disable a whole control group without hiding what it offers. */
+    private static void setEnabledDeep(View view, boolean enabled) {
+        if (view == null) return;
+        setEnabledRecursive(view, enabled);
+        // One 38 % overlay for the group; setting it on every child too would
+        // compound the opacity and make nested labels unreadable.
+        view.setAlpha(enabled ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
+    }
+
+    private static void setEnabledRecursive(View view, boolean enabled) {
+        view.setEnabled(enabled);
+        if (view instanceof android.view.ViewGroup) {
+            final android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); ++i) {
+                setEnabledRecursive(group.getChildAt(i), enabled);
+            }
+        }
+    }
+
+    /** A slider, its label, and its live value; the page owns four of them. */
+    private Slider rebateSliderRow(LinearLayout parent, String name, String hint,
+                                   float min, float max, float step, float initial,
+                                   java.util.function.Function<Float, String> format,
+                                   java.util.function.Consumer<Float> apply,
+                                   java.util.function.Supplier<Float> current,
+                                   TextView valueView) {
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dp(4), 0, 0);
+
+        final LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        head.addView(m3Label(name, M3Tokens.TypeRole.BODY_MEDIUM,
+                m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
+                tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
+        valueView.setText(format.apply(initial));
+        applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfBody);
+        valueView.setTextColor(m3Primary());
+        head.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
+        row.addView(head, new LinearLayout.LayoutParams(-1, -2));
+
+        if (hint != null && !hint.isEmpty()) {
+            final TextView note = m3Label(hint, M3Tokens.TypeRole.LABEL_SMALL,
+                    m3OnSurfaceVariant(), tfHan);
+            note.setLineSpacing(dp(2), 1f);
+            final LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
+            noteLp.topMargin = dp(1);
+            row.addView(note, noteLp);
+        }
+
+        final Slider bar = new Slider(this);
+        bar.setId(View.generateViewId());
+        bar.setValueFrom(min);
+        bar.setValueTo(max);
+        bar.setStepSize(step);
+        bar.setValue(snapToStep(clampToSlider(initial, min, max), min, step));
+        bar.setMinimumHeight(dp(48));
+        bar.setLabelFormatter(value -> format.apply(value));
+        bar.setLabelBehavior(com.google.android.material.slider.LabelFormatter.LABEL_GONE);
+        bar.setContentDescription(name);
+        valueView.setLabelFor(bar.getId());
+        bar.addOnChangeListener((slider, value, fromUser) -> {
+            valueView.setText(format.apply(value));
+            // A programmatic park (a Look restore, a page refresh) moves the
+            // thumb only. Writing the snapped step back would replace a stored
+            // 2.43 mm with 2.4 before the user touched anything.
+            if (!fromUser) return;
+            apply.accept(value);
+            if (!syncingRebate) {
+                slider.removeCallbacks(rebateCommit);
+                slider.postDelayed(rebateCommit, OPTICS_COMMIT_DELAY_MS);
+            }
+        });
+        bar.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+            @Override public void onStartTrackingTouch(Slider slider) {
+                slider.removeCallbacks(rebateCommit);
+            }
+            @Override public void onStopTrackingTouch(Slider slider) {
+                slider.removeCallbacks(rebateCommit);
+                commitRebate();
+            }
+        });
+        rebateRefreshers.add(() -> bar.setValue(snapToStep(
+                clampToSlider(current.get(), min, max), min, step)));
+        row.addView(bar, new LinearLayout.LayoutParams(-1, dp(48)));
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return bar;
+    }
+
+    /** A chosen value row backed by the M3 radio sheet; the id is the Look's. */
+    private View edgeChoiceRow(String labelText, TextView valueView,
+                               List<? extends ControlChoice> choices,
+                               java.util.function.Supplier<String> current,
+                               java.util.function.Consumer<String> setter) {
+        return rebateValueRow(labelText, valueView,
+                () -> String.valueOf(ControlChoice.labelOf(choices, current.get())),
+                () -> {
+                    final int selected = ControlChoice.indexOf(choices, current.get());
+                    showChoiceSheet(labelText, "只列出这一版支持的选项",
+                            java.util.Arrays.asList(ControlChoice.labels(choices)),
+                            selected, picked -> {
+                                if (picked < 0 || picked >= choices.size()) return;
+                                setter.accept(choices.get(picked).id);
+                            });
+                });
+    }
+
+    /** A non-sheet row: a label, the live value, and a chevron-like arrow. */
+    private View rebateValueRow(String labelText, TextView valueView,
+                                java.util.function.Supplier<String> current,
+                                Runnable onClick) {
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(52));
+        row.setPadding(dp(2), 0, dp(2), 0);
+        row.addView(m3Label(labelText, M3Tokens.TypeRole.BODY_MEDIUM,
+                m3Role(com.google.android.material.R.attr.colorOnSurfaceVariant,
+                        Palette.Role.MUTED_INK), tfHan),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfHan);
+        valueView.setTextColor(m3OnSurface());
+        valueView.setGravity(android.view.Gravity.END);
+        row.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
+        final TextView arrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
+                m3OnSurfaceVariant(), tfBody);
+        final LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(-2, -2);
+        arrowLp.leftMargin = dp(7);
+        row.addView(arrow, arrowLp);
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setOnClickListener(v -> onClick.run());
+        rebateRefreshers.add(() -> {
+            final String value = current.get();
+            valueView.setText(value);
+            row.setContentDescription(labelText + "，" + value);
+        });
+        return row;
+    }
+
+    /** The date text and the capture-data line are free text, not numbers. */
+    private void askText(String title, String initial, java.util.function.Consumer<String> onValue) {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        input.setText(initial == null ? "" : initial);
+        input.setSelectAllOnFocus(true);
+        input.setSingleLine(false);
+        input.setMinLines(1);
+        input.setMaxLines(3);
+        final int pad = dp(16);
+        input.setPadding(pad, dp(8), pad, dp(8));
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(title)
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) ->
+                        onValue.accept(input.getText().toString()))
+                .show();
+    }
+
+    /** The seeds are arbitrary ints, so they ask for a number rather than a slider. */
+    private void askSeed(String title, int initial, java.util.function.IntConsumer onValue) {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        input.setText(String.valueOf(initial));
+        input.setSelectAllOnFocus(true);
+        input.setSingleLine(true);
+        final int pad = dp(16);
+        input.setPadding(pad, dp(8), pad, dp(8));
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(title)
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    try {
+                        onValue.accept(RebateControls.clampSeed(
+                                Long.parseLong(input.getText().toString().trim())));
+                    } catch (NumberFormatException ignored) {
+                        showSnackbar("请输入 0 到 2147483647 之间的整数");
+                    }
+                })
+                .show();
+    }
+
+    /** A switch change or a chosen row commits one render, not one per frame. */
+    private void commitRebate() {
+        if (syncingRebate) return;
+        onEdgeChanged();
+    }
+
+    private final Runnable rebateCommit = () -> {
+        if (!syncingRebate) onEdgeChanged();
+    };
+
+    private static float clampToSlider(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    /**
+     * Put a stored value on the slider's own step grid. An older Look may hold
+     * a raw engine value (2.43 mm) that is not a multiple of the page's step;
+     * Material's Slider rejects that instead of nudging it.
+     */
+    private static float snapToStep(float value, float min, float step) {
+        if (step <= 0f) return value;
+        final float snapped = min + Math.round((value - min) / step) * step;
+        return Math.round(snapped * 1000f) / 1000f;
     }
 
     private void showEdgePicker() {
         if (edgeIds.isEmpty()) {
-            showInAppToast("这张图没有可用片门");
+            showSnackbar("这张图没有可用片门");
             return;
         }
-        int current = edgeIds.indexOf(overscanFormat);
-        String currentLabel = current >= 0 && current < edgeLabels.size() ? edgeLabels.get(current) : edgeLabels.get(0);
-        showChoiceSheet("选择片门格式", edgeLabels, currentLabel, picked -> {
-            int i = edgeLabels.indexOf(picked);
-            if (i < 0) return;
-            // The frame that goes in this gate, not whatever the Scale page
-            // happened to be left on.
-            selectGate(edgeIds.get(i));
-            onEdgeChanged();
-        });
+        final int current = edgeIds.indexOf(overscanFormat);
+        showChoiceSheet("选择片门格式", "只列出与这张图形状相符的片门",
+                edgeLabels, current, picked -> {
+                    if (picked < 0 || picked >= edgeIds.size()) return;
+                    // The frame that goes in this gate, not whatever the Scale
+                    // page happened to be left on.
+                    selectGate(edgeIds.get(picked));
+                    onEdgeChanged();
+                });
     }
 
     /**
-     * Four tabs, each with an index and the project's own name. The active tab
-     * carries a soft accent field, an accent rule, and a selected state for
-     * accessibility services -- three signals for one state.
+     * The M3 navigation rail used at ≥600 dp. It is the same four workspaces
+     * as the phone tabs, with the same {@link #activeTabIndex}; {@link #setTab}
+     * keeps both forms in sync. The real {@link NavigationRailView} supplies
+     * the selected indicator, 48 dp-plus item targets, and the selected state
+     * that accessibility services announce.
      */
-    private View buildTabs() {
-        LinearLayout outer = new LinearLayout(this);
-        outer.setOrientation(LinearLayout.VERTICAL);
-        outer.setBackgroundColor(palette.color(Palette.Role.SURFACE));
-        outer.addView(hairline(palette.color(Palette.Role.LINE)),
-                new LinearLayout.LayoutParams(-1, dp(1)));
-
-        LinearLayout tabs = new LinearLayout(this);
-        tabs.setOrientation(LinearLayout.HORIZONTAL);
+    private NavigationRailView buildNavigationRail() {
+        final NavigationRailView rail = new NavigationRailView(this);
+        rail.setLabelVisibilityMode(NavigationBarView.LABEL_VISIBILITY_LABELED);
+        rail.inflateMenu(R.menu.console_nav);
         for (int i = 0; i < TAB_NAMES.length; ++i) {
-            final int index = i;
-            android.widget.FrameLayout cell = new android.widget.FrameLayout(this);
-            cell.setFocusable(true);
-            cell.setContentDescription(TAB_NAMES[i] + " " + TAB_ENGLISH[i]);
-            cell.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-                @Override public void onInitializeAccessibilityNodeInfo(
-                        View host, android.view.accessibility.AccessibilityNodeInfo info) {
-                    super.onInitializeAccessibilityNodeInfo(host, info);
-                    info.setSelected(index == activeTabIndex);
-                    info.setCollectionItemInfo(
-                            android.view.accessibility.AccessibilityNodeInfo
-                                    .CollectionItemInfo.obtain(0, 1, index, 1, false));
-                }
-            });
-
-            LinearLayout content = new LinearLayout(this);
-            content.setOrientation(LinearLayout.HORIZONTAL);
-            content.setGravity(android.view.Gravity.CENTER);
-            content.setClickable(false);
-            TextView number = label(String.format(java.util.Locale.US, "%02d", i + 1),
-                    6.5f, palette.color(Palette.Role.MUTED_INK), tfBody);
-            number.setLetterSpacing(0.1f);
-            number.setSingleLine(true);
-            LinearLayout.LayoutParams numberLp = new LinearLayout.LayoutParams(-2, -2);
-            numberLp.rightMargin = dp(5);
-            content.addView(number, numberLp);
-
-            TextView name = label(TAB_NAMES[i], 10.5f,
-                    palette.color(Palette.Role.MUTED_INK), tfHan);
-            name.setSingleLine(true);
-            LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(-2, -2);
-            nameLp.rightMargin = dp(4);
-            content.addView(name, nameLp);
-
-            TextView english = label(TAB_ENGLISH[i], 6.5f,
-                    palette.color(Palette.Role.MUTED_INK), tfBody);
-            english.setLetterSpacing(0.08f);
-            english.setSingleLine(true);
-            content.addView(english);
-            cell.addView(content, new android.widget.FrameLayout.LayoutParams(
-                    -2, -2, android.view.Gravity.CENTER));
-
-            View bar = new View(this);
-            bar.setBackgroundColor(palette.color(Palette.Role.ACCENT));
-            bar.setVisibility(View.INVISIBLE);
-            cell.addView(bar, new android.widget.FrameLayout.LayoutParams(
-                    dp(30), dp(2), android.view.Gravity.BOTTOM
-                            | android.view.Gravity.CENTER_HORIZONTAL));
-            cell.setOnClickListener(v -> onTabClicked(index));
-
-            tabs.addView(cell, new LinearLayout.LayoutParams(0, -1, 1f));
-            tabCells[i] = cell;
-            tabBars[i] = bar;
-            tabLabels[i] = name;
-            tabIndices[i] = number;
-            tabEnglish[i] = english;
+            final MenuItem item = rail.getMenu().findItem(TAB_ITEM_IDS[i]);
+            if (item == null) continue;
+            // A span keeps the Chinese label on OPPOSans through the rail's
+            // active/inactive text-appearance changes.
+            item.setTitle(typed(TAB_NAMES[i], tfHan));
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                item.setContentDescription(TAB_NAMES[i] + " " + TAB_ENGLISH[i]);
+            }
         }
-        outer.addView(tabs, new LinearLayout.LayoutParams(-1, 0, 1f));
-        return outer;
+        rail.setOnItemSelectedListener(item -> {
+            if (suppressWorkspaceSelection) return true;
+            final int index = workspaceIndex(item.getItemId());
+            if (index < 0) return false;
+            if (index != activeTabIndex) {
+                setTab(index);
+                setPanelCollapsed(false);
+            }
+            return true;
+        });
+        return rail;
     }
 
-    private void onTabClicked(int index) {
-        if (index == activeTabIndex) {
-            setPanelCollapsed(!panelCollapsed);
-            showInAppToast(panelCollapsed ? "参数面板已收起，再点当前页签展开" : "参数面板已展开");
-        } else {
-            activeTabIndex = index;
-            setTab(index);
-            setPanelCollapsed(false);
+    private static int workspaceIndex(int itemId) {
+        for (int i = 0; i < TAB_ITEM_IDS.length; ++i) {
+            if (TAB_ITEM_IDS[i] == itemId) return i;
         }
+        return -1;
+    }
+
+    /**
+     * The four phone workspaces use Material secondary tabs: one selected
+     * indicator, 48 dp targets, and the selected state exposed by TabLayout
+     * itself. The panel below is owned by {@link #setTab(int)}.
+     */
+    private View buildTabs() {
+        tabLayout = new TabLayout(this);
+        tabLayout.setTabMode(TabLayout.MODE_FIXED);
+        tabLayout.setTabGravity(TabLayout.GRAVITY_FILL);
+        tabLayout.setSelectedTabIndicatorColor(MaterialColors.getColor(this,
+                com.google.android.material.R.attr.colorPrimary,
+                palette.color(Palette.Role.ACCENT)));
+
+        for (int i = 0; i < TAB_NAMES.length; ++i) {
+            final TabLayout.Tab tab = tabLayout.newTab()
+                    .setText(TAB_NAMES[i])
+                    .setContentDescription(TAB_NAMES[i] + " " + TAB_ENGLISH[i]);
+            tabLayout.addTab(tab, i, i == 0);
+            tab.view.setMinimumHeight(dp(48));
+            tab.view.setOnTouchListener((v, event) -> {
+                if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+                    lastTabTouchAt = android.os.SystemClock.uptimeMillis();
+                }
+                return false;
+            });
+            // The tab text appearance is the M3 title-small role; the family
+            // stays OPPOSans for the Chinese labels.
+            applyTypeface(tab.view, tfHan);
+        }
+
+        tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override public void onTabSelected(TabLayout.Tab tab) {
+                if (suppressWorkspaceSelection) return;
+                final int index = tab.getPosition();
+                if (index == activeTabIndex) return;
+                setTab(index);
+                setPanelCollapsed(false);
+            }
+
+            @Override public void onTabUnselected(TabLayout.Tab tab) { }
+
+            @Override public void onTabReselected(TabLayout.Tab tab) {
+                if (suppressWorkspaceSelection) return;
+                // A real tap just set lastTabTouchAt; a reselect from a layout
+                // pass must not expand the panel the user collapsed. Keyboard,
+                // switch-access, and TalkBack activation carry focus instead.
+                final boolean activated = tab.view.isPressed()
+                        || tab.view.isFocused()
+                        || tab.view.isAccessibilityFocused()
+                        || android.os.SystemClock.uptimeMillis() - lastTabTouchAt <= 500L;
+                if (!activated) return;
+                setPanelCollapsed(!panelCollapsed);
+                showSnackbar(panelCollapsed ? "参数面板已收起，再点当前页签展开" : "参数面板已展开");
+            }
+        });
+        return tabLayout;
     }
 
     private void setPanelCollapsed(boolean collapsed) {
@@ -2931,57 +4305,123 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Import and export use the same paper sheet as the style pickers. */
-    void showActionSheet(String title, String note, String[] items,
-                                 java.util.function.IntConsumer onPick) {
-        final android.app.Dialog dialog = new android.app.Dialog(this);
-        LinearLayout sheet = new LinearLayout(this);
-        sheet.setOrientation(LinearLayout.VERTICAL);
-        sheet.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
-        View cap = new View(this);
-        cap.setBackgroundColor(palette.color(Palette.Role.ACCENT));
-        sheet.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
+    /**
+     * The M3 sheet header: a heading, a real text-button close, and the sheet's
+     * own surface. Every sheet in the Console starts here, so the title a
+     * TalkBack user hears and the title a sighted user reads are one view.
+     */
+    private LinearLayout sheetColumn(final BottomSheetDialog dialog, String title) {
+        final LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        // The BottomSheetDialog's M3 container owns the surface and its rounded
+        // top; a child background would square those corners off.
+        column.setPadding(0, dp(4), 0, dp(8));
 
-        LinearLayout head = new LinearLayout(this);
+        final LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        head.setPadding(dp(16), 0, dp(16), 0);
-        head.addView(label(title, 12, palette.color(Palette.Role.INK), tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView close = label("关闭", 9, palette.color(Palette.Role.MUTED_INK), tfHan);
-        close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
-        close.setPadding(dp(12), dp(14), 0, dp(14));
-        close.setOnClickListener(v -> dialog.dismiss());
-        head.addView(close);
-        sheet.addView(head, new LinearLayout.LayoutParams(-1, dp(54)));
+        head.setPadding(dp(16), 0, dp(8), 0);
+        final TextView titleView = m3Label(String.valueOf(title),
+                M3Tokens.TypeRole.TITLE_MEDIUM, m3OnSurface(), tfHan);
+        ViewCompat.setAccessibilityHeading(titleView, true);
+        head.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1f));
 
+        final MaterialButton close = new MaterialButton(this);
+        close.setText("关闭");
+        close.setAllCaps(false);
+        close.setMinWidth(0);
+        close.setMinimumWidth(0);
+        close.setInsetTop(0);
+        close.setInsetBottom(0);
+        close.setPadding(dp(12), 0, dp(12), 0);
+        close.setContentDescription("关闭");
+        applyTypeRole(close, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
+        close.setOnClickListener(v -> dialog.dismiss());
+        head.addView(close, new LinearLayout.LayoutParams(-2, dp(48)));
+        column.addView(head, new LinearLayout.LayoutParams(-1, -2));
+        return column;
+    }
+
+    /**
+     * A modal M3 bottom sheet. Focus is trapped by the dialog window; the view
+     * that opened the sheet is asked for focus again when it closes, so a
+     * keyboard or switch-access user returns to the control they left.
+     */
+    private void showSheet(final BottomSheetDialog dialog, View content) {
+        final View invoker = getCurrentFocus();
+        dialog.setContentView(content);
+        dialog.setCanceledOnTouchOutside(true);
+        dialog.setOnDismissListener(d -> {
+            if (openSheet == d) openSheet = null;
+            if (invoker != null && invoker.isAttachedToWindow()) invoker.requestFocus();
+        });
+        dialog.show();
+        final BottomSheetBehavior<android.widget.FrameLayout> behavior = dialog.getBehavior();
+        behavior.setFitToContents(true);
+        behavior.setSkipCollapsed(true);
+        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+        openSheet = dialog;
+    }
+
+    private void dismissOpenSheet() {
+        if (openSheet != null) {
+            if (openSheet.isShowing()) openSheet.dismiss();
+            openSheet = null;
+        }
+    }
+
+    /** A sheet body tall enough for its rows, never taller than 62 % of the window. */
+    private int sheetBodyHeight(int rows, int rowDp) {
+        final int max = Math.min(dp(430),
+                Math.round(getResources().getDisplayMetrics().heightPixels * 0.62f));
+        final int wanted = Math.max(dp(rowDp), rows * dp(rowDp) + dp(12));
+        return Math.min(max, wanted);
+    }
+
+    /** Import, export, and About use the same M3 sheet as the stock pickers. */
+    void showActionSheet(String title, String note, String[] items,
+                         java.util.function.IntConsumer onPick) {
+        if (items == null || items.length == 0 || isFinishing()) return;
+        dismissOpenSheet();
+        final BottomSheetDialog dialog = new BottomSheetDialog(this);
+        dialog.setTitle(title);
+        final LinearLayout column = sheetColumn(dialog, title);
+
+        final NestedScrollView scroll = new NestedScrollView(this);
+        scroll.setFillViewport(false);
+        final LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
         if (note != null && !note.isEmpty()) {
-            TextView noteView = label(note, 8.5f, palette.color(Palette.Role.MUTED_INK), tfHan);
-            noteView.setPadding(dp(16), 0, dp(16), dp(12));
-            sheet.addView(noteView);
+            final TextView noteView = m3Label(note, M3Tokens.TypeRole.BODY_MEDIUM,
+                    m3OnSurfaceVariant(), tfHan);
+            noteView.setLineSpacing(dp(3), 1f);
+            noteView.setPadding(dp(16), 0, dp(16), dp(8));
+            body.addView(noteView, new LinearLayout.LayoutParams(-1, -2));
         }
         for (int i = 0; i < items.length; ++i) {
             final int index = i;
-            TextView row = label(items[i], 11, palette.color(Palette.Role.INK), tfHan);
-            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(16), 0, dp(16), 0);
+            final MaterialButton row = new MaterialButton(this);
+            row.setText(items[i]);
+            row.setAllCaps(false);
+            row.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
+            row.setInsetTop(0);
+            row.setInsetBottom(0);
+            row.setMinWidth(0);
+            row.setMinimumWidth(0);
+            row.setMinimumHeight(dp(48));
+            row.setSingleLine(false);
+            row.setPadding(dp(16), dp(6), dp(16), dp(6));
+            applyTypeRole(row, M3Tokens.TypeRole.BODY_LARGE, tfHan);
             row.setOnClickListener(v -> {
                 dialog.dismiss();
                 onPick.accept(index);
             });
-            sheet.addView(row, new LinearLayout.LayoutParams(-1, dp(50)));
+            body.addView(row, new LinearLayout.LayoutParams(-1, -2));
         }
-        dialog.setContentView(sheet);
-        dialog.setCanceledOnTouchOutside(true);
-        dialog.show();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(
-                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-            dialog.getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-            dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);
-            dialog.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            dialog.getWindow().setDimAmount(0.35f);
-        }
+        scroll.addView(body, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        column.addView(scroll, new LinearLayout.LayoutParams(-1,
+                sheetBodyHeight(items.length + (note == null || note.isEmpty() ? 0 : 2), 52)));
+        showSheet(dialog, column);
     }
 
     /** The feedback group, in the app's own card rather than a system dialog.
@@ -3006,18 +4446,22 @@ public class MainActivity extends Activity {
         final android.app.Dialog dialog = new android.app.Dialog(this);
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
+        card.setBackgroundColor(m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerHigh,
+                Palette.Role.SURFACE_ELEVATED));
         View cap = new View(this);
-        cap.setBackgroundColor(palette.color(Palette.Role.ACCENT));
+        cap.setBackgroundColor(m3Primary());
         card.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
 
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         head.setPadding(dp(16), 0, dp(16), 0);
-        head.addView(mixedLabel("FEEDBACK / 反馈与交流", 8, palette.color(Palette.Role.ACCENT)),
+        head.addView(mixedM3Label("FEEDBACK / 反馈与交流",
+                        M3Tokens.TypeRole.LABEL_LARGE, m3Primary()),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView close = label("关闭", 9, palette.color(Palette.Role.MUTED_INK), tfHan);
+        TextView close = m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
+                m3OnSurfaceVariant(), tfHan);
         close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         close.setPadding(dp(12), dp(14), 0, dp(14));
         close.setOnClickListener(v -> dialog.dismiss());
@@ -3027,23 +4471,24 @@ public class MainActivity extends Activity {
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(dp(16), 0, dp(16), 4);
-        TextView title = label("遇到问题，或者想聊冲印？", 17, palette.color(Palette.Role.INK), tfHan);
+        TextView title = m3Label("遇到问题，或者想聊冲印？",
+                M3Tokens.TypeRole.HEADLINE_SMALL, m3OnSurface(), tfHan);
         body.addView(title);
-        TextView copyText = label("渲染报错、导出异常、想要某支胶片，直接发在群里。"
-                + "问题能复现的话，把「复制错误信息」的内容一起贴上。", 10,
-                palette.color(Palette.Role.MUTED_INK), tfHan);
+        TextView copyText = m3Label("渲染报错、导出异常、想要某支胶片，直接发在群里。"
+                + "问题能复现的话，把「复制错误信息」的内容一起贴上。",
+                M3Tokens.TypeRole.BODY_MEDIUM, m3OnSurfaceVariant(), tfHan);
         copyText.setLineSpacing(dp(4), 1f);
         LinearLayout.LayoutParams copyTextLp = new LinearLayout.LayoutParams(-1, -2);
         copyTextLp.topMargin = dp(9);
         body.addView(copyText, copyTextLp);
 
-        TextView number = label(QQ_GROUP, 27, palette.color(Palette.Role.ACCENT), tfDisplay);
-        number.setLetterSpacing(-0.02f);
+        TextView number = m3Label(QQ_GROUP, M3Tokens.TypeRole.DISPLAY_SMALL,
+                m3Primary(), tfDisplay);
         LinearLayout.LayoutParams numberLp = new LinearLayout.LayoutParams(-1, -2);
         numberLp.topMargin = dp(16);
         body.addView(number, numberLp);
-        TextView hint = label("QQ 群号，点下面按钮复制后搜索加入", 9,
-                palette.color(Palette.Role.MUTED_INK), tfHan);
+        TextView hint = m3Label("QQ 群号，点下面按钮复制后搜索加入",
+                M3Tokens.TypeRole.LABEL_MEDIUM, m3OnSurfaceVariant(), tfHan);
         LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(-1, -2);
         hintLp.topMargin = dp(5);
         body.addView(hint, hintLp);
@@ -3053,21 +4498,25 @@ public class MainActivity extends Activity {
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setPadding(dp(16), dp(16), dp(16), dp(16));
 
-        TextView open = label("打开 QQ", 10, palette.color(Palette.Role.ACCENT), tfHan);
+        TextView open = m3Label("打开 QQ", M3Tokens.TypeRole.LABEL_LARGE,
+                m3Primary(), tfHan);
         open.setGravity(android.view.Gravity.CENTER);
         android.graphics.drawable.GradientDrawable openBg = new android.graphics.drawable.GradientDrawable();
-        openBg.setColor(palette.color(Palette.Role.SURFACE_ELEVATED));
-        openBg.setStroke(dp(1), palette.color(Palette.Role.ACCENT));
+        openBg.setColor(m3Role(com.google.android.material.R.attr.colorSurfaceContainerHigh,
+                Palette.Role.SURFACE_ELEVATED));
+        openBg.setStroke(dp(1), m3Primary());
         open.setBackground(openBg);
         open.setOnClickListener(v -> openQqGroup());
         LinearLayout.LayoutParams openLp = new LinearLayout.LayoutParams(0, dp(42), 1f);
         openLp.rightMargin = dp(8);
         actions.addView(open, openLp);
 
-        TextView copy = label("复制群号", 10, palette.color(Palette.Role.ON_ACCENT), tfHan);
+        TextView copy = m3Label("复制群号", M3Tokens.TypeRole.LABEL_LARGE,
+                m3Role(com.google.android.material.R.attr.colorOnPrimary,
+                        Palette.Role.ON_ACCENT), tfHan);
         copy.setGravity(android.view.Gravity.CENTER);
         android.graphics.drawable.GradientDrawable copyBg = new android.graphics.drawable.GradientDrawable();
-        copyBg.setColor(palette.color(Palette.Role.ACCENT));
+        copyBg.setColor(m3Primary());
         copy.setBackground(copyBg);
         copy.setOnClickListener(v -> {
             if (copyToClipboard("SpektraLab 反馈群", QQ_GROUP)) {
@@ -3085,14 +4534,15 @@ public class MainActivity extends Activity {
         card.addView(actions, new LinearLayout.LayoutParams(-1, -2));
 
         if (auto) {
-            TextView mute = label("不再自动弹出", 8.5f, palette.color(Palette.Role.MUTED_INK), tfHan);
+            TextView mute = m3Label("不再自动弹出", M3Tokens.TypeRole.LABEL_MEDIUM,
+                    m3OnSurfaceVariant(), tfHan);
             mute.setGravity(android.view.Gravity.CENTER);
             mute.setPaintFlags(mute.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
             mute.setPadding(0, 0, 0, dp(14));
             mute.setOnClickListener(v -> {
                 p.edit().putBoolean(PROMO_MUTED, true).apply();
                 dialog.dismiss();
-                showInAppToast("已关闭，仍可在「关于」里找到反馈群");
+                showSnackbar("已关闭，仍可在「关于」里找到反馈群");
             });
             card.addView(mute, new LinearLayout.LayoutParams(-1, dp(30)));
         }
@@ -3139,106 +4589,79 @@ public class MainActivity extends Activity {
             } catch (Throwable ignored) { }
         }
         copyToClipboard("SpektraLab 反馈群", QQ_GROUP);
-        showInAppToast("群号已复制，请在 QQ 里搜索加入");
+        showSnackbar("群号已复制，请在 QQ 里搜索加入");
     }
 
-    /** A paper bottom sheet in the same visual language as the cards. */
-    private void showChoiceSheet(String title, List<String> labels, String selected,
-                                 java.util.function.Consumer<String> onPick) {
-        final android.app.Dialog dialog = new android.app.Dialog(this);
-        LinearLayout sheet = new LinearLayout(this);
-        sheet.setOrientation(LinearLayout.VERTICAL);
-        sheet.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
-        View cap = new View(this);
-        cap.setBackgroundColor(palette.color(Palette.Role.ACCENT));
-        sheet.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
+    /**
+     * A choice bottom sheet built from real M3 radio buttons. The current
+     * choice is the checked button, so TalkBack announces it without a second
+     * custom description; the full stock name is the row's own text.
+     */
+    private void showChoiceSheet(String title, String note, List<String> labels,
+                                 int selectedIndex, java.util.function.IntConsumer onPick) {
+        if (labels == null || labels.isEmpty() || isFinishing()) return;
+        dismissOpenSheet();
+        final BottomSheetDialog dialog = new BottomSheetDialog(this);
+        dialog.setTitle(title);
+        final LinearLayout column = sheetColumn(dialog, title);
 
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        head.setPadding(dp(16), 0, dp(16), 0);
-        head.addView(label(title, 12, palette.color(Palette.Role.INK), tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView close = label("关闭", 9, palette.color(Palette.Role.MUTED_INK), tfHan);
-        close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
-        close.setPadding(dp(12), dp(14), 0, dp(14));
-        close.setOnClickListener(v -> dialog.dismiss());
-        head.addView(close);
-        sheet.addView(head, new LinearLayout.LayoutParams(-1, dp(54)));
+        if (note != null && !note.isEmpty()) {
+            final TextView noteView = m3Label(note, M3Tokens.TypeRole.BODY_MEDIUM,
+                    m3OnSurfaceVariant(), tfHan);
+            noteView.setLineSpacing(dp(3), 1f);
+            noteView.setPadding(dp(16), 0, dp(16), dp(4));
+            column.addView(noteView, new LinearLayout.LayoutParams(-1, -2));
+        }
 
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        for (final String name : labels) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
+        final RadioGroup group = new RadioGroup(this);
+        group.setOrientation(LinearLayout.VERTICAL);
+        final MaterialRadioButton[] rows = new MaterialRadioButton[labels.size()];
+        for (int i = 0; i < labels.size(); ++i) {
+            final MaterialRadioButton row = new MaterialRadioButton(this);
+            row.setId(View.generateViewId());
+            row.setText(labels.get(i));
+            row.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
+                    M3Tokens.TypeRole.BODY_LARGE.sizeSp);
+            row.setTypeface(tfHan);
             row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(16), 0, dp(16), 0);
-            boolean active = name.equals(selected);
-            TextView text = label(name, 11, palette.color(active
-                    ? Palette.Role.ACCENT : Palette.Role.INK), tfHan);
-            text.setMaxLines(1);
-            text.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            row.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
-            View dot = new View(this);
-            android.graphics.drawable.GradientDrawable dotBg = new android.graphics.drawable.GradientDrawable();
-            dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-            dotBg.setColor(active ? palette.color(Palette.Role.ACCENT)
-                    : android.graphics.Color.TRANSPARENT);
-            dotBg.setStroke(dp(1), palette.color(active
-                    ? Palette.Role.ACCENT : Palette.Role.MUTED_INK));
-            dot.setBackground(dotBg);
-            row.addView(dot, new LinearLayout.LayoutParams(dp(13), dp(13)));
-            row.setClickable(true);
-            row.setOnClickListener(v -> {
+            row.setPadding(dp(8), dp(4), dp(16), dp(4));
+            row.setMinHeight(dp(48));
+            row.setSingleLine(false);
+            row.setMaxLines(3);
+            row.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            rows[i] = row;
+            group.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+        if (selectedIndex >= 0 && selectedIndex < rows.length) {
+            rows[selectedIndex].setChecked(true);
+            // Tapping the current choice closes the sheet without changing the
+            // Look; choosing another row is handled by the group below.
+            rows[selectedIndex].setOnClickListener(v -> dialog.dismiss());
+        }
+        group.setOnCheckedChangeListener((g, checkedId) -> {
+            if (checkedId == View.NO_ID) return;
+            for (int i = 0; i < rows.length; ++i) {
+                if (rows[i].getId() != checkedId) continue;
                 dialog.dismiss();
-                onPick.accept(name);
-            });
-            list.addView(row, new LinearLayout.LayoutParams(-1, dp(49)));
-        }
-        scroll.addView(list, new android.widget.FrameLayout.LayoutParams(-1, -2));
-        int wanted = Math.min(dp(49) * Math.max(1, labels.size()), dp(420));
-        sheet.addView(scroll, new LinearLayout.LayoutParams(-1, wanted));
+                onPick.accept(i);
+                return;
+            }
+        });
 
-        dialog.setContentView(sheet);
-        dialog.setCanceledOnTouchOutside(true);
-        dialog.show();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(
-                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-            dialog.getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-            dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);
-            dialog.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            dialog.getWindow().setDimAmount(0.35f);
-        }
+        final NestedScrollView scroll = new NestedScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.addView(group, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        column.addView(scroll, new LinearLayout.LayoutParams(-1,
+                sheetBodyHeight(labels.size(), 56)));
+        showSheet(dialog, column);
     }
 
     private void resetFilmPanel() {
-        // 原图 is the reset: no stock, no render, the imported frame as it was.
-        filmStock = null;
-        printStock = "kodak_portra_endura";
+        // 重置当前页 is the page's presentation, not the Look: the facet goes
+        // back to 全部 and the shelf back to its first stock, while the Film,
+        // paper, and exposure the user chose stay in force and no render runs.
         brandFilter = FilmBrand.ALL;
-        showingOriginal = false;
         refreshFilmPanel(true);
-        refreshPaperLabel();
-        onStockChanged();
-    }
-
-    private void resetOpticsPanel() {
-        printExposure = OpticsDelta.EXPOSURE_DEFAULT;
-        grainAmount = OpticsDelta.GRAIN_DEFAULT;
-        halationAmount = OpticsDelta.HALATION_DEFAULT;
-        glareAmount = OpticsDelta.GLARE_DEFAULT;
-        if (exposureRow != null) exposureRow.setValue(printExposure);
-        if (grainRow != null) grainRow.setValue(grainAmount);
-        if (halationRow != null) halationRow.setValue(halationAmount);
-        if (glareRow != null) glareRow.setValue(glareAmount);
-        if (session != null) { applyParams(); renderImage(); }
-    }
-
-    private void setBarProgress(SeekBar bar, float lo, float hi, float value) {
-        if (bar == null) return;
-        bar.setProgress(Math.round((value - lo) / (hi - lo) * 1000f));
     }
 
     private void resetFormatPanel() {
@@ -3251,22 +4674,41 @@ public class MainActivity extends Activity {
     private void resetEdgePanel() {
         overscanOn = false;
         dateOn = false;
-        overscanMark.setLit(false);
-        dateMark.setLit(false);
+        dateText = null;
+        edgeMode = "strip";
+        edgeGate = "auto";
+        edgeHoles = "white";
+        edgeCarrier = "none";
+        edgeTextOn = true;
+        edgeFog = 1f;
+        edgeLeaks = 0f;
+        frameNumber = 0f;
+        edgeFNumber = 0f;
+        cameraSeed = 1;
+        frameSeed = 1;
+        datePlacement = "frame";
+        dateCorner = "br";
+        dateStyle = "lcd";
+        dateInsetX = 3f;
+        dateInsetY = 2.4f;
+        dateSize = 1f;
+        dateEv = 3.5f;
+        dataText = "";
+        dateTextB = "";
         syncToggleRows();
-        if (dateDetail != null) dateDetail.setText("关闭");
+        syncDateDetail();
         if (session != null) onEdgeChanged();
     }
 
     private void toggleOriginal() {
         if (beforeBitmap == null) {
-            showInAppToast("先导入一张照片");
+            showSnackbar("先导入一张照片");
             return;
         }
         // An unrendered import is already the original: pressing this must not
         // become the thing that starts a render.
         if (showingOriginal && lastRenderedBitmap == null) {
-            showInAppToast("选一张胶片后才会渲染");
+            showSnackbar("选一张胶片后才会渲染");
             return;
         }
         showingOriginal = !showingOriginal;
@@ -3362,14 +4804,14 @@ public class MainActivity extends Activity {
         } else {
             // No Gate fits this shape. Keep the stored pair consistent even
             // though the Rebate has nothing to cut.
-            final GateScale.Gate gate = GateScale.resolve(overscanFormat, filmFormatMm);
-            overscanFormat = gate.id;
-            filmFormatMm = gate.longEdgeMm;
+            final GateScale.Gate pair = GateScale.pair(overscanFormat, filmFormatMm);
+            overscanFormat = pair.id;
+            filmFormatMm = pair.longEdgeMm;
             if (overscanOn) {
                 // A rebate cannot be drawn for a shape no Gate can hold. Leaving
                 // it on would send the engine a layout it has already refused.
                 overscanOn = false;
-                if (overscanMark != null) overscanMark.setLit(false);
+                syncToggleRows();
             }
         }
 
@@ -3378,18 +4820,31 @@ public class MainActivity extends Activity {
             formatFootValue.setText(mmText(filmFormatMm) + " mm");
         }
         rebuildFormatCards();
+        // The page's Gate row and switch follow the same available set: a shape
+        // no Gate can hold cannot keep the Rebate on.
+        syncRebatePage();
         try {
             DebugSink.text("overscan", "aspect=" + aspect + " gates=" + edgeIds
                     + " chosen=" + overscanFormat + " scale=" + filmFormatMm);
         } catch (Throwable ignored) { }
     }
 
+    /**
+     * A rebate or date change is an edge-only edit: the UI never states the
+     * Look itself. The render thread is the single full-Look writer, so a page
+     * change cannot re-state the whole Look twice or park the UI behind a long
+     * render's lock. When there is nothing to draw, the next render states
+     * everything anyway.
+     */
     private void onEdgeChanged() {
-        applyParams();
-        if (uiReady && session != null) {
-            showingOriginal = false;
-            setOriginalVisual(false);
+        if (!uiReady || session == null || filmStock == null) return;
+        showingOriginal = false;
+        setOriginalVisual(false);
+        try {
             renderImage();
+        } catch (Throwable t) {
+            // A rejected render must not take the UI down with it.
+            showErrorSnackbar("片边没有更新", describe(t));
         }
     }
 
@@ -3400,81 +4855,58 @@ public class MainActivity extends Activity {
         return name.toUpperCase(java.util.Locale.US);
     }
 
-    /** "'26 10 31" — a date back's format, from the frame's own EXIF date when
-     *  the file has one, from today when it does not. */
+    /** "'26 10 31" — a typed imprint, or the frame's own EXIF date. */
     private String imprintDate() {
-        if (dateText != null) return dateText;
-        String text = null;
-        try {
-            if (sourceUri != null) {
-                String v = null;
-                try (InputStream in = getContentResolver().openInputStream(sourceUri)) {
-                    if (in != null) {
-                        v = new android.media.ExifInterface(in)
-                                .getAttribute(android.media.ExifInterface.TAG_DATETIME_ORIGINAL);
-                    }
-                }
-                if (v != null && v.length() >= 10) {
-                    text = "'" + v.substring(2, 4) + " " + Integer.parseInt(v.substring(5, 7))
-                            + " " + Integer.parseInt(v.substring(8, 10));
-                }
-            }
-        } catch (Throwable ignored) { }
-        if (text == null) {
-            final java.util.Calendar c = java.util.Calendar.getInstance();
-            text = "'" + (c.get(java.util.Calendar.YEAR) % 100) + " "
-                    + (c.get(java.util.Calendar.MONTH) + 1) + " "
-                    + c.get(java.util.Calendar.DAY_OF_MONTH);
-        }
-        dateText = text;
-        return dateText;
-    }
-
-    /** A 12 px square that fills when on: the page has no switch, and a filled
-     *  square is the same vocabulary the tabs use. */
-    private static class Square extends View {
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final int onColor, offColor;
-        private final float stroke;
-        private boolean lit;
-
-        Square(android.content.Context context, int onColor, int offColor) {
-            super(context);
-            this.onColor = onColor;
-            this.offColor = offColor;
-            stroke = Math.max(1f, getResources().getDisplayMetrics().density);
-        }
-
-        void setLit(boolean on) {
-            lit = on;
-            invalidate();
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            final float w = getWidth(), h = getHeight(), inset = stroke / 2f;
-            if (lit) {
-                paint.setStyle(android.graphics.Paint.Style.FILL);
-                paint.setColor(onColor);
-                canvas.drawRect(0, 0, w, h, paint);
-            } else {
-                paint.setStyle(android.graphics.Paint.Style.STROKE);
-                paint.setStrokeWidth(stroke);
-                paint.setColor(offColor);
-                canvas.drawRect(inset, inset, w - inset, h - inset, paint);
-            }
-        }
+        if (dateText != null && !dateText.isEmpty()) return dateText;
+        return defaultImprintDate();
     }
 
     /**
-     * A two-state Edge row. `current` is the authoritative Look field, so a
-     * rejected change (a Gate that does not fit) reverts the row instead of
-     * leaving its checked state out of step with the engine value.
+     * The Frame's own default: its EXIF capture date, or today when the file
+     * has none. Cached for the open image; a typed text never overwrites it.
+     */
+    private String defaultImprintDate() {
+        if (defaultDateText != null && !defaultDateText.isEmpty()) return defaultDateText;
+        String exif = null;
+        try {
+            if (sourceUri != null) {
+                try (InputStream in = getContentResolver().openInputStream(sourceUri)) {
+                    if (in != null) {
+                        exif = new android.media.ExifInterface(in)
+                                .getAttribute(android.media.ExifInterface.TAG_DATETIME_ORIGINAL);
+                    }
+                }
+            }
+        } catch (Throwable ignored) { }
+        String text = DateBack.formatExif(exif);
+        if (text == null) {
+            // The file has no usable capture date. The page still needs a
+            // starting value, so the caller supplies today's date here rather
+            // than letting the pure formatter read a clock behind its back.
+            final java.util.Calendar c = java.util.Calendar.getInstance();
+            text = DateBack.formatDate(c.get(java.util.Calendar.YEAR),
+                    c.get(java.util.Calendar.MONTH) + 1,
+                    c.get(java.util.Calendar.DAY_OF_MONTH));
+        }
+        defaultDateText = text;
+        return defaultDateText;
+    }
+
+    /** A custom imprint, or the Frame's own EXIF date until the user writes one. */
+    private String effectiveDateText() {
+        return dateText != null && !dateText.isEmpty() ? dateText : imprintDate();
+    }
+
+    /**
+     * A two-state Edge row built on the real M3 switch. `current` is the
+     * authoritative Look field, so a rejected change (a Gate that does not fit)
+     * reverts the switch instead of leaving its checked state out of step with
+     * the engine value.
      *
      * <p>The optional detail line is the date back's imprint, shown only while
-     * the toggle is on and using the same text the engine is given.
+     * the switch is on and using the same text the engine is given.
      */
-    private View toggleRow(String labelText, TextView detail, Square mark,
+    private View switchRow(String labelText, TextView detail, final MaterialSwitch toggle,
                            java.util.function.BooleanSupplier current,
                            java.util.function.Consumer<Boolean> onChange) {
         LinearLayout row = new LinearLayout(this);
@@ -3483,7 +4915,8 @@ public class MainActivity extends Activity {
 
         LinearLayout textCol = new LinearLayout(this);
         textCol.setOrientation(LinearLayout.VERTICAL);
-        textCol.addView(label(labelText, 8, palette.color(Palette.Role.INK), tfHan));
+        textCol.addView(m3Label(labelText, M3Tokens.TypeRole.LABEL_LARGE,
+                m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK), tfHan));
         if (detail != null) {
             LinearLayout.LayoutParams detailLp = new LinearLayout.LayoutParams(-1, -2);
             detailLp.topMargin = dp(3);
@@ -3492,27 +4925,27 @@ public class MainActivity extends Activity {
         row.addView(textCol, new LinearLayout.LayoutParams(0, -2, 1f));
 
         final boolean initial = current.getAsBoolean();
-        mark.setLit(initial);
-        row.addView(mark, new LinearLayout.LayoutParams(dp(12), dp(12)));
-        row.setFocusable(true);
-        row.setSelected(initial);
-        row.setContentDescription(toggleDescription(labelText, initial));
-        row.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-            @Override public void onInitializeAccessibilityNodeInfo(
-                    View host, android.view.accessibility.AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                info.setClassName(android.widget.CheckBox.class.getName());
-                info.setCheckable(true);
-                info.setChecked(current.getAsBoolean());
-            }
-        });
-        row.setOnClickListener(v -> {
-            onChange.accept(!current.getAsBoolean());
+        toggle.setChecked(initial);
+        // An 8 dp pad above and below makes the switch's own touch bounds 48 dp.
+        toggle.setPadding(0, dp(8), 0, dp(8));
+        toggle.setContentDescription(toggleDescription(labelText, initial));
+        toggle.setOnCheckedChangeListener((button, checked) -> {
+            if (syncingToggles) return;
+            onChange.accept(checked);
             final boolean now = current.getAsBoolean();
-            mark.setLit(now);
-            row.setSelected(now);
-            row.setContentDescription(toggleDescription(labelText, now));
+            if (button.isChecked() != now) {
+                syncingToggles = true;
+                button.setChecked(now);
+                syncingToggles = false;
+            }
+            button.setContentDescription(toggleDescription(labelText, now));
         });
+        row.addView(toggle, new LinearLayout.LayoutParams(-2, -2));
+
+        row.setMinimumHeight(dp(MIN_TOUCH_DP));
+        row.setClickable(true);
+        row.setOnClickListener(v -> toggle.toggle());
+        row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         return row;
     }
 
@@ -3520,207 +4953,36 @@ public class MainActivity extends Activity {
         return labelText + "，" + (on ? "开" : "关");
     }
 
-    /** Re-apply a restored Look to the Edge rows, not only to their marks. */
+    /** Show the date back's line only while the imprint is enabled. */
+    private void syncDateDetail() {
+        if (dateDetail == null) return;
+        if (dateOn) {
+            dateDetail.setText(imprintDate());
+            dateDetail.setVisibility(View.VISIBLE);
+        } else {
+            dateDetail.setText("");
+            dateDetail.setVisibility(View.GONE);
+        }
+    }
+
+    /** Re-apply a restored Look to the Edge pages' switches and controls. */
     private void syncToggleRows() {
-        syncToggleRow(overscanToggleRow, "片边（胶片边缘）", overscanOn);
-        syncToggleRow(dateToggleRow, "日期水印", dateOn);
+        syncRebatePage();
+        syncDatePage();
     }
 
-    private void syncToggleRow(View row, String labelText, boolean on) {
-        if (row == null) return;
-        row.setSelected(on);
-        row.setContentDescription(toggleDescription(labelText, on));
-    }
-
-    /** One calibrated optics row: label, value, unit, display-only Δ, a reset,
-     *  and the existing 32 dp drag target. */
-    private OpticsRow opticsRow(LinearLayout parent, String name, String unit,
-                                final float lo, final float hi, float initial,
-                                final float defaultValue,
-                                final java.util.function.Consumer<Float> apply) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        head.addView(mixedLabel(name, 8, palette.color(Palette.Role.INK)),
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        final TextView valueView = label("", 8.5f,
-                palette.color(Palette.Role.ACCENT), tfDisplay);
-        head.addView(valueView);
-        TextView unitView = label(unit, 6.5f,
-                palette.color(Palette.Role.MUTED_INK), tfBody);
-        LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
-        unitLp.leftMargin = dp(2);
-        unitLp.bottomMargin = dp(1);
-        head.addView(unitView, unitLp);
-        final TextView deltaView = label("", 7,
-                palette.color(Palette.Role.MUTED_INK), tfDisplay);
-        LinearLayout.LayoutParams deltaLp = new LinearLayout.LayoutParams(-2, -2);
-        deltaLp.leftMargin = dp(8);
-        head.addView(deltaView, deltaLp);
-        // The four rows are useless without their names: the head carries the
-        // parameter, live value, unit, and Δ. It was built but never attached.
-        row.addView(head, new LinearLayout.LayoutParams(-1, dp(15)));
-
-        LinearLayout barRow = new LinearLayout(this);
-        barRow.setOrientation(LinearLayout.HORIZONTAL);
-        barRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-
-        SeekBar bar = new SeekBar(this);
-        bar.setMax(1000);
-        bar.setProgress(Math.round((initial - lo) / (hi - lo) * 1000f));
-        styleRange(bar);
-        // A SeekBar's own range is 0..1000; expose the Look's real value and
-        // unit to accessibility services instead.
-        bar.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-            @Override public void onInitializeAccessibilityNodeInfo(
-                    View host, android.view.accessibility.AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                final float current = lo + (hi - lo) * bar.getProgress() / 1000f;
-                info.setRangeInfo(android.view.accessibility.AccessibilityNodeInfo
-                        .RangeInfo.obtain(android.view.accessibility.AccessibilityNodeInfo
-                                .RangeInfo.RANGE_TYPE_FLOAT, lo, hi, current));
-            }
-        });
-        barRow.addView(bar, new LinearLayout.LayoutParams(0, dp(SLIDER_HEIGHT_DP), 1f));
-
-        final TextView reset = label("重置", 7,
-                palette.color(Palette.Role.MUTED_INK), tfHan);
-        reset.setGravity(android.view.Gravity.CENTER);
-        reset.setFocusable(true);
-        barRow.addView(reset, new LinearLayout.LayoutParams(
-                dp(MIN_TOUCH_DP), dp(MIN_TOUCH_DP)));
-        row.addView(barRow, new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
-
-        final OpticsRow optics = new OpticsRow(bar, valueView, deltaView, reset,
-                name, unit, lo, hi, defaultValue);
-        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
-                float v = lo + (hi - lo) * progress / 1000f;
-                optics.show(v);
-                apply.accept(v);
-                refreshReadoutStrip();
-            }
-            @Override public void onStartTrackingTouch(SeekBar sb) { }
-            @Override public void onStopTrackingTouch(SeekBar sb) {
-                // Send on release: one JNI call per gesture, not one per
-                // hundredth of a stop.
-                applyParams();
-                if (uiReady && session != null) {
-                    showingOriginal = false;
-                    setOriginalVisual(false);
-                    renderImage();
-                }
-            }
-        });
-        // The Δ is display-only: the reset recomputes it from the bar, and
-        // nothing here is sent to the engine beyond the normal optics values.
-        reset.setOnClickListener(v -> {
-            if (!opticsUnlocked) return;
-            final boolean moved = Math.abs(optics.currentValue() - defaultValue) > 0.0005f;
-            apply.accept(defaultValue);
-            optics.setValue(defaultValue);
-            refreshReadoutStrip();
-            if (moved && uiReady && session != null) {
-                showingOriginal = false;
-                setOriginalVisual(false);
-                applyParams();
-                renderImage();
-            }
-        });
-        optics.show(initial);
-        parent.addView(row, new LinearLayout.LayoutParams(-1, 0, 1f));
-        return optics;
-    }
-
-    /** One optics row's live views. The Δ is computed from the value and the
-     *  panel default every time; it is never kept as a second piece of state. */
-    private final class OpticsRow {
-        final SeekBar bar;
-        final TextView valueView, deltaView, resetView;
-        final String name, unit;
-        final float lo, hi, defaultValue;
-
-        OpticsRow(SeekBar bar, TextView valueView, TextView deltaView, TextView resetView,
-                  String name, String unit, float lo, float hi, float defaultValue) {
-            this.bar = bar;
-            this.valueView = valueView;
-            this.deltaView = deltaView;
-            this.resetView = resetView;
-            this.name = name;
-            this.unit = unit;
-            this.lo = lo;
-            this.hi = hi;
-            this.defaultValue = defaultValue;
+    /**
+     * One render for a completed optics gesture. The render thread sends the
+     * parameter delta under the same lock as the draw, so a gesture produces
+     * one update and one picture.
+     */
+    private void commitOptics() {
+        if (opticsSlider != null) opticsSlider.removeCallbacks(opticsCommitRunnable);
+        if (uiReady && session != null) {
+            showingOriginal = false;
+            setOriginalVisual(false);
+            renderImage();
         }
-
-        void show(float v) {
-            final String number = String.format(java.util.Locale.US, "%.2f", v);
-            final boolean moved = Math.abs(v - defaultValue) > 0.0005f;
-            valueView.setText(number);
-            deltaView.setText("Δ " + OpticsDelta.text(v, defaultValue));
-            final int color = palette.color(moved
-                    ? Palette.Role.ACCENT : Palette.Role.MUTED_INK);
-            deltaView.setTextColor(color);
-            resetView.setTextColor(color);
-            bar.setContentDescription(name + " " + number
-                    + (unit.isEmpty() ? "" : " " + unit)
-                    + "，Δ " + OpticsDelta.text(v, defaultValue));
-            resetView.setContentDescription("重置" + name + "为 "
-                    + String.format(java.util.Locale.US, "%.2f", defaultValue));
-        }
-
-        void setValue(float v) {
-            setBarProgress(bar, lo, hi, v);
-        }
-
-        float currentValue() {
-            return lo + (hi - lo) * bar.getProgress() / 1000f;
-        }
-
-        void setEnabled(boolean on) {
-            bar.setEnabled(on);
-            resetView.setEnabled(on);
-        }
-    }
-
-    /** 2 px track, square 9 px thumb: input[type=range] in the page. */
-    private void styleRange(SeekBar bar) {
-        final int thickness = dp(2);
-        final int inset = (dp(10) - thickness) / 2;
-        android.graphics.drawable.ShapeDrawable back = new android.graphics.drawable.ShapeDrawable(
-                new android.graphics.drawable.shapes.RectShape());
-        back.getPaint().setColor(palette.color(Palette.Role.LINE));
-        android.graphics.drawable.ShapeDrawable fill = new android.graphics.drawable.ShapeDrawable(
-                new android.graphics.drawable.shapes.RectShape());
-        fill.getPaint().setColor(palette.color(Palette.Role.ACCENT));
-        android.graphics.drawable.ClipDrawable clip = new android.graphics.drawable.ClipDrawable(
-                fill, android.view.Gravity.LEFT, android.graphics.drawable.ClipDrawable.HORIZONTAL);
-        android.graphics.drawable.LayerDrawable layers = new android.graphics.drawable.LayerDrawable(
-                new android.graphics.drawable.Drawable[]{back, clip});
-        layers.setId(0, android.R.id.background);
-        layers.setId(1, android.R.id.progress);
-        // The insets are what make the track 2 px: a ShapeDrawable alone would
-        // paint its whole bounds.
-        layers.setLayerInset(0, 0, inset, 0, inset);
-        layers.setLayerInset(1, 0, inset, 0, inset);
-        bar.setProgressDrawable(layers);
-
-        android.graphics.drawable.ShapeDrawable thumb = new android.graphics.drawable.ShapeDrawable(
-                new android.graphics.drawable.shapes.RectShape());
-        thumb.getPaint().setColor(palette.color(Palette.Role.ACCENT));
-        thumb.setIntrinsicWidth(dp(9));
-        thumb.setIntrinsicHeight(dp(9));
-        bar.setThumb(thumb);
-        bar.setSplitTrack(false);
-        // 48 dp tall view, 10 dp of drawable between 19 dp of vertical padding:
-        // the track keeps its old 2 px look while the touch target meets the
-        // platform minimum. Without the padding the inset above would have to
-        // be 23 dp and the track would vanish into it.
-        bar.setPadding(dp(5), dp(19), dp(5), dp(19));
     }
 
     /** The old four-step ribbon is gone; the render state is in the canvas foot. */
@@ -3730,26 +4992,29 @@ public class MainActivity extends Activity {
         final int previous = activeTabIndex;
         activeTabIndex = active;
         for (int i = 0; i < panels.length; ++i) {
-            final boolean on = i == active;
-            panels[i].setVisibility(on ? View.VISIBLE : View.GONE);
-            tabBars[i].setVisibility(on ? View.VISIBLE : View.INVISIBLE);
-            if (tabCells[i] != null) {
-                android.graphics.drawable.GradientDrawable bg =
-                        new android.graphics.drawable.GradientDrawable();
-                bg.setColor(palette.color(on
-                        ? Palette.Role.ACCENT_SOFT : Palette.Role.SURFACE));
-                bg.setCornerRadius(dp(2));
-                tabCells[i].setBackground(bg);
-                tabCells[i].setSelected(on);
-                tabCells[i].setContentDescription(TAB_NAMES[i] + " " + TAB_ENGLISH[i]
-                        + (on ? "，已选中" : ""));
+            panels[i].setVisibility(i == active ? View.VISIBLE : View.GONE);
+        }
+        if (tabLayout != null) {
+            final TabLayout.Tab tab = tabLayout.getTabAt(active);
+            if (tab != null && tabLayout.getSelectedTabPosition() != active) {
+                suppressWorkspaceSelection = true;
+                try {
+                    tabLayout.selectTab(tab, false);
+                } finally {
+                    suppressWorkspaceSelection = false;
+                }
             }
-            if (tabLabels[i] != null) tabLabels[i].setTextColor(palette.color(on
-                    ? Palette.Role.INK : Palette.Role.MUTED_INK));
-            if (tabIndices[i] != null) tabIndices[i].setTextColor(palette.color(on
-                    ? Palette.Role.ACCENT : Palette.Role.MUTED_INK));
-            if (tabEnglish[i] != null) tabEnglish[i].setTextColor(palette.color(on
-                    ? Palette.Role.ACCENT : Palette.Role.MUTED_INK));
+        }
+        if (navigationRail != null && active >= 0 && active < TAB_ITEM_IDS.length) {
+            final MenuItem item = navigationRail.getMenu().findItem(TAB_ITEM_IDS[active]);
+            if (item != null && !item.isChecked()) {
+                suppressWorkspaceSelection = true;
+                try {
+                    navigationRail.setSelectedItemId(TAB_ITEM_IDS[active]);
+                } finally {
+                    suppressWorkspaceSelection = false;
+                }
+            }
         }
         if (uiReady && previous != active && active >= 0 && active < panels.length) {
             final int duration = motionDuration(170);
@@ -3788,13 +5053,24 @@ public class MainActivity extends Activity {
         return new int[]{top, bottom};
     }
 
-    /** The optics sliders only mean something once there is a frame to change. */
+    /** The optics controls only mean something once there is a frame to change. */
     private void setOpticsUnlocked(boolean unlocked) {
         opticsUnlocked = unlocked;
         if (opticsPanel == null) return;
-        opticsPanel.setAlpha(unlocked ? 1f : 0.38f);
-        OpticsRow[] rows = {exposureRow, grainRow, halationRow, glareRow};
-        for (OpticsRow row : rows) if (row != null) row.setEnabled(unlocked);
+        final float alpha = unlocked ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA;
+        if (opticsStripScroll != null) {
+            opticsStripScroll.setAlpha(alpha);
+            opticsStripScroll.setEnabled(unlocked);
+        }
+        for (Chip chip : opticsChips) chip.setEnabled(unlocked);
+        if (opticsSlider != null) opticsSlider.setEnabled(unlocked);
+        if (opticsReset != null) opticsReset.setEnabled(unlocked);
+        if (opticsFilterButton != null) opticsFilterButton.setEnabled(unlocked);
+        if (opticsNormButton != null) opticsNormButton.setEnabled(unlocked);
+        if (opticsLockNote != null) {
+            opticsLockNote.setText(unlocked ? "" : "LOCKED · " + opticsLockReason());
+            opticsLockNote.setVisibility(unlocked ? View.GONE : View.VISIBLE);
+        }
     }
 
     /** Which of the three things on the stage is showing. */
@@ -3852,7 +5128,7 @@ public class MainActivity extends Activity {
      */
     private void shareLastExport() {
         if (lastExportUri == null) {
-            showInAppToast("还没有导出过文件");
+            showSnackbar("还没有导出过文件");
             return;
         }
         try {
@@ -3862,13 +5138,13 @@ public class MainActivity extends Activity {
             send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivity(Intent.createChooser(send, "发送到"));
         } catch (Throwable t) {
-            showErrorDialog("无法发送", describe(t));
+            showErrorSnackbar("无法发送", describe(t));
         }
     }
 
     private void showExportDialog() {
         if (session == null) {
-            showInAppToast("先导入一张照片");
+            showSnackbar("先导入一张照片");
             return;
         }
         final String full = (sourceWidth > 0 && sourceHeight > 0)
@@ -3969,7 +5245,7 @@ public class MainActivity extends Activity {
         private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
         private final float slop;
         private final float density;
-        private final Palette palette;
+        private final int dividerColor, handleColor, accentColor;
         private Bitmap before, after;
         private boolean holding, dragging;
         private float split, downX, downY;
@@ -3982,9 +5258,12 @@ public class MainActivity extends Activity {
             }
         };
 
-        CompareView(android.content.Context context, Palette palette) {
+        CompareView(android.content.Context context, int dividerColor,
+                    int handleColor, int accentColor) {
             super(context);
-            this.palette = palette;
+            this.dividerColor = dividerColor;
+            this.handleColor = handleColor;
+            this.accentColor = accentColor;
             density = getResources().getDisplayMetrics().density;
             slop = android.view.ViewConfiguration.get(context).getScaledTouchSlop();
         }
@@ -4060,14 +5339,23 @@ public class MainActivity extends Activity {
         private void drawDivider(android.graphics.Canvas canvas, float x) {
             final float r = 6f * density, cy = getHeight() / 2f;
             paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setColor(palette.color(Palette.Role.STAGE_DIVIDER));
+            paint.setColor(dividerColor);
             canvas.drawRect(x - 0.5f, 0f, x + 0.5f, getHeight(), paint);
-            paint.setColor(palette.color(Palette.Role.STAGE_INK));
+            paint.setColor(handleColor);
             canvas.drawRect(x - r, cy - r, x + r, cy + r, paint);
             paint.setStyle(android.graphics.Paint.Style.STROKE);
             paint.setStrokeWidth(Math.max(1f, density));
-            paint.setColor(palette.color(Palette.Role.ACCENT));
+            paint.setColor(accentColor);
             canvas.drawRect(x - r, cy - r, x + r, cy + r, paint);
+            // The divider is chrome, not measured content: its drag/hold state
+            // uses the M3 state-layer opacities over the control colour.
+            final float state = dragging ? M3Tokens.StateLayer.DRAGGED.opacity
+                    : holding ? M3Tokens.StateLayer.PRESSED.opacity : 0f;
+            if (state > 0f) {
+                paint.setStyle(android.graphics.Paint.Style.FILL);
+                paint.setColor(withOpacity(accentColor, state));
+                canvas.drawRect(x - r, cy - r, x + r, cy + r, paint);
+            }
             paint.setStyle(android.graphics.Paint.Style.FILL);
         }
 
@@ -4722,8 +6010,12 @@ public class MainActivity extends Activity {
             final String seriesLabel = !curve.available() ? ""
                     : "channel_density".equals(source) ? "DENSITY" : "LOG SENSITIVITY";
             final org.json.JSONObject info = o.optJSONObject("info");
+            // `targetPrint` is the generator's record-level field; the profile's
+            // `target_print` is the same fact under the older spelling.
+            final String targetPrint = PrintTarget.declared(
+                    o.optString("targetPrint", ""), o.optString("target_print", ""));
             filmStocks.put(id, new FilmStock(SpectrumSamples.of(wavelengths, rows),
-                    curve, seriesLabel, readStockInfo(info == null ? o : info)));
+                    curve, seriesLabel, readStockInfo(info == null ? o : info), targetPrint));
         }
     }
 
@@ -4827,7 +6119,7 @@ public class MainActivity extends Activity {
         chain.add(new Intent(Intent.ACTION_OPEN_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"));
         if (!launchFirstResolvable(chain, 1)) {
-            showInAppToast("本机没有可用的图片选择器；请点「导入」→「从文件管理器选择」");
+            showSnackbar("本机没有可用的图片选择器；请点「导入」→「从文件管理器选择」");
         }
     }
 
@@ -4894,7 +6186,7 @@ public class MainActivity extends Activity {
         content.putExtra(Intent.EXTRA_MIME_TYPES, types);
         chain.add(content);
         if (!launchFirstResolvable(chain, 1)) {
-            showInAppToast("本机没有可用的文件选择器");
+            showSnackbar("本机没有可用的文件选择器");
         }
     }
 
@@ -4910,7 +6202,7 @@ public class MainActivity extends Activity {
         Uri uri = data == null ? null : data.getData();
         if (uri == null) {
             try { DebugSink.text("picker", "RESULT_OK with no data"); } catch (Throwable ignored) { }
-            showInAppToast("没有拿到图片（选择器返回空）。请点「导入」→「从文件管理器选择」再试一次");
+            showSnackbar("没有拿到图片（选择器返回空）。请点「导入」→「从文件管理器选择」再试一次");
             return;
         }
         loadImage(uri);
@@ -4923,6 +6215,7 @@ public class MainActivity extends Activity {
         // A new import works out its own imprint date; the previous frame's
         // cached text must not travel with the new Source.
         dateText = null;
+        defaultDateText = null;
         // The frame's own look, stated before any session is built: a chip
         // returns to a photograph *and* to what was done to it; a pick from ＋
         // starts with no film at all. Scan inspect belongs to the same Frame,
@@ -4954,7 +6247,7 @@ public class MainActivity extends Activity {
             final String[] knownButUnsupported = {".heic.raw", ".iiq", ".mos"};
             for (String ext : knownButUnsupported) {
                 if (lower.endsWith(ext)) {
-                    showInAppToast("[E-1107] 暂不支持 " + ext + " 格式");
+                    showSnackbar("[E-1107] 暂不支持 " + ext + " 格式");
                     return;
                 }
             }
@@ -5100,7 +6393,9 @@ public class MainActivity extends Activity {
                 if (session != null) { session.close(); session = null; }
             }
             session = engine.openSession(sourcePixels, sourceWidth, sourceHeight, 3);
-            applySessionParams();
+            // No parameter write here: a fresh session is stated by the render
+            // that produces the picture (see `renderImage`), on the render
+            // thread, so the UI never waits behind the engine's lock.
             lastImportError = null;
             // An import is not a look. The frame lands unrendered with no film
             // chosen; the first render happens when the user picks a stock.
@@ -5120,7 +6415,7 @@ public class MainActivity extends Activity {
             }
         } catch (Throwable t) {
             lastImportError = describeImportFailure(t);
-            showErrorDialog("导入失败", lastImportError);
+            showErrorSnackbar("导入失败", lastImportError);
             try { DebugSink.text("import-failed", lastImportError); } catch (Throwable ignored) { }
         }
     }
@@ -5233,11 +6528,16 @@ public class MainActivity extends Activity {
 
     private void loadRawImage(Uri uri) {
         final boolean reopening = reopeningFrame;
+        // The Look the RAW session must carry, snapshotted here on the UI
+        // thread: `solve` below meters with it, and the worker never reads a
+        // control.
+        final String importParams = filmStock == null
+                ? null : snapshotRestatement(filmStock, PREVIEW_LONG_EDGE);
         try {
             String filePath = getFilePathFromUri(uri);
             rawFilePath = filePath;
             if (filePath == null) {
-                showInAppToast("无法获取RAW文件路径");
+                showSnackbar("无法获取RAW文件路径");
                 return;
             }
             
@@ -5252,7 +6552,6 @@ public class MainActivity extends Activity {
             if (compare != null) compare.clear();
             lastRenderedBitmap = null;
             setOpticsUnlocked(false);
-            dateText = null;
             setStage(2, getFileName(uri));
 
             new Thread(() -> {
@@ -5277,7 +6576,8 @@ public class MainActivity extends Activity {
                             : String.format("\"film_stock\":\"%s\",", filmStock);
                     String params = String.format(
                         "{%s\"print_stock\":\"%s\",\"input_color_space\":\"ProPhoto RGB\",\"input_cctf_decoding\":false,\"output_color_space\":\"sRGB\",\"print_exposure\":%.2f,\"preview_long_edge\":2048}",
-                        filmField, printStock, printExposure
+                        filmField, printStock,
+                        optics.get(OpticsDelta.Param.EXPOSURE)
                     );
                     
                     try { DebugSink.text("open-params", "path=" + filePath + "\n" + params); } catch (Throwable ignored) {}
@@ -5291,20 +6591,20 @@ public class MainActivity extends Activity {
                     if (nativeSize) {
                         try { DebugSink.text("import-mode", "native size, no cap"); } catch (Throwable ignored) { }
                     }
+                    // Keep the caps so a RAW export can decode the same frame
+                    // in its own session.
+                    rawImportMaxPixels = nativeSize ? 0 : maxImportPixels();
+                    rawImportLongEdge = nativeSize ? 0 : IMPORT_LONG_EDGE;
                     session = engine.openRawSession(filePath, params,
-                            nativeSize ? 0 : maxImportPixels(),
-                            nativeSize ? 0 : IMPORT_LONG_EDGE);
+                            rawImportMaxPixels, rawImportLongEdge);
                     lastImportError = null;
                     // **The session's own parameters, which this path never sent.**
                     // `openRawSession` carries the film, the paper and the decode
                     // colour space; it does not carry grain, halation, glare, the
-                    // format or the rebate, and those live in `applyParams()`. The
-                    // bitmap path has always called this pair; the raw path did
-                    // not, so a raw kept the engine's defaults for every optical
-                    // control until the user moved a slider -- and a rebate or a
-                    // date back chosen before the import never reached the render
-                    // at all.
-                    applySessionParams();
+                    // format or the rebate. The Look was snapshotted on the UI
+                    // thread, so `solve` below meters with the same values the
+                    // first preview will render.
+                    if (importParams != null) session.setParams(importParams);
 
                     // **The raw itself**, which is the "before" side of every
                     // comparison and the only honest thing to show on import:
@@ -5442,13 +6742,13 @@ public class MainActivity extends Activity {
                     // and what to change, and leave the file alone.
                     runOnUiThread(() -> {
                         statusText.setText("RAW加载失败 " + SpkError.shortForm(said));
-                        showErrorDialog("RAW 加载失败", said);
+                        showErrorSnackbar("RAW 加载失败", said);
                     });
                 }
             }).start();
         } catch (Throwable t) {
             lastImportError = describeImportFailure(t);
-            showErrorDialog("RAW 加载失败", lastImportError);
+            showErrorSnackbar("RAW 加载失败", lastImportError);
         }
     }
     
@@ -5468,19 +6768,23 @@ public class MainActivity extends Activity {
             final android.app.Dialog dialog = new android.app.Dialog(this);
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
-            card.setBackgroundColor(palette.color(Palette.Role.SURFACE_ELEVATED));
+            card.setBackgroundColor(m3Role(
+                    com.google.android.material.R.attr.colorSurfaceContainerHigh,
+                    Palette.Role.SURFACE_ELEVATED));
             View cap = new View(this);
-            cap.setBackgroundColor(palette.color(Palette.Role.ACCENT));
+            cap.setBackgroundColor(m3Role(com.google.android.material.R.attr.colorError,
+                    Palette.Role.ACCENT));
             card.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
 
             LinearLayout head = new LinearLayout(this);
             head.setOrientation(LinearLayout.HORIZONTAL);
             head.setGravity(android.view.Gravity.CENTER_VERTICAL);
             head.setPadding(dp(16), 0, dp(16), 0);
-            TextView kicker = mixedLabel("ERROR / 错误详情", 8, palette.color(Palette.Role.ACCENT));
-            kicker.setLetterSpacing(0.08f);
+            TextView kicker = mixedM3Label("ERROR / 错误详情",
+                    M3Tokens.TypeRole.LABEL_LARGE, m3Primary());
             head.addView(kicker, new LinearLayout.LayoutParams(0, -2, 1f));
-            TextView close = label("关闭", 9, palette.color(Palette.Role.MUTED_INK), tfHan);
+            TextView close = m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
+                    m3OnSurfaceVariant(), tfHan);
             close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
             close.setPadding(dp(12), dp(14), 0, dp(14));
             close.setOnClickListener(v -> dialog.dismiss());
@@ -5491,20 +6795,22 @@ public class MainActivity extends Activity {
             LinearLayout bodyBox = new LinearLayout(this);
             bodyBox.setOrientation(LinearLayout.VERTICAL);
             bodyBox.setPadding(dp(16), 0, dp(16), 4);
-            TextView titleView = label(shownTitle, 18, palette.color(Palette.Role.INK), tfHan);
-            titleView.setLetterSpacing(-0.02f);
+            TextView titleView = m3Label(shownTitle, M3Tokens.TypeRole.TITLE_LARGE,
+                    m3OnSurface(), tfHan);
             bodyBox.addView(titleView);
-            TextView advice = label("请复制下面的完整信息，方便定位问题。", 10,
-                    palette.color(Palette.Role.MUTED_INK), tfHan);
+            TextView advice = m3Label("请复制下面的完整信息，方便定位问题。",
+                    M3Tokens.TypeRole.BODY_MEDIUM, m3OnSurfaceVariant(), tfHan);
             LinearLayout.LayoutParams adviceLp = new LinearLayout.LayoutParams(-1, -2);
             adviceLp.topMargin = dp(8);
             bodyBox.addView(advice, adviceLp);
-            TextView detail = label(shownBody, 9.5f, palette.color(Palette.Role.INK), tfHan);
+            TextView detail = m3Label(shownBody, M3Tokens.TypeRole.BODY_SMALL,
+                    m3OnSurface(), tfHan);
             detail.setTextIsSelectable(true);
-            detail.setLineSpacing(dp(4), 1f);
             detail.setPadding(dp(12), dp(11), dp(12), dp(11));
             android.graphics.drawable.GradientDrawable detailBg = new android.graphics.drawable.GradientDrawable();
-            detailBg.setColor(palette.color(Palette.Role.SURFACE_SUNKEN));
+            detailBg.setColor(m3Role(
+                    com.google.android.material.R.attr.colorSurfaceContainerLowest,
+                    Palette.Role.SURFACE_SUNKEN));
             detail.setBackground(detailBg);
             LinearLayout.LayoutParams detailLp = new LinearLayout.LayoutParams(-1, -2);
             detailLp.topMargin = dp(14);
@@ -5516,20 +6822,25 @@ public class MainActivity extends Activity {
             LinearLayout actions = new LinearLayout(this);
             actions.setOrientation(LinearLayout.HORIZONTAL);
             actions.setPadding(dp(16), dp(14), dp(16), dp(16));
-            TextView closeAction = label("关闭", 10, palette.color(Palette.Role.ACCENT), tfHan);
+            TextView closeAction = m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
+                    m3Primary(), tfHan);
             closeAction.setGravity(android.view.Gravity.CENTER);
             android.graphics.drawable.GradientDrawable closeBg = new android.graphics.drawable.GradientDrawable();
-            closeBg.setColor(palette.color(Palette.Role.SURFACE_ELEVATED));
-            closeBg.setStroke(dp(1), palette.color(Palette.Role.ACCENT));
+            closeBg.setColor(m3Role(
+                    com.google.android.material.R.attr.colorSurfaceContainerHigh,
+                    Palette.Role.SURFACE_ELEVATED));
+            closeBg.setStroke(dp(1), m3Primary());
             closeAction.setBackground(closeBg);
             closeAction.setOnClickListener(v -> dialog.dismiss());
-            LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(0, dp(42), 1f);
+            LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(0, dp(48), 1f);
             closeLp.rightMargin = dp(8);
             actions.addView(closeAction, closeLp);
-            TextView copy = label("复制错误信息", 10, palette.color(Palette.Role.ON_ACCENT), tfHan);
+            TextView copy = m3Label("复制错误信息", M3Tokens.TypeRole.LABEL_LARGE,
+                    m3Role(com.google.android.material.R.attr.colorOnPrimary,
+                            Palette.Role.ON_ACCENT), tfHan);
             copy.setGravity(android.view.Gravity.CENTER);
             android.graphics.drawable.GradientDrawable copyBg = new android.graphics.drawable.GradientDrawable();
-            copyBg.setColor(palette.color(Palette.Role.ACCENT));
+            copyBg.setColor(m3Primary());
             copy.setBackground(copyBg);
             copy.setOnClickListener(v -> {
                 try {
@@ -5544,7 +6855,7 @@ public class MainActivity extends Activity {
                     copy.setText("复制失败 · 请长按详情");
                 }
             });
-            actions.addView(copy, new LinearLayout.LayoutParams(0, dp(42), 1.45f));
+            actions.addView(copy, new LinearLayout.LayoutParams(0, dp(48), 1.45f));
             card.addView(actions, new LinearLayout.LayoutParams(-1, -2));
 
             dialog.setContentView(card);
@@ -5853,13 +7164,13 @@ public class MainActivity extends Activity {
         if (filmStock == null) {
             // No film yet: the frame stays the import's own, and the sheet's
             // choice is remembered for the first render.
-            showInAppToast("选择一张胶片开始渲染");
+            showSnackbar("选择一张胶片开始渲染");
             return;
         }
-        // No `applySessionParams()` here any more: it wrote the engine from the
-        // UI thread, which could park the UI behind a long render's lock.
-        // `renderImage` applies the stock under the same lock it renders
-        // under -- one writer, one order.
+        // No UI-thread parameter write here any more: writing the engine from
+        // the UI could park it behind a long render's lock. `renderImage`
+        // snapshots the Look on the UI thread and the render thread sends it
+        // under the same lock it renders under -- one writer, one order.
         showingOriginal = false;
         setOriginalVisual(false);
         refreshFilmPanel();
@@ -5868,133 +7179,47 @@ public class MainActivity extends Activity {
 
 
     /**
-     * The cheap half: what a slider owns.
+     * The Look re-statement builder preview and export both call.
      *
-     * No stock, no colour space, no preview size -- those describe the file and
-     * live in `applySessionParams`. Sending them on every drag tick made the
-     * engine rebuild the pipeline once per step (the presence of `film_stock`
-     * in a delta *is* a stock change), which is what made the sliders feel
-     * dead rather than merely slow.
+     * <p>It snapshots the live controls into a {@link Look} **on the calling
+     * thread** and hands that detached copy to {@link LookRestatement}, so every
+     * value the UI shows -- the Film stock, the Print stock, all 22 optical
+     * parameters, the camera filter, the protection norm, and every Rebate and
+     * Date back field -- is in the delta. The render thread only ever sends a
+     * string that was built here; it never reads a control or a Frame.
+     *
+     * <p>The only facts added here are the ones a Look does not own: the source
+     * kind, the render's long edge, whether the stock is a Reversal stock, its
+     * edge print, and the Date back's EXIF default.
+     *
+     * <p>The old inline format string lived only in the preview path and the
+     * export re-called it with the preview's stock; a parameter that reached
+     * one and not the other was invisible until a file disagreed with the
+     * screen. There is now one string, built in one place.
      */
-    private void applyParams() {
-        if (session == null) return;
-        // Every delta, with the frame it is being sent for: the engine treats a
-        // stock change as a rebuild, and a render that follows one has to be
-        // read next to the delta that caused it.
-        try {
-            DebugSink.text("params", "render=" + rendering + " film=" + filmStock + " print=" + printStock
-                    + " overscan=" + overscanOn + " date=" + dateOn + " fmt=" + filmFormatMm);
-        } catch (Throwable ignored) { }
-        applyParams(PREVIEW_LONG_EDGE);
+    private String snapshotRestatement(String stock, int longEdge) {
+        final Look look = captureLook();
+        look.filmStock = stock;
+        // The typed text is on the Look; this is only the Frame's default.
+        return LookRestatement.json(look, new LookRestatement.Context(
+                isRawFile,
+                longEdge,
+                isPositiveFilm(stock),
+                edgeTextFor(stock),
+                look.dateOn ? defaultImprintDate() : ""));
     }
 
-    /**
-     * The same delta **plus the film and the paper**, for every call that is
-     * about to produce a picture.
+    /*
+     * The file facts in that context, and why each is what it is:
      *
-     * <p>This is the one thing that has to be true before `renderBegin`: the
-     * session carries the stock the user is looking at. It used to be kept by
-     * a Java-side `sessionSignature` -- a field written by the render thread
-     * and by the UI thread, compared against the engine's *assumed*
-     * state. One write out of order and the signature claimed a stock the
-     * session never got, so every film rendered the same picture while the
-     * rebate text (which the app draws from its own field) kept changing.
-     *
-     * <p>Stating the stock in the delta costs ~10 ms on the host (26 ms
-     * against 19 ms for the delta without it, measured at 900x600 with
-     * `stock_cost`); a render is two orders of magnitude more. So there is no
-     * bookkeeping left to get wrong: whoever draws, says what to draw.
+     * `auto_exposure` is off for everything that is not a RAW. The engine's
+     * default meter is `center_weighted`: an arithmetic mean of luminance
+     * under a Gaussian centred on the frame. An arithmetic mean is dominated
+     * by whatever is brightest, so a sky-lit frame meters about three times
+     * mid-grey and prints dark. A camera JPEG has already been metered once,
+     * by the camera; metering it again is double-counting. A RAW is
+     * scene-referred and keeps the meter.
      */
-    private void applyParams(String stock, int longEdge) {
-        if (session == null || stock == null) return;
-        // The line a "every film looks the same" report needs: what this render
-        // actually told the engine, next to what the UI thinks is selected.
-        try {
-            DebugSink.text("params", "draw film=" + stock + " print=" + printStock
-                    + " render=" + rendering + " long=" + longEdge);
-        } catch (Throwable ignored) { }
-        session.setParams(String.format(java.util.Locale.US,
-            "{\"film_stock\":\"%s\",\"print_stock\":\"%s\",\"scan_film\":%s,"
-            // The file's own colour space and transfer function. A camera
-            // JPEG is sRGB *already encoded*: read as ProPhoto linear (the
-            // engine default, which is right for a decoded RAW) its mid-tones
-            // print about 1.5 stops down with the top 5% flattened from 193
-            // to 126 -- the "grey and flat after the update" report. These
-            // are not `is_live` fields, so they must ride the same delta as
-            // the stock, which has already asked for a rebuild.
-            + "\"input_color_space\":\"%s\",\"input_cctf_decoding\":%s,\"auto_exposure\":%s,"
-            + "\"output_color_space\":\"sRGB\",\"preview_long_edge\":%d,"
-            + "\"print_exposure\":%.2f,\"grain_amount\":%.3f,\"halation_amount\":%.3f,"
-            + "\"glare_amount\":%.3f,\"film_format_mm\":%.1f,"
-            + "\"overscan_active\":%s,\"overscan_format\":\"%s\",\"overscan_edge_text\":\"%s\","
-            + "\"date_imprint_active\":%s,\"date_imprint_text\":\"%s\",\"date_imprint_style\":\"lcd\"}",
-            stock, printStock,
-            isPositiveFilm(stock) ? "true" : "false",
-            isRawFile ? "ProPhoto RGB" : "sRGB",
-            isRawFile ? "false" : "true",
-            isRawFile ? "true" : "false",
-            longEdge,
-            printExposure, grainAmount, halationAmount, glareAmount, filmFormatMm,
-            overscanOn ? "true" : "false", overscanFormat, edgeTextFor(stock),
-            dateOn ? "true" : "false", dateOn ? imprintDate() : ""
-        ));
-    }
-
-    /** Same set, at whatever long edge the caller is rendering. A small edge
-     *  is for a cheap pass; a look that is about to be exported goes out at the
-     *  preview size. */
-    private void applyParams(int longEdge) {
-        if (session == null) return;
-        final String stock = filmStock;
-        if (stock == null) return;            // nothing chosen yet: no look
-        try {
-            DebugSink.text("params", "render=" + rendering + " film=" + stock + " print=" + printStock
-                    + " overscan=" + overscanOn + " date=" + dateOn + " fmt=" + filmFormatMm
-                    + " long=" + longEdge);
-        } catch (Throwable ignored) { }
-        session.setParams(String.format(
-            "{\"output_color_space\":\"sRGB\",\"preview_long_edge\":%d,"
-            + "\"print_exposure\":%.2f,\"grain_amount\":%.3f,\"halation_amount\":%.3f,"
-            + "\"glare_amount\":%.3f,\"film_format_mm\":%.1f,"
-            + "\"overscan_active\":%s,\"overscan_format\":\"%s\",\"overscan_edge_text\":\"%s\","
-            + "\"date_imprint_active\":%s,\"date_imprint_text\":\"%s\",\"date_imprint_style\":\"lcd\"}",
-            longEdge,
-            printExposure, grainAmount, halationAmount, glareAmount, filmFormatMm,
-            overscanOn ? "true" : "false", overscanFormat, edgeTextFor(stock),
-            dateOn ? "true" : "false", dateOn ? imprintDate() : ""
-        ));
-    }
-
-    /**
-     * The half that describes the file: once per session, and after a stock
-     * change.
-     *
-     * <p>`auto_exposure` is off for everything that is not a RAW. The engine's
-     * default meter is `center_weighted`: an **arithmetic** mean of luminance
-     * under a Gaussian centred on the frame, sigma 0.2 of the long edge (see
-     * `exposure_evs_from` in the pipeline). An arithmetic mean is dominated by
-     * whatever is brightest, so a frame whose middle is open sky meters about
-     * three times mid-grey and the whole picture prints 1.7 stops down -- a
-     * user sent exactly that screenshot: bright blue sky rendered as slate,
-     * sunlit leaves rendered black.
-     *
-     * <p>A camera JPEG has already been metered once, by the camera, and that
-     * decision is what the user sees in their gallery. Metering it a second
-     * time is double-counting, and the two meters disagree by more than a stop
-     * on exactly the pictures people take: sky, backlight, snow. With the
-     * meter off the render starts from the file's own exposure, which is what
-     * "import this photo" has to mean.
-     *
-     * <p>A RAW is scene-referred and has no exposure decision baked in, so it
-     * keeps the meter. (`auto_exposure: false` makes the engine apply no EV at
-     * all -- `pipeline.cpp` returns the input untouched.)
-     */
-    private void applySessionParams() {
-        if (session == null) return;
-        final String stock = filmStock;
-        if (stock == null) return;
-        applyParams(stock, PREVIEW_LONG_EDGE);
-    }
 
     private void renderImage() {
         // Every branch says something. The foot is one thin line, too quiet to
@@ -6002,13 +7227,13 @@ public class MainActivity extends Activity {
         if (session == null) {
             try { DebugSink.text("render", "no session, lastImportError=" + lastImportError); }
             catch (Throwable ignored) { }
-            showErrorDialog("还没有可渲染的图像", lastImportError == null
+            showErrorSnackbar("还没有可渲染的图像", lastImportError == null
                     ? "先导入一张照片。点画布中央的「选择照片」，或点下方「换图」；RAW / HEIC 请选「从文件管理器选择」。"
                     : "上次导入没有完成：\n\n" + lastImportError);
             return;
         }
         if (filmStock == null) {
-            showInAppToast("先在下方选一张胶片");
+            showSnackbar("先在下方选一张胶片");
             return;
         }
         if (rendering) {
@@ -6019,10 +7244,23 @@ public class MainActivity extends Activity {
             // Not dropped: a tap that lands mid-render is the *last* choice the
             // user made, so it becomes the next render instead of a toast.
             pendingRender = true;
-            showInAppToast("正在渲染，完成后按新选择再画一次…");
+            showSnackbar("正在渲染，完成后按新选择再画一次…");
             return;
         }
         final String renderedStock = filmStock;
+        // Snapshot the whole Look here, on the UI thread: the render thread gets
+        // one finished string and never reads a control or a Frame.
+        final String previewParams;
+        try {
+            previewParams = snapshotRestatement(renderedStock, PREVIEW_LONG_EDGE);
+            // The line a "every film looks the same" report needs: what this
+            // render is about to tell the engine, next to the UI selection.
+            DebugSink.text("params", "draw film=" + renderedStock + " print=" + printStock
+                    + " render=" + rendering + " long=" + PREVIEW_LONG_EDGE);
+        } catch (Throwable t) {
+            showErrorSnackbar("渲染参数有误", describe(t));
+            return;
+        }
         rendering = true;
         progressBar.setVisibility(View.VISIBLE);
         busyLabel.setVisibility(View.VISIBLE);
@@ -6034,9 +7272,9 @@ public class MainActivity extends Activity {
             try {
                 synchronized (renderMutex) {
                 if (session == null) throw new RuntimeException("session closed before render");
-                // Take the film the user picked, under the same lock the render
-                // runs under, so the picture and the edge text cannot disagree.
-                applyParams(renderedStock, PREVIEW_LONG_EDGE);
+                // The finished Look snapshot, taken on the UI thread before
+                // this thread started. Under the render lock it is one writer.
+                session.setParams(previewParams);
                 int[] dims = session.renderBegin("live");
                 int w = dims[0], h = dims[1];
                 if (w <= 0 || h <= 0) throw new RuntimeException("engine returned empty frame");
@@ -6096,6 +7334,7 @@ public class MainActivity extends Activity {
                     refreshFilmPanel();
                     final int[] bands = blackBands(bmp);
                     statusText.setText("Preview ready " + fw + "×" + fh);
+                    showSnackbar("预览已更新 " + fw + "×" + fh, Snackbar.LENGTH_SHORT);
                     try {
                         DebugSink.text("bands", "render " + fw + "x" + fh
                                 + " black rows top=" + bands[0] + " bottom=" + bands[1]
@@ -6117,7 +7356,7 @@ public class MainActivity extends Activity {
                     rendering = false;
                     // The foot is one 7 sp line: a failure has to be readable,
                     // and it has to arrive with enough context to be reported.
-                    showErrorDialog("渲染失败", SpkError.format(msg)
+                    showErrorSnackbar("渲染失败", SpkError.format(msg)
                             + "\n\n" + sourceWidth + "×" + sourceHeight
                             + "\n" + probe.describe());
                     if (pendingRender) { pendingRender = false; renderImage(); }
@@ -6246,9 +7485,9 @@ public class MainActivity extends Activity {
      *  Printed next to the export's own size: when the two disagree the file
      *  carries a band that was never drawn, and that is the whole of the
      *  "the rebate flies in the export but not in the preview" report. */
-    private String overscanCanvasLabel() {
+    private String overscanCanvasLabel(SpektraLabEngine.Session source) {
         try {
-            final String g = session == null ? null : session.overscanGeometry();
+            final String g = source == null ? null : source.overscanGeometry();
             if (g == null) return "";
             final int wAt = g.indexOf("\"canvas_w\":");
             final int hAt = g.indexOf("\"canvas_h\":");
@@ -6267,15 +7506,21 @@ public class MainActivity extends Activity {
         final String mime = dng ? "image/x-adobe-dng" : tiff ? "image/tiff" : "image/jpeg";
         if (sharePill != null) sharePill.setVisibility(View.GONE);
         if (engine == null || session == null) {
-            showInAppToast("请先导入照片");
+            showSnackbar("请先导入照片");
             return;
         }
         if (filmStock == null) {
-            showInAppToast("先选一张胶片，再导出");
+            showSnackbar("先选一张胶片，再导出");
             return;
         }
-        // The preview and the export share one session; the render lock below
-        // keeps a later stock change out of the full-size pass.
+        // The export states the Look it was started with, not whatever the
+        // controls say by the time the render thread picks it up: a Frame
+        // switch or a slider drag during a long export must not move the file.
+        final String exportStock = filmStock;
+        final String exportParams = snapshotRestatement(exportStock, PREVIEW_LONG_EDGE);
+        final String rawExportPath = isRawFile ? (rawFilePath == null ? "" : rawFilePath) : null;
+        // A bitmap export renders from the preview session; a RAW export opens
+        // its own below. The render lock keeps a stock change out of either.
         new Thread(() -> {
             java.io.File tmp = new java.io.File(getCacheDir(), "export_" + System.currentTimeMillis() + ext);
             try {
@@ -6289,8 +7534,8 @@ public class MainActivity extends Activity {
                 // 102.4 std 12481 after, and the two hashes differ). It is the
                 // same delta the preview renders with, which is the point.
                 try {
-                    DebugSink.text("export-params", "film=" + filmStock + " print=" + printStock
-                            + " pex=" + printExposure + " (no delta sent)");
+                    DebugSink.text("export-params", "film=" + exportStock + " print=" + printStock
+                            + " raw=" + (rawExportPath != null) + " " + exportParams);
                 } catch (Throwable ignored) {}
 
                 final long t0 = System.currentTimeMillis();
@@ -6307,30 +7552,54 @@ public class MainActivity extends Activity {
                 };
                 runOnUiThread(tick);
                 int[] info;
+                final String canvas;
                 try {
                     synchronized (renderMutex) {
                         // Everything the preview drew with, re-stated: a stock,
                         // a paper, a gate, an edge text or a date that moved
                         // since the last render would otherwise be exported as
                         // the *preview* had it, or not at all.
-                        applyParams(filmStock, PREVIEW_LONG_EDGE);
+                        SpektraLabEngine.Session target = session;
+                        SpektraLabEngine.Session rawExport = null;
                         try {
-                            DebugSink.text("overscan-geom", "tier=" + tier + " before "
-                                    + session.overscanGeometry());
-                            // The whole parameter set this export is about to use.
-                            // "the export disagrees with the preview" is a question
-                            // about which of these two numbers changed.
-                            DebugSink.text("export-params", "tier=" + tier + " " + session.getParams());
-                        } catch (Throwable ignored) { }
-                        info = dng
-                                ? session.exportDng(tmp.getAbsolutePath(), tier)
-                                : tiff
-                                ? session.exportTiff(tmp.getAbsolutePath(), tier)
-                                : session.exportJpeg(tmp.getAbsolutePath(), 95, 512, tier);
-                        try {
-                            DebugSink.text("overscan-geom", "tier=" + tier + " " + info[0] + "x" + info[1]
-                                    + " " + session.overscanGeometry());
-                        } catch (Throwable ignored) { }
+                            if (rawExportPath != null) {
+                                if (rawExportPath.isEmpty()) {
+                                    throw new RuntimeException("RAW 文件路径不可用，无法导出");
+                                }
+                                // A RAW export decodes the file into its own
+                                // session. Re-stating the preview session used
+                                // to change the picture on screen and left the
+                                // export sharing the preview's preview-sized
+                                // decode. This session is opened with the caps
+                                // the import chose, gets the same Look, and is
+                                // closed before the gallery write.
+                                rawExport = engine.openRawSession(rawExportPath, exportParams,
+                                        rawImportMaxPixels, rawImportLongEdge);
+                                target = rawExport;
+                            }
+                            target.setParams(exportParams);
+                            try {
+                                DebugSink.text("overscan-geom", "tier=" + tier + " before "
+                                        + target.overscanGeometry());
+                                // The whole parameter set this export is about to use.
+                                // "the export disagrees with the preview" is a question
+                                // about which of these two numbers changed.
+                                DebugSink.text("export-params", "tier=" + tier
+                                        + " raw=" + (rawExport != null) + " " + target.getParams());
+                            } catch (Throwable ignored) { }
+                            info = dng
+                                    ? target.exportDng(tmp.getAbsolutePath(), tier)
+                                    : tiff
+                                    ? target.exportTiff(tmp.getAbsolutePath(), tier)
+                                    : target.exportJpeg(tmp.getAbsolutePath(), 95, 512, tier);
+                            canvas = overscanCanvasLabel(target);
+                            try {
+                                DebugSink.text("overscan-geom", "tier=" + tier + " " + info[0] + "x" + info[1]
+                                        + " " + target.overscanGeometry());
+                            } catch (Throwable ignored) { }
+                        } finally {
+                            if (rawExport != null) rawExport.close();
+                        }
                     }
                 } finally {
                     spinning.set(false);
@@ -6396,12 +7665,11 @@ public class MainActivity extends Activity {
                     // Dimensions and file size together: "3.3 MB" alone reads as
                     // a bug when the frame is 16 MP, and the reason is worth
                     // saying out loud rather than guessing at later.
-                    final String canvas = overscanCanvasLabel();
                     final String canvasNote = canvas.isEmpty() ? "" : " · 画布 " + canvas;
                     final String tiffHint = tiff
                             ? "（TIFF：点导出旁边的「分享」发给手机版 Lightroom 即可使用）"
                             : dng ? "（DNG：线性 16 位，给电脑上的 Lightroom / ACR；手机版打不开，已知问题，不必反馈）" : "";
-                    showInAppToast("已保存 " + fw + "x" + fh + canvasNote + " · " + sizeLabel + tiffHint);
+                    showSnackbar("已保存 " + fw + "x" + fh + canvasNote + " · " + sizeLabel + tiffHint);
                     statusText.setText("已导出 " + fw + "x" + fh + canvasNote + " · " + sizeLabel
                         + "（" + secs + " 秒，其中渲染 " + (fRender / 1000.0) + " 秒）" + tiffHint);
                     exportProgressBar.setVisibility(View.GONE);
@@ -6414,7 +7682,7 @@ public class MainActivity extends Activity {
                 uploadVkLog();
                 runOnUiThread(() -> {
                     statusText.setText("导出失败 " + SpkError.shortForm(msg));
-                    showErrorDialog("导出失败", SpkError.format(msg)
+                    showErrorSnackbar("导出失败", SpkError.format(msg)
                             + "\n\n" + sourceWidth + "×" + sourceHeight
                             + "\n" + probe.describe());
                     exportProgressBar.setVisibility(View.GONE);
@@ -6523,6 +7791,12 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        // A sheet or snackbar outliving its Activity would keep this instance
+        // reachable through a window the system still owns.
+        dismissOpenSheet();
+        if (currentSnackbar != null) currentSnackbar.dismiss();
+        currentSnackbar = null;
+        snackbarHost = null;
         // Session *and* engine go down under the same lock the render runs
         // under: a render that is mid-`renderBegin` is holding device buffers
         // owned by this engine, and tearing it down outside the lock is the

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The M3 brand fallback, generated from the Console's safelight accent
+      #FF2F5D3A with the Material tonal-spot scheme. AppTheme and AppTheme.Dark
+      map these roles to the color attributes; M3TokenCheck guards completeness,
+      contrast, and the stage/spectrum exclusion. On API 31+ DynamicColors
+      replaces this scheme at runtime. Stage and spectral colours are not here.
+    -->
+
+    <!-- Light: brand seed #FF2F5D3A -->
+    <color name="m3_brand_light_primary">#FF326940</color>
+    <color name="m3_brand_light_on_primary">#FFFFFFFF</color>
+    <color name="m3_brand_light_primary_container">#FFB5F1BD</color>
+    <color name="m3_brand_light_on_primary_container">#FF00210B</color>
+    <color name="m3_brand_light_secondary">#FF506352</color>
+    <color name="m3_brand_light_on_secondary">#FFFFFFFF</color>
+    <color name="m3_brand_light_secondary_container">#FFD3E8D2</color>
+    <color name="m3_brand_light_on_secondary_container">#FF0E1F12</color>
+    <color name="m3_brand_light_tertiary">#FF39656E</color>
+    <color name="m3_brand_light_on_tertiary">#FFFFFFFF</color>
+    <color name="m3_brand_light_tertiary_container">#FFBDEAF4</color>
+    <color name="m3_brand_light_on_tertiary_container">#FF001F25</color>
+    <color name="m3_brand_light_error">#FFBA1A1A</color>
+    <color name="m3_brand_light_on_error">#FFFFFFFF</color>
+    <color name="m3_brand_light_error_container">#FFFFDAD6</color>
+    <color name="m3_brand_light_on_error_container">#FF410002</color>
+    <color name="m3_brand_light_background">#FFF6FBF2</color>
+    <color name="m3_brand_light_on_background">#FF181D18</color>
+    <color name="m3_brand_light_surface">#FFF6FBF2</color>
+    <color name="m3_brand_light_on_surface">#FF181D18</color>
+    <color name="m3_brand_light_surface_variant">#FFDDE5DA</color>
+    <color name="m3_brand_light_on_surface_variant">#FF414941</color>
+    <color name="m3_brand_light_surface_dim">#FFD7DBD3</color>
+    <color name="m3_brand_light_surface_bright">#FFF6FBF2</color>
+    <color name="m3_brand_light_surface_container_lowest">#FFFFFFFF</color>
+    <color name="m3_brand_light_surface_container_low">#FFF1F5ED</color>
+    <color name="m3_brand_light_surface_container">#FFEBEFE7</color>
+    <color name="m3_brand_light_surface_container_high">#FFE5EAE1</color>
+    <color name="m3_brand_light_surface_container_highest">#FFDFE4DC</color>
+    <color name="m3_brand_light_surface_inverse">#FF2D322C</color>
+    <color name="m3_brand_light_on_surface_inverse">#FFEEF2EA</color>
+    <color name="m3_brand_light_primary_inverse">#FF99D4A2</color>
+    <color name="m3_brand_light_outline">#FF717970</color>
+    <color name="m3_brand_light_outline_variant">#FFC1C9BE</color>
+    <color name="m3_brand_light_shadow">#FF000000</color>
+    <color name="m3_brand_light_scrim">#FF000000</color>
+    <color name="m3_brand_light_surface_tint">#FF326940</color>
+
+    <!-- Dark: the same seed, dark scheme -->
+    <color name="m3_brand_dark_primary">#FF99D4A2</color>
+    <color name="m3_brand_dark_on_primary">#FF003918</color>
+    <color name="m3_brand_dark_primary_container">#FF18512B</color>
+    <color name="m3_brand_dark_on_primary_container">#FFB5F1BD</color>
+    <color name="m3_brand_dark_secondary">#FFB7CCB7</color>
+    <color name="m3_brand_dark_on_secondary">#FF233426</color>
+    <color name="m3_brand_dark_secondary_container">#FF394B3B</color>
+    <color name="m3_brand_dark_on_secondary_container">#FFD3E8D2</color>
+    <color name="m3_brand_dark_tertiary">#FFA2CED8</color>
+    <color name="m3_brand_dark_on_tertiary">#FF00363E</color>
+    <color name="m3_brand_dark_tertiary_container">#FF204D55</color>
+    <color name="m3_brand_dark_on_tertiary_container">#FFBDEAF4</color>
+    <color name="m3_brand_dark_error">#FFFFB4AB</color>
+    <color name="m3_brand_dark_on_error">#FF690005</color>
+    <color name="m3_brand_dark_error_container">#FF93000A</color>
+    <color name="m3_brand_dark_on_error_container">#FFFFDAD6</color>
+    <color name="m3_brand_dark_background">#FF101510</color>
+    <color name="m3_brand_dark_on_background">#FFDFE4DC</color>
+    <color name="m3_brand_dark_surface">#FF101510</color>
+    <color name="m3_brand_dark_on_surface">#FFDFE4DC</color>
+    <color name="m3_brand_dark_surface_variant">#FF414941</color>
+    <color name="m3_brand_dark_on_surface_variant">#FFC1C9BE</color>
+    <color name="m3_brand_dark_surface_dim">#FF101510</color>
+    <color name="m3_brand_dark_surface_bright">#FF353A35</color>
+    <color name="m3_brand_dark_surface_container_lowest">#FF0B0F0B</color>
+    <color name="m3_brand_dark_surface_container_low">#FF181D18</color>
+    <color name="m3_brand_dark_surface_container">#FF1C211C</color>
+    <color name="m3_brand_dark_surface_container_high">#FF262B26</color>
+    <color name="m3_brand_dark_surface_container_highest">#FF313631</color>
+    <color name="m3_brand_dark_surface_inverse">#FFDFE4DC</color>
+    <color name="m3_brand_dark_on_surface_inverse">#FF2D322C</color>
+    <color name="m3_brand_dark_primary_inverse">#FF326940</color>
+    <color name="m3_brand_dark_outline">#FF8B9389</color>
+    <color name="m3_brand_dark_outline_variant">#FF414941</color>
+    <color name="m3_brand_dark_shadow">#FF000000</color>
+    <color name="m3_brand_dark_scrim">#FF000000</color>
+    <color name="m3_brand_dark_surface_tint">#FF99D4A2</color>
+</resources>

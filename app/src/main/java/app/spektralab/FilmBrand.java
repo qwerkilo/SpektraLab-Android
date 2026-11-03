@@ -1,5 +1,6 @@
 package app.spektralab;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -58,5 +59,28 @@ public final class FilmBrand {
         int n = 0;
         for (String id : ids) if (matches(id, brand)) n++;
         return n;
+    }
+
+    /**
+     * The shelf for one facet, in the order the row should show it.
+     *
+     * <p>The catalogue order is kept, except that an active stock the facet
+     * would hide is pinned first: filtering brands never hides the Look that
+     * is still in force. The active stock is never added twice, and an id the
+     * catalogue does not carry is not invented.
+     *
+     * <p>With {@link #ALL} the result is the catalogue order itself, which is
+     * what 重置当前页 restores: the whole catalogue from its first stock.
+     */
+    public static List<String> shelf(List<String> ids, String brand, String activeId) {
+        if (ids == null || ids.isEmpty()) return Collections.emptyList();
+        final boolean pin = activeId != null && ids.contains(activeId)
+                && !matches(activeId, brand);
+        final List<String> shelf = new ArrayList<>(ids.size() + (pin ? 1 : 0));
+        if (pin) shelf.add(activeId);
+        for (String id : ids) {
+            if (matches(id, brand)) shelf.add(id);
+        }
+        return Collections.unmodifiableList(shelf);
     }
 }

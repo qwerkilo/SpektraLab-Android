@@ -2,8 +2,9 @@ package app.spektralab;
 
 /**
  * Pure JVM contract for the Console's width decision: the phone shell below
- * the tablet breakpoint, two columns at and above it, and a control column
- * that keeps the Frame primary instead of swallowing the window.
+ * the tablet breakpoint, a navigation rail plus two columns at and above it,
+ * and a control column that keeps the Frame primary instead of swallowing the
+ * window.
  *
  * <p>No JUnit, no Android: run it with the same javac/java that builds the app.
  */
@@ -13,6 +14,7 @@ public final class ConsoleLayoutCheck {
     public static void main(String[] args) {
         breakpoint();
         phoneWidths();
+        railWidths();
         wideWidths();
         everyWideWidthFits();
         everyPhoneWidthStaysOneColumn();
@@ -37,30 +39,49 @@ public final class ConsoleLayoutCheck {
         }
     }
 
+    /** The ticket names 600, 800, 960, and 1200 dp for the rail layout. */
+    private static void railWidths() {
+        require("599 dp has no rail", ConsoleLayout.railWidthDp(599) == 0);
+        for (int width : new int[]{600, 800, 960, 1200}) {
+            require(width + " dp rail is 80 dp", ConsoleLayout.railWidthDp(width) == 80);
+            require(width + " dp rail meets the 48 dp target",
+                    ConsoleLayout.railWidthDp(width) >= 48);
+        }
+    }
+
     private static void wideWidths() {
         require("600 dp control column is 300 dp",
                 ConsoleLayout.controlColumnWidthDp(600) == 300);
-        require("600 dp stage column is 300 dp",
-                ConsoleLayout.stageColumnWidthDp(600) == 300);
-        // 800 * 0.40 = 320, the middle of the 300..400 clamp.
-        require("800 dp control column is 320 dp",
-                ConsoleLayout.controlColumnWidthDp(800) == 320);
-        require("800 dp stage column is 480 dp",
-                ConsoleLayout.stageColumnWidthDp(800) == 480);
-        require("960 dp landscape control column is 384 dp",
-                ConsoleLayout.controlColumnWidthDp(960) == 384);
-        require("960 dp landscape stage column is 576 dp",
-                ConsoleLayout.stageColumnWidthDp(960) == 576);
-        require("wide column never exceeds its 400 dp cap",
-                ConsoleLayout.controlColumnWidthDp(1400) == 400);
+        // 600 - 80 rail - 300 control floor = 220. The spec records this as the
+        // wide-layout consequence; 280 cannot coexist with a 300 dp control
+        // column inside a 600 dp window.
+        require("600 dp stage column is 220 dp",
+                ConsoleLayout.stageColumnWidthDp(600) == 220);
+        // 800 - 80 rail = 720; 720 * 0.40 = 288, clamped up to the 300 dp floor.
+        require("800 dp control column is 300 dp",
+                ConsoleLayout.controlColumnWidthDp(800) == 300);
+        require("800 dp stage column is 420 dp",
+                ConsoleLayout.stageColumnWidthDp(800) == 420);
+        // 960 - 80 rail = 880; 880 * 0.40 = 352.
+        require("960 dp landscape control column is 352 dp",
+                ConsoleLayout.controlColumnWidthDp(960) == 352);
+        require("960 dp landscape stage column is 528 dp",
+                ConsoleLayout.stageColumnWidthDp(960) == 528);
+        // 1200 - 80 rail = 1120; 1120 * 0.40 = 448, capped at 400.
+        require("1200 dp control column caps at 400 dp",
+                ConsoleLayout.controlColumnWidthDp(1200) == 400);
+        require("1200 dp stage column is 720 dp",
+                ConsoleLayout.stageColumnWidthDp(1200) == 720);
     }
 
     private static void everyWideWidthFits() {
         int previous = -1;
         for (int width = ConsoleLayout.WIDE_BREAKPOINT_DP; width <= 1400; ++width) {
+            final int rail = ConsoleLayout.railWidthDp(width);
             final int control = ConsoleLayout.controlColumnWidthDp(width);
             final int stage = ConsoleLayout.stageColumnWidthDp(width);
-            require(width + " dp two columns sum to the window", control + stage == width);
+            require(width + " dp rail, stage, and controls sum to the window",
+                    rail + control + stage == width);
             require(width + " dp stage keeps its minimum",
                     stage >= ConsoleLayout.STAGE_MIN_DP);
             require(width + " dp controls keep their minimum",
@@ -76,6 +97,8 @@ public final class ConsoleLayoutCheck {
     private static void everyPhoneWidthStaysOneColumn() {
         for (int width = 1; width < ConsoleLayout.WIDE_BREAKPOINT_DP; ++width) {
             require(width + " dp is one column", !ConsoleLayout.isWide(width));
+            require(width + " dp has no navigation rail",
+                    ConsoleLayout.railWidthDp(width) == 0);
             require(width + " dp phone controls are full width",
                     ConsoleLayout.controlColumnWidthDp(width) == width);
         }

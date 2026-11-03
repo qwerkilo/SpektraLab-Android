@@ -2,7 +2,7 @@
 
 **Type:** task
 **Blocked by:** 02
-**Status:** pending
+**Status:** completed
 
 **What to build:** The Optics workspace uses Material sliders with a visible
 parameter name, live value, unit, display-only Δ, and reset. The four
@@ -17,3 +17,5 @@ real range to accessibility services.
 - [ ] Δ is recomputed from the value and the panel default; no new Look field is introduced.
 - [ ] Locked Optics still disables the rows and explains why.
 - [ ] Device check: move and reset each row, both themes; one render per gesture in logcat.
+
+**Resolution:** Material sliders with name/value/unit/delta/reset landed; OpticsDeltaCheck 43, one commit per gesture. Merged into feat/m3-spec. Device was offline, so TalkBack and render-count checks remain for ticket 10.

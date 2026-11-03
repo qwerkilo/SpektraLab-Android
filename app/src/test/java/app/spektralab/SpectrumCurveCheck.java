@@ -17,6 +17,10 @@ public final class SpectrumCurveCheck {
         rangeAndNormalisation();
         constantSeries();
         channelsAndRaggedRows();
+        runPairingPerChannel();
+        unpairedWavelengthsAreGaps();
+        fractionAxis();
+        scanSampleMapping();
 
         System.out.println("SpectrumCurveCheck: " + checks + " checks passed");
     }
@@ -125,6 +129,118 @@ public final class SpectrumCurveCheck {
         require("a channel with only gaps draws no line", noBlue.runCount(2) == 0);
         require("the measured channels still draw", noBlue.runCount(0) == 1);
         require("a gap has no value to plot", Double.isNaN(noBlue.rawAt(2, 0, 0)));
+    }
+
+    /** Every channel owns its runs: one channel's gap never splits another. */
+    private static void runPairingPerChannel() {
+        final SpectrumCurve curve = SpectrumCurve.of(
+                new double[]{400, 450, 500, 550, 600},
+                new double[][]{
+                        {1.0, 1.0, 1.0},
+                        {2.0, Double.NaN, 2.0},
+                        {3.0, 3.0, Double.NaN},
+                        {4.0, 4.0, Double.NaN},
+                        {5.0, 5.0, 5.0},
+                });
+        require("a fully sampled channel has one run", curve.runCount(0) == 1);
+        require("the full run keeps every sample", curve.runLength(0, 0) == 5);
+
+        require("a gap in the middle splits only its own channel", curve.runCount(1) == 2);
+        require("the run before the gap is one point", curve.runLength(1, 0) == 1);
+        require("the run after the gap keeps three points", curve.runLength(1, 1) == 3);
+        require("the second green run starts at 500 nm", curve.runStart(1, 1) == 2);
+        require("the second green run begins at 500 nm", close(curve.nmAt(1, 1, 0), 500));
+        require("the second green run ends at 600 nm", close(curve.nmAt(1, 1, 2), 600));
+
+        require("a channel with a gap has two runs", curve.runCount(2) == 2);
+        require("the first blue run keeps both samples", curve.runLength(2, 0) == 2);
+        require("the last blue run is a single point", curve.runLength(2, 1) == 1);
+        require("a one-point run is never dropped", curve.runStart(2, 1) == 4);
+        require("a one-point run still carries its wavelength", close(curve.nmAt(2, 1, 0), 600));
+
+        final int[] realSamples = {5, 4, 3};
+        for (int channel = 0; channel < curve.channelCount(); ++channel) {
+            int plotted = 0;
+            for (int run = 0; run < curve.runCount(channel); ++run) {
+                require("run " + run + " of channel " + channel + " is non-empty",
+                        curve.runLength(channel, run) >= 1);
+                plotted += curve.runLength(channel, run);
+            }
+            require("channel " + channel + " plots only its real samples",
+                    plotted == realSamples[channel]);
+            require("a point outside the run has no value",
+                    Double.isNaN(curve.rawAt(channel, curve.runCount(channel), 0)));
+        }
+    }
+
+    /** A finite value on a row without a wavelength is not a paired sample. */
+    private static void unpairedWavelengthsAreGaps() {
+        final SpectrumCurve curve = SpectrumCurve.of(
+                new double[]{400, Double.NaN, 500, 550},
+                new double[][]{{1.0}, {2.0}, {3.0}, {4.0}});
+        require("the unpaired row is not counted", curve.sampleCount() == 3);
+        require("the finite row after the bad wavelength starts a new run",
+                curve.runCount(0) == 2);
+        require("the first run is the real sample before the gap",
+                curve.runStart(0, 0) == 0 && curve.runLength(0, 0) == 1);
+        require("the second run begins at the next real wavelength",
+                curve.runStart(0, 1) == 2);
+        require("the value on the unpaired row is never plotted",
+                Double.isNaN(curve.rawAt(0, 0, 1)));
+    }
+
+    /** The plot and Scan inspect share one 0..1 horizontal axis. */
+    private static void fractionAxis() {
+        final SpectrumCurve curve = SpectrumCurve.of(
+                new double[]{400, 500, 600},
+                new double[][]{{1.0}, {2.0}, {3.0}});
+        require("the first measured wavelength is the left edge",
+                close(curve.fractionAtNm(400), 0.0));
+        require("the middle wavelength is the axis midpoint",
+                close(curve.fractionAtNm(500), 0.5));
+        require("the last measured wavelength is the right edge",
+                close(curve.fractionAtNm(600), 1.0));
+        require("a wavelength below the range clamps to the left edge",
+                close(curve.fractionAtNm(380), 0.0));
+        require("a wavelength above the range clamps to the right edge",
+                close(curve.fractionAtNm(780), 1.0));
+        require("a missing wavelength has no fraction",
+                Double.isNaN(curve.fractionAtNm(Double.NaN)));
+        require("unavailable has no fraction axis",
+                Double.isNaN(SpectrumCurve.unavailable().fractionAtNm(500)));
+
+        final SpectrumCurve flat = SpectrumCurve.of(
+                new double[]{500, 500},
+                new double[][]{{1.0}, {2.0}});
+        require("a zero-width range draws on the middle line",
+                close(flat.fractionAtNm(500), 0.5));
+    }
+
+    /**
+     * Scan inspect's mark is mapped from the sample's wavelength, not from the
+     * picture's 0..1 position. Grayscale and the line of purples have no mark.
+     */
+    private static void scanSampleMapping() {
+        final SpectrumCurve curve = SpectrumCurve.of(
+                new double[]{400, 600},
+                new double[][]{{1.0}, {2.0}});
+        final int[] spectrumRow = {0xFF00FF00};   // green, ~540 nm
+        final ScanSample green = ScanSample.at(spectrumRow, spectrumRow.length, 0.5f);
+        require("a coloured scan sample has a wavelength", green.hasWavelength());
+        require("the mark uses the sample's wavelength on the plot axis",
+                close(curve.fractionForSample(green),
+                        curve.fractionAtNm(green.wavelengthNm())));
+        require("the mark is not the picture's horizontal position",
+                Math.abs(curve.fractionForSample(green) - 0.5) > 0.01);
+
+        final int[] grayRow = {0xFF808080};
+        final ScanSample gray = ScanSample.at(grayRow, grayRow.length, 0.5f);
+        require("a grayscale sample has no mark",
+                Double.isNaN(curve.fractionForSample(gray)));
+        require("a missing sample has no mark",
+                Double.isNaN(curve.fractionForSample(null)));
+        require("an unavailable curve has no mark",
+                Double.isNaN(SpectrumCurve.unavailable().fractionForSample(green)));
     }
 
     private static boolean close(double actual, double expected) {

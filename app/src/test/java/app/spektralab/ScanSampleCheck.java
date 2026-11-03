@@ -6,9 +6,10 @@ package app.spektralab;
  *
  * <p>A uniform row samples the same colour everywhere; both edges clamp; a
  * single coloured pixel is found at its own index; a missing or short row is
- * explicitly unavailable. Grayscale has no dominant wavelength, so the check
- * requires the explicit unavailable estimate rather than a number. A row that
- * sweeps the spectrum must produce a monotonic estimate inside 380–780 nm.
+ * explicitly unavailable. Grayscale and the line of purples have no dominant
+ * wavelength, so the check requires the explicit unavailable readout rather
+ * than a number. A row that sweeps the spectrum must produce a monotonic
+ * estimate inside 380–780 nm.
  *
  * <p>No Android, no JUnit: run it with the same javac/java as the app.
  */
@@ -23,6 +24,7 @@ public final class ScanSampleCheck {
         singleColouredPixel();
         wavelengthAnchors();
         grayscaleHasNoWavelength();
+        lineOfPurplesHasNoWavelength();
         spectrumRowIsMonotonic();
 
         System.out.println("ScanSampleCheck: " + checks + " checks passed");
@@ -36,6 +38,10 @@ public final class ScanSampleCheck {
                 Double.isNaN(none.wavelengthNm()));
         require("a null row shows the explicit dash",
                 "\u2014".equals(none.wavelengthText()));
+        require("a null row shows the lambda dash line",
+                "\u03bb \u2014".equals(none.lambdaText()));
+        require("a null row shows the empty RGB line",
+                "R \u2014  G \u2014  B \u2014".equals(none.rgbReadoutText()));
 
         final ScanSample shortRow = ScanSample.at(new int[]{0xFFFF0000}, 4, 0.5f);
         require("a row shorter than its width is unavailable", !shortRow.available());
@@ -58,8 +64,13 @@ public final class ScanSampleCheck {
             require("a uniform row samples green at " + fraction, sample.green() == 0x66);
             require("a uniform row samples blue at " + fraction, sample.blue() == 0x99);
         }
+        final ScanSample sample = ScanSample.at(row, row.length, 0.5f);
         require("the RGB text carries the real channels",
-                "R 51  G 102  B 153".equals(ScanSample.at(row, row.length, 0.5f).rgbText()));
+                "R 51  G 102  B 153".equals(sample.rgbText()));
+        require("the readout RGB text is the measured channels",
+                "R 51  G 102  B 153".equals(sample.rgbReadoutText()));
+        require("the lambda line carries the estimate and unit",
+                sample.lambdaText().matches("\u03bb \\d{3} nm"));
         require("the alpha byte is ignored",
                 ScanSample.at(new int[]{0x00FF0000}, 1, 0.5f).red() == 0xFF);
     }
@@ -83,6 +94,12 @@ public final class ScanSampleCheck {
         require("the midpoint samples the centre pixel", sample.red() == 0xCC);
         require("the midpoint keeps the centre green", sample.green() == 0x33);
         require("the midpoint keeps the centre blue", sample.blue() == 0x00);
+
+        final ScanSample nan = ScanSample.at(row, row.length, Float.NaN);
+        require("a NaN fraction falls back to the centre",
+                nan.red() == 0xCC && nan.green() == 0x33 && nan.blue() == 0x00);
+        require("the default fraction is the centre",
+                ScanSample.DEFAULT_FRACTION == 0.5f);
     }
 
     private static void singleColouredPixel() {
@@ -140,8 +157,34 @@ public final class ScanSampleCheck {
                     Double.isNaN(sample.wavelengthNm()));
             require("grayscale shows the explicit dash",
                     "\u2014".equals(sample.wavelengthText()));
+            require("grayscale never prints a lambda number",
+                    "\u03bb \u2014".equals(sample.lambdaText()));
             require("grayscale has no wavelength unit",
                     "".equals(sample.wavelengthUnitText()));
+        }
+    }
+
+    private static void lineOfPurplesHasNoWavelength() {
+        final int[] purples = {
+                0xFFFF00FF,     // magenta, hue 300
+                0xFFC000FF,     // purple, hue 285
+                0xFFFF0080,     // rose, hue 330
+        };
+        for (int argb : purples) {
+            final ScanSample sample = ScanSample.at(new int[]{argb}, 1, 0.5f);
+            require("line-of-purples " + Integer.toHexString(argb) + " is sampled",
+                    sample.available());
+            require("line-of-purples " + Integer.toHexString(argb)
+                    + " has no spectral wavelength", !sample.hasWavelength());
+            require("line-of-purples " + Integer.toHexString(argb)
+                    + " never invents a number", Double.isNaN(sample.wavelengthNm()));
+            require("line-of-purples " + Integer.toHexString(argb)
+                    + " shows lambda as a dash", "\u03bb \u2014".equals(sample.lambdaText()));
+            require("line-of-purples " + Integer.toHexString(argb)
+                    + " has no unit", "".equals(sample.wavelengthUnitText()));
+            require("line-of-purples " + Integer.toHexString(argb)
+                    + " says there is no dominant wavelength",
+                    sample.description().contains("\u6ca1\u6709\u4e3b\u6ce2\u957f"));
         }
     }
 

@@ -63,6 +63,30 @@ public final class GateScale {
 
     private static final List<Gate> ALL = Collections.unmodifiableList(Arrays.asList(GATES));
 
+    /**
+     * The Gate a Look actually names. A valid stored pair is kept as-is; an
+     * absent or disagreeing Gate falls back to the shipped Gate whose measured
+     * long edge is closest to the Look's Scale.
+     */
+    public static Gate resolve(String gateId, float longEdgeMm) {
+        final Gate gate = byId(gateId);
+        if (gate != null && Math.abs(gate.longEdgeMm - longEdgeMm) <= SCALE_TOLERANCE_MM) {
+            return gate;
+        }
+        return forLongEdge(longEdgeMm);
+    }
+
+    /**
+     * The one Gate the Scale and Edge controls send to the engine. A stored
+     * Gate and Scale that disagree -- the old 170, 120, and 70 mm pages -- are
+     * pulled onto the Gate's measured edge; a missing or unknown Gate falls
+     * back to the Gate for the Scale. The Gate carries its own edge, so there
+     * is no second pair object to split apart at the call sites.
+     */
+    public static Gate pair(String gateId, float longEdgeMm) {
+        return resolve(gateId, longEdgeMm);
+    }
+
     private GateScale() {
     }
 
@@ -93,19 +117,6 @@ public final class GateScale {
                 && Math.abs(gate.longEdgeMm - longEdgeMm) <= SCALE_TOLERANCE_MM;
     }
 
-    /**
-     * The Gate a Look actually names. A valid stored pair is kept as-is; an
-     * absent or disagreeing Gate falls back to the shipped Gate whose measured
-     * long edge is closest to the Look's Scale.
-     */
-    public static Gate resolve(String gateId, float longEdgeMm) {
-        final Gate gate = byId(gateId);
-        if (gate != null && Math.abs(gate.longEdgeMm - longEdgeMm) <= SCALE_TOLERANCE_MM) {
-            return gate;
-        }
-        return forLongEdge(longEdgeMm);
-    }
-
     /** The shipped Gate whose measured long edge is closest to {@code longEdgeMm}. */
     public static Gate forLongEdge(float longEdgeMm) {
         Gate best = GATES[0];
@@ -134,5 +145,15 @@ public final class GateScale {
             if (Math.abs(aspect / gate.aspect - 1.0) <= ASPECT_TOLERANCE) out.add(gate);
         }
         return out;
+    }
+
+    /**
+     * True when this Frame's shape can carry a Rebate at all. A rebate is cut
+     * only for the frame's shape, using the same 5 % rule as {@link #available}:
+     * a shape no Gate can hold must not switch the Rebate on. Before a Frame
+     * exists every Gate is offered, so the page can be set up in advance.
+     */
+    public static boolean canHostRebate(int width, int height) {
+        return !available(width, height).isEmpty();
     }
 }

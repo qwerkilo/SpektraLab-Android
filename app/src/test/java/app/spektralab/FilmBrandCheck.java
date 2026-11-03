@@ -47,6 +47,26 @@ public final class FilmBrandCheck {
         eqInt(0, FilmBrand.count(ids, "other"));
         eqInt(0, FilmBrand.count(null, FilmBrand.ALL));
 
+        // The shelf under a facet: 全部 keeps the catalogue order, a brand keeps
+        // its own stocks in catalogue order, and a stock the facet hides is
+        // pinned first exactly once so the Look in force stays reachable.
+        eqList(ids, FilmBrand.shelf(ids, FilmBrand.ALL, null));
+        eqList(ids, FilmBrand.shelf(ids, FilmBrand.ALL, "kodak_portra_400"));
+        eqList(Arrays.asList("kodak_portra_400", "kodak_ektar_100"),
+                FilmBrand.shelf(ids, "kodak", "kodak_ektar_100"));
+        eqList(Arrays.asList("kodak_portra_400", "fujifilm_c200", "fujifilm_provia_100f"),
+                FilmBrand.shelf(ids, "fujifilm", "kodak_portra_400"));
+        eqList(Arrays.asList("kodak_portra_400", "kodak_ektar_100"),
+                FilmBrand.shelf(ids, "kodak", "not_in_catalogue"));
+        eqList(Arrays.asList("cinestill_800t"),
+                FilmBrand.shelf(ids, "cinestill", null));
+        ok(FilmBrand.shelf(null, FilmBrand.ALL, null).isEmpty());
+        ok(FilmBrand.shelf(Arrays.asList(), "kodak", null).isEmpty());
+
+        // 重置当前页 returns to 全部: the whole catalogue is back, in its own
+        // order, even while a stock is selected.
+        eqList(ids, FilmBrand.shelf(ids, FilmBrand.ALL, "cinestill_800t"));
+
         System.out.println("FilmBrandCheck: " + checks + " checks passed");
     }
 
@@ -65,6 +85,13 @@ public final class FilmBrandCheck {
     private static void eqInt(int expected, int actual) {
         checks++;
         if (expected != actual) {
+            throw new AssertionError("expected " + expected + ", got " + actual);
+        }
+    }
+
+    private static void eqList(List<String> expected, List<String> actual) {
+        checks++;
+        if (!expected.equals(actual)) {
             throw new AssertionError("expected " + expected + ", got " + actual);
         }
     }
