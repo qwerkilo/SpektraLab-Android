@@ -1,10 +1,12 @@
-# Upstream 1.4.0 sync into the M3 Console
+# Upstream sync into the M3 Console
 
-Status: `implemented / release blocked by KI-1`. Tickets 01–06 are complete;
-the merged tree passed the device audit on `10.110.67.69:39613`. Build 69 /
-1.4.0-m3 is a preview build, not a stable announcement. Tracker: GitHub Issues are disabled, so this spec
-lives in the repository. Decision record: ADR-0005 (upstream 1.4.0 sync into
-the M3 line). Vocabulary: `GLOSSARY.md`.
+Status: `implemented / release gate open`. The 1.4.0 feature work and the
+1.4.1–1.4.4 native core are merged; the current preview is build 155 /
+1.4.4-m3. KI-1 is fixed by the 1.4.4 banded engine and was verified on a
+20.44 MP rebate export. The upstream composition page, canvas pinch, undo, and
+view-adjust pages are a follow-up M3 port (ADR-0006). Tracker: GitHub Issues are
+enabled. Decision records: ADR-0005 (1.4.0 features) and ADR-0006 (1.4.4 native
+core). Vocabulary: `GLOSSARY.md`.
 
 ## Problem Statement
 
