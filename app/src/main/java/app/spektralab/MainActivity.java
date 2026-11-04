@@ -197,6 +197,9 @@ public class MainActivity extends AppCompatActivity {
      * capture, a preview, and a restored JSON cannot drift apart.
      */
     private final Look optics = new Look();
+    private final LookHistory lookHistory = new LookHistory();
+    private MaterialButton undoButton;
+    private boolean restoringUndo;
     private int activeOptics = 0;
     /** True while the slider is being parked on a new parameter; no commit. */
     private boolean syncingOptics = false;
@@ -1356,6 +1359,12 @@ public class MainActivity extends AppCompatActivity {
         sharePill.setOnClickListener(v -> shareLastExport());
         actions.addView(sharePill, actionButtonParams());
 
+        undoButton = actionButton(mixedText(veryLargeText() ? "撤" : "撤销"),
+                "撤销上一次调整");
+        undoButton.setVisibility(View.GONE);
+        undoButton.setOnClickListener(v -> undoLook());
+        actions.addView(undoButton, actionButtonParams());
+
         final MaterialButton themeButton = actionButton(
                 mixedText(veryLargeText()
                         ? (dark ? "暗" : "亮")
@@ -1381,6 +1390,37 @@ public class MainActivity extends AppCompatActivity {
                 -2, dp(48), android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL));
         appBar.addView(toolbar, new AppBarLayout.LayoutParams(-1, -1));
         return appBar;
+    }
+
+    /** The M3 undo action is visible only while a previous Look exists. */
+    private void updateUndoAction() {
+        if (undoButton == null) return;
+        final boolean can = lookHistory.canUndo();
+        undoButton.setVisibility(can ? View.VISIBLE : View.GONE);
+        undoButton.setContentDescription(can
+                ? "撤销上一次调整，共 " + (lookHistory.size() - 1) + " 步"
+                : "没有可撤销的调整");
+    }
+
+    /** Restore the previous settled Look for this Frame and repaint it. */
+    private void undoLook() {
+        if (rendering) {
+            showSnackbar("正在渲染，完成后才能撤销…");
+            return;
+        }
+        final Look previous = lookHistory.undo();
+        if (previous == null) {
+            updateUndoAction();
+            return;
+        }
+        restoringUndo = true;
+        try {
+            applyLook(previous);
+        } finally {
+            restoringUndo = false;
+        }
+        updateUndoAction();
+        renderImage();
     }
 
     /** A top app bar action: the real M3 text-button style, 48 dp tall. */
@@ -5274,6 +5314,10 @@ public class MainActivity extends AppCompatActivity {
         private Bitmap before, after;
         private boolean holding, dragging;
         private float split, downX, downY;
+        private boolean pinching;
+        private float zoom = 1f, panX = 0f, panY = 0f;
+        private float pinchStartSpan, pinchStartZoom, pinchStartPanX, pinchStartPanY;
+        private float pinchStartCx, pinchStartCy;
 
         private final Runnable press = new Runnable() {
             @Override public void run() {
@@ -5302,6 +5346,10 @@ public class MainActivity extends AppCompatActivity {
             holding = false;
             dragging = false;
             split = 0f;
+            pinching = false;
+            zoom = 1f;
+            panX = 0f;
+            panY = 0f;
             invalidate();
         }
 
@@ -5354,11 +5402,29 @@ public class MainActivity extends AppCompatActivity {
         private void drawFit(android.graphics.Canvas canvas, Bitmap bmp) {
             final float vw = getWidth(), vh = getHeight();
             if (vw <= 0 || vh <= 0 || bmp.getWidth() == 0) return;
-            final float scale = Math.min(vw / bmp.getWidth(), vh / bmp.getHeight());
+            final float scale = Math.min(vw / bmp.getWidth(), vh / bmp.getHeight()) * zoom;
             final float w = bmp.getWidth() * scale, h = bmp.getHeight() * scale;
-            final float left = (vw - w) / 2f, top = (vh - h) / 2f;
+            final float left = (vw - w) / 2f + panX, top = (vh - h) / 2f + panY;
             dst.set(left, top, left + w, top + h);
             canvas.drawBitmap(bmp, null, dst, paint);
+        }
+
+        /** Current scale, for the stage readout; never triggers a render. */
+        float zoomLevel() {
+            return zoom;
+        }
+
+        private static float spanOf(android.view.MotionEvent e) {
+            if (e.getPointerCount() < 2) return 0f;
+            return (float) Math.hypot(e.getX(0) - e.getX(1), e.getY(0) - e.getY(1));
+        }
+
+        private static float midXOf(android.view.MotionEvent e) {
+            return (e.getX(0) + e.getX(1)) / 2f;
+        }
+
+        private static float midYOf(android.view.MotionEvent e) {
+            return (e.getY(0) + e.getY(1)) / 2f;
         }
 
         private void drawDivider(android.graphics.Canvas canvas, float x) {
@@ -5392,9 +5458,36 @@ public class MainActivity extends AppCompatActivity {
                     downY = e.getY();
                     dragging = false;
                     holding = false;
+                    pinching = false;
                     handler.postDelayed(press, android.view.ViewConfiguration.getLongPressTimeout());
                     return true;
+                case android.view.MotionEvent.ACTION_POINTER_DOWN:
+                    if (e.getPointerCount() >= 2) {
+                        handler.removeCallbacks(press);
+                        dragging = false;
+                        holding = false;
+                        pinching = true;
+                        pinchStartSpan = Math.max(1f, spanOf(e));
+                        pinchStartZoom = zoom;
+                        pinchStartPanX = panX;
+                        pinchStartPanY = panY;
+                        pinchStartCx = midXOf(e);
+                        pinchStartCy = midYOf(e);
+                        return true;
+                    }
+                    return super.onTouchEvent(e);
                 case android.view.MotionEvent.ACTION_MOVE:
+                    if (pinching) {
+                        if (e.getPointerCount() < 2) return true;
+                        final float span = Math.max(1f, spanOf(e));
+                        final float want = Math.max(0.2f, Math.min(8f,
+                                pinchStartZoom * span / pinchStartSpan));
+                        zoom = want;
+                        panX = pinchStartPanX + (midXOf(e) - pinchStartCx);
+                        panY = pinchStartPanY + (midYOf(e) - pinchStartCy);
+                        invalidate();
+                        return true;
+                    }
                     if (holding) return true;
                     if (!dragging) {
                         if (Math.abs(e.getX() - downX) < slop && Math.abs(e.getY() - downY) < slop) return true;
@@ -5404,8 +5497,12 @@ public class MainActivity extends AppCompatActivity {
                     split = Math.max(0.02f, Math.min(0.98f, e.getX() / Math.max(1, getWidth())));
                     invalidate();
                     return true;
+                case android.view.MotionEvent.ACTION_POINTER_UP:
+                    if (pinching) return true;
+                    return super.onTouchEvent(e);
                 case android.view.MotionEvent.ACTION_UP:
                     handler.removeCallbacks(press);
+                    pinching = false;
                     if (holding) {
                         holding = false;
                         invalidate();
@@ -5418,6 +5515,7 @@ public class MainActivity extends AppCompatActivity {
                     return true;
                 case android.view.MotionEvent.ACTION_CANCEL:
                     handler.removeCallbacks(press);
+                    pinching = false;
                     holding = false;
                     dragging = false;
                     invalidate();
@@ -6255,6 +6353,8 @@ public class MainActivity extends AppCompatActivity {
             restoreScanStateFromFrame(null);
             applyLook(defaultLook());
         }
+        lookHistory.reset(captureLook());
+        updateUndoAction();
         try {
             // Check if this is a RAW file by extension
             String fileName = getFileName(uri);
@@ -7273,6 +7373,11 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         final String renderedStock = filmStock;
+        // A settled edit is whatever Look the next render will use. Recording
+        // here catches every control path (slider release, stock, switch, reset)
+        // without each one having to remember undo.
+        if (!restoringUndo) lookHistory.record(captureLook());
+        updateUndoAction();
         // Snapshot the whole Look here, on the UI thread: the render thread gets
         // one finished string and never reads a control or a Frame.
         final String previewParams;
