@@ -3192,9 +3192,12 @@ public class MainActivity extends AppCompatActivity {
         slider.setValue(Math.max(min, Math.min(max, value)));
         slider.setLabelBehavior(com.google.android.material.slider.LabelFormatter.LABEL_GONE);
         slider.setContentDescription(label);
+        ViewCompat.setStateDescription(slider,
+                String.format(java.util.Locale.US, "%.2f", value));
         slider.addOnChangeListener((s, v, fromUser) -> {
             apply.accept(v);
             readout.setText(String.format(java.util.Locale.US, "%.2f", v));
+            ViewCompat.setStateDescription(s, String.format(java.util.Locale.US, "%.2f", v));
         });
         slider.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
             @Override public void onStartTrackingTouch(Slider s) { }
