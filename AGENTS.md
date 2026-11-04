@@ -30,12 +30,12 @@ On Windows without Termux, `app/build/build-apk-windows.ps1` compiles, dexes wit
 
 ## Gradle / Material 3
 
-`./gradlew assembleDebug` is the primary build for the M3 migration. It uses `JAVA_HOME` (CI sets JDK 17; local JDK 17 or 21 works), compiles and targets SDK 36, and stages `assets/` plus `arm64-v8a` libraries from `app/build/SpektraLab-1.3.4-qa.apk` (override with `-PbaseApk=<path>`). The donor's `stock_catalog.json` is deliberately excluded; `generateStockCatalog` rebuilds it from the staged profiles into `build/generated/stockAssets`, so `targetPrint` and the spectral series match the shipped profiles. Set the same `SPK_*` variables to sign with the release key; without them Gradle uses its debug key and the APK will not update an installed release build. For Android 15/16 devices with 16 KB pages, run `./gradlew align16k` (needs build-tools 36) and install `app/build/outputs/apk/debug/app-debug-16k-signed.apk`; the plain debug APK is only 4 KB zip-aligned. The legacy scripts remain the fallback for the pre-M3 tree.
+`./gradlew assembleDebug` is the primary build for the M3 migration. It uses `JAVA_HOME` (CI sets JDK 17; local JDK 17 or 21 works), compiles and targets SDK 36, and stages `assets/` plus `arm64-v8a` libraries from `app/build/SpektraLab-1.4.4-qa.apk` (override with `-PbaseApk=<path>`). The donor's `stock_catalog.json` is deliberately excluded; `generateStockCatalog` rebuilds it from the staged profiles into `build/generated/stockAssets`, so `targetPrint` and the spectral series match the shipped profiles. Set the same `SPK_*` variables to sign with the release key; without them Gradle uses its debug key and the APK will not update an installed release build. For Android 15/16 devices with 16 KB pages, run `./gradlew align16k` (needs build-tools 36) and install `app/build/outputs/apk/debug/app-debug-16k-signed.apk`; the plain debug APK is only 4 KB zip-aligned. The legacy scripts remain the fallback for the pre-M3 tree.
 
 ## Upstreams
 
 - **Engine**: `JamesQiu2005/SpektraLab`, branch `assist/vulkan-engine-1.3.4` at `445e314`. The engine is out of tree; sync by reapplying `patches/engine-android.patch` to the new baseline, never by merging the desktop app.
-- **Android app**: `SAINTTaiYi/SpektraLab-Android`, branch `master`. Fetch it as a second remote and merge fixes into the feature branch. The fork's `origin` is `qwerkilo/SpektraLab-Android`; pushing there does not update the user-facing channel.
+- **Android app**: `SAINTTaiYi/SpektraLab-Android`, branch `master` at `1.4.4` (`9875785`). The fork's `origin` is `qwerkilo/SpektraLab-Android`; pushing there does not update the user-facing channel. The 1.4.4 native/JNI core is merged; its new Console pages, canvas pinch, and undo are a follow-up port.
 - On Windows, build-tools 34 `d8` crashes on `MainActivity$1.class` (`NullPointerException`). Use the R8 jar in `android-sdk/cmdline-tools/latest/lib/r8.jar` with JDK 17 instead.
 
 ## Where the code lives
@@ -84,7 +84,7 @@ Use the global `droidmind` MCP for Android device work. Do not start with raw `a
 
 When the Termux engine toolchain is unavailable, a device build can replace `classes.dex` inside the shipped APK and re-sign it; the native libraries and assets stay from that APK. Do not hand-copy `libspektrafilm_engine.so`.
 
-GitHub Actions (`.github/workflows/android.yml`) runs `checkJvm`, lint, the manifest/APK gates, and builds a signed 16 KB APK on `windows-latest`. It downloads the donor APK from upstream release `v1.4.0`; that download replaces the local `app/build/SpektraLab-1.3.4-qa.apk`.
+GitHub Actions (`.github/workflows/android.yml`) runs `checkJvm`, lint, the manifest/APK gates, and builds a signed 16 KB APK on `windows-latest`. It downloads the donor APK from upstream release `v1.4.4`; that download replaces the local `app/build/SpektraLab-1.4.4-qa.apk`.
 
 ## Commits
 

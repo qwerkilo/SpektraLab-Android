@@ -126,6 +126,21 @@ public class SpektraLabEngine implements AutoCloseable {
         return new SpektraLabEngine(handle);
     }
 
+    /**
+     * Debug only: an environment variable the native side reads when it creates
+     * the Vulkan device.
+     *
+     * <p>`SPEKTRAFILM_STORAGE_LIMIT` is how a phone whose driver reports a 2 GiB
+     * binding range is made to behave like one that reports 128 MiB -- which is
+     * the device class the banded renderer exists for (docs/tiling.md, P0) and
+     * which is not in this drawer. It can only lower the limit; the engine
+     * refuses a value above what the driver advertises.
+     */
+    public static void setEnv(String name, String value) {
+        ensureLoaded();
+        nativeSetEnv(name, value);
+    }
+
     public static String buildInfo() {
         ensureLoaded();
         return nativeGetBuildInfo();
@@ -137,6 +152,17 @@ public class SpektraLabEngine implements AutoCloseable {
     }
 
     /** Buffer ledger: what the engine holds and where it was allocated. */
+    /**
+     * Drop the pooled render buffers that nothing is using, and say how many
+     * bytes that gave back. Called after an export: the pool keeps a full
+     * render's working set by design, and on a big frame that is more device
+     * memory than the rest of the phone can afford to lose.
+     */
+    public long trimPool() {
+        if (handle == 0) return 0;
+        return nativeTrimPool(handle);
+    }
+
     public String memoryReport() {
         return nativeMemoryReport(handle);
     }
@@ -164,16 +190,30 @@ public class SpektraLabEngine implements AutoCloseable {
     }
 
     /**
+     * The same open, with the decode white balance chosen instead of taken from
+     * the camera's as-shot record. {@code mul} is R, G, B, G2 with green at 1.
+     */
+    public Session openRawSessionTuned(String filePath, String paramsJson, int maxPixels, int maxLongEdge,
+                                       float[] mul) {
+        long sessionHandle = nativeOpenRawSessionTuned(handle, filePath, paramsJson, maxPixels, maxLongEdge, mul);
+        if (sessionHandle == 0) throw new RuntimeException("Failed to open RAW session");
+        return new Session(sessionHandle, 0, 0);
+    }
+
+    /**
      * Largest frame this device can render, in pixels, from the GPU's
      * maxStorageBufferRange (0 when it has none). Every kernel binds a whole
      * plane and a plane is 12 bytes per pixel, so a frame past this fails at
      * render time with "buffer exceeds maxStorageBufferRange".
      */
     public int maxFramePixels() {
-        long limit = nativeMaxPlaneBytes(handle);
-        if (limit <= 0) return 0;                 // no limit: caller decides
-        double px = limit / 12.0 * 0.80;          // 20% headroom for wider planes
-        return (int) Math.min(px, Integer.MAX_VALUE);
+        // **0: no binding ceiling.** `nativeMaxPlaneBytes` still reports what the
+        // driver advertises, and `describe()` still shows it, but a frame is no
+        // longer bounded by it -- the renderer bands every pass that would
+        // otherwise need the whole plane (docs/tiling.md, P0). The budget is the
+        // memory one; returning the old range/12 figure here would quietly
+        // reinstate the 8.95 MP ceiling on every 128 MiB device.
+        return 0;
     }
 
     @Override
@@ -207,6 +247,36 @@ public class SpektraLabEngine implements AutoCloseable {
         public String getParams() {
             return nativeGetParams(handle);
         }
+
+        public String sourceExifJson() { return nativeRawExifJson(handle); }
+
+        /**
+         * Writes this session's persistent planes -- its source and every tier
+         * it has rendered -- to a scratch file and releases the device copies,
+         * so a job that needs the memory more can have it. {@link #resume}
+         * reads them back and the session is exactly as it was.
+         *
+         * <p>Returns false when no scratch file could be created; the session
+         * is untouched in that case, and the caller should carry on. This is
+         * not a cache and not an error path: it is the difference between an
+         * export holding one frame's planes and two.
+         */
+        public boolean suspend() {
+            if (suspended) return true;
+            suspended = nativeSuspendSession(handle) == 0;
+            return suspended;
+        }
+
+        /** Undo {@link #suspend}. A no-op when nothing was suspended. */
+        public boolean resume() {
+            if (!suspended) return true;
+            suspended = nativeResumeSession(handle) == 0;
+            return suspended;
+        }
+
+        public boolean isSuspended() { return suspended; }
+
+        private boolean suspended;
 
         public int[] getDimensions() {
             return nativeGetSessionDimensions(handle);
@@ -332,6 +402,7 @@ public class SpektraLabEngine implements AutoCloseable {
     private static native String nativeGetBuildInfo();
     private static native String nativeCapabilities(long handle);
     private static native String nativeMemoryReport(long handle);
+    private static native long nativeTrimPool(long handle);
     private static native long nativeOpenSession(long engineHandle, ByteBuffer pixels, int width, int height, int channels);
     /** The GPU as JSON: binding range, heaps, workgroup limits. */
     public String deviceProfile() { return nativeDeviceProfile(handle); }
@@ -356,16 +427,83 @@ public class SpektraLabEngine implements AutoCloseable {
     /** Stable code for an engine message, 0 for empty, 9000 for unrecognised. */
     public static int errorCode(String message) { ensureLoaded(); return nativeErrorCode(message); }
 
+    /** Read this session's source capture fields, if it came from a RAW. */
+    public static String rawExifJson(Session session) {
+        return session == null ? "{}" : session.sourceExifJson();
+    }
+
     /** The RAW decoder's own frame size, before the device cap shrank it. */
     public static int[] rawSourceSize() { ensureLoaded(); return nativeRawSourceSize(); }
 
     private native String nativeDeviceProfile(long engineHandle);
     private static native int nativeErrorCode(String message);
     private static native int[] nativeRawSourceSize();
+    private static native String nativeRawExifJson(long sessionHandle);
     private static native long nativeMaxPlaneBytes(long engineHandle);
     private static native String nativeProbeCanary(long engineHandle, long needBytes);
+    /** The RAW's own dimensions from its header. Does not decode. */
+    private static native int[] nativeRawDimensions(String path);
+
+    /**
+     * How big the file is, asked before it is unpacked so the import can tell
+     * the user what it will cost. Null when the container cannot be read.
+     */
+    public static int[] rawDimensions(String path) {
+        try { return nativeRawDimensions(path); } catch (Throwable t) { return null; }
+    }
+
     private static native long nativeOpenRawSession(long engineHandle, String filePath, String paramsJson,
                                                     int maxPixels, int maxLongEdge);
+    private static native long nativeOpenRawSessionTuned(long engineHandle, String filePath, String paramsJson,
+                                                         int maxPixels, int maxLongEdge, float[] mul);
+    private static native void nativeSetViewAdjust(double[] values);
+    private static native void nativeSetViewCurves(double[] packed);
+    private static native void nativeSetSourceDisplayEv(double ev);
+    private static native void nativeSetExportExif(String make, String model, String datetime,
+                                                   String shutter, String aperture, String iso, String focal);
+    private static native String nativeReadJpegExif(byte[] head);
+    private static native float[] nativeRawMulForKelvin(long sessionHandle, double kelvin, double tint);
+
+    /** The optical page's continuous controls, in the kernel's own order. */
+    public static void setViewAdjust(double[] values) {
+        try { nativeSetViewAdjust(values); } catch (Throwable ignored) { }
+    }
+
+    /** Five tone curves, eight control points each, as (x, y) pairs. */
+    public static void setViewCurves(double[] packed) {
+        try { nativeSetViewCurves(packed); } catch (Throwable ignored) { }
+    }
+
+    /** Display-only exposure for the "original" side; never touches an export. */
+    public static void setSourceDisplayEv(double ev) {
+        try { nativeSetSourceDisplayEv(ev); } catch (Throwable ignored) { }
+    }
+
+    /** Source EXIF for the next export; empty strings mean "do not write". */
+    public static void setExportExif(String make, String model, String datetime,
+                                     String shutter, String aperture, String iso, String focal) {
+        try { nativeSetExportExif(make, model, datetime, shutter, aperture, iso, focal); }
+        catch (Throwable ignored) { }
+    }
+
+    /** The source JPEG's own EXIF, seven fields; empty strings when unreadable. */
+    public static String[] readJpegExif(byte[] head) {
+        final String[] out = {"", "", "", "", "", "", ""};
+        try {
+            final String joined = nativeReadJpegExif(head);
+            if (joined == null || joined.isEmpty()) return out;
+            final String[] parts = joined.split("\u0001", -1);
+            for (int i = 0; i < 7 && i < parts.length; ++i) out[i] = parts[i] == null ? "" : parts[i];
+        } catch (Throwable ignored) { }
+        return out;
+    }
+
+    /** Channel gains for a blackbody at {@code kelvin}; null when the sensor has no matrix. */
+    public static float[] rawMulForKelvin(Session session, double kelvin, double tint) {
+        if (session == null) return null;
+        try { return nativeRawMulForKelvin(session.handle, kelvin, tint); }
+        catch (Throwable t) { return null; }
+    }
     private static native void nativeCloseSession(long sessionHandle);
     private static native void nativeSetParams(long sessionHandle, String paramsJson);
     private static native String nativeGetParams(long sessionHandle);
@@ -382,4 +520,10 @@ public class SpektraLabEngine implements AutoCloseable {
     private static native int[] nativeExportTiff(long handle, String path, String tier);
     private static native int[] nativeExportDng(long handle, String path, String tier);
     private static native String nativeSolve(long handle, String target);
+
+    // Residency, for the export path: a whole frame's plane written to a
+    // scratch file and given back. Refused (non-zero) when the host named no
+    // writable scratch directory, which leaves the session as it was.
+    private static native int nativeSuspendSession(long sessionHandle);
+    private static native int nativeResumeSession(long sessionHandle);
 }

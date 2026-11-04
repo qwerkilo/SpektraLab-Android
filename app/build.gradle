@@ -12,8 +12,8 @@ android {
         applicationId 'app.spektralab'
         minSdk 24
         targetSdk 36
-        versionCode 69
-        versionName '1.4.0-m3'
+        versionCode 155
+        versionName '1.4.4-m3'
     }
 
     // Local builds use the user's release key when the environment provides
@@ -122,7 +122,7 @@ afterEvaluate {
  * APK is installable without the Termux script. Override with -PbaseApk=<path>.
  */
 def baseApk = file(project.findProperty('baseApk')
-        ?: "$buildDir/SpektraLab-1.3.4-qa.apk")
+        ?: "$buildDir/SpektraLab-1.4.4-qa.apk")
 def stagedBase = "$buildDir/generated/base"
 def stockAssets = "$buildDir/generated/stockAssets"
 

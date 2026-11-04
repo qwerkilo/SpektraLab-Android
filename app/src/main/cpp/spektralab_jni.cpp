@@ -22,6 +22,7 @@
 #include "spektrafilm/spk_engine.h"
 #include "io/image_writer.hpp"
 #include "export_metadata.hpp"
+#include "view_adjust.hpp"
 
 #define JNI(ret, name) extern "C" JNIEXPORT ret JNICALL \
     Java_app_spektralab_engine_SpektraLabEngine_##name
@@ -100,6 +101,27 @@ JNI(jint, nativeErrorCode)(JNIEnv* env, jclass, jstring message) {
     const int code = spk_error_code(text);
     env->ReleaseStringUTFChars(message, text);
     return code;
+}
+
+JNI(jlong, nativeTrimPool)(JNIEnv*, jclass, jlong engineHandle) {
+    spk_engine* e = reinterpret_cast<spk_engine*>(engineHandle);
+    if (!e) return 0;
+    return jlong(spk_trim_pool(e));
+}
+
+// Both return `spk_status` rather than throwing: a session with nowhere to
+// write its scratch file is not an error the caller can act on, and an export
+// that ignores the return is no worse off than before it asked.
+JNI(jint, nativeSuspendSession)(JNIEnv*, jclass, jlong sessionHandle) {
+    spk_session* s = reinterpret_cast<spk_session*>(sessionHandle);
+    if (!s) return SPK_ERR_INVALID_ARG;
+    return jint(spk_suspend_session(s));
+}
+
+JNI(jint, nativeResumeSession)(JNIEnv*, jclass, jlong sessionHandle) {
+    spk_session* s = reinterpret_cast<spk_session*>(sessionHandle);
+    if (!s) return SPK_ERR_INVALID_ARG;
+    return jint(spk_resume_session(s));
 }
 
 JNI(jlong, nativeCreateEngine)(JNIEnv* env, jclass, jstring resourcesDir) {
@@ -181,8 +203,16 @@ JNI(jstring, nativeProgressJson)(JNIEnv* env, jclass, jlong sessionHandle) {
     return out;
 }
 
-JNI(void, nativeCloseSession)(JNIEnv*, jclass, jlong sessionHandle) {
-    if (sessionHandle) spk_session_release(reinterpret_cast<spk_session*>(sessionHandle));
+extern "C" JNIEXPORT void JNICALL
+Java_app_spektralab_engine_SpektraLabEngine_nativeForgetRawSession(JNIEnv*, jclass, jlong);
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_spektralab_engine_SpektraLabEngine_nativeRawExifJson(JNIEnv*, jclass, jlong);
+
+JNI(void, nativeCloseSession)(JNIEnv* env, jclass, jlong sessionHandle) {
+    if (sessionHandle) {
+        Java_app_spektralab_engine_SpektraLabEngine_nativeForgetRawSession(env, nullptr, sessionHandle);
+        spk_session_release(reinterpret_cast<spk_session*>(sessionHandle));
+    }
 }
 
 JNI(void, nativeSetParams)(JNIEnv* env, jclass, jlong sessionHandle, jstring paramsJson) {
@@ -316,6 +346,170 @@ JNI(jstring, nativeGetBuildInfo)(JNIEnv* env, jclass) {
 static spk_result g_result{};
 static bool g_result_valid = false;
 
+// **The source frame is linear; a screen is not.**
+//
+// `spk_export_source` returns the decoded working-space numbers with no
+// transfer function, on purpose: that is what an undeveloped frame *is*, and
+// it is the right thing to hand a file. On a phone screen it reads as a black
+// rectangle, which is what "RAW 看不见底片，贼黑" was. So the display copy
+// gets the sRGB encoding a display expects -- and only the display copy: the
+// film pipeline and every export still see the linear values untouched.
+static bool g_result_is_source = false;
+
+// The view layer's tone controls. They run on the finished print -- screen and
+// every exported file -- and do nothing at all until one of them leaves zero.
+static spk_adjust::ViewAdjust g_adjust;
+
+JNI(void, nativeSetViewAdjust)(JNIEnv* env, jclass, jdoubleArray values) {
+    g_adjust = spk_adjust::ViewAdjust{};
+    if (!values) return;
+    const jsize n = env->GetArrayLength(values);
+    double v[25] = {0};
+    env->GetDoubleArrayRegion(values, 0, std::min<jsize>(n, 25), v);
+    g_adjust.vibrance = n >= 25 ? v[24] : 0.0;
+    g_adjust.temperature = v[0];
+    g_adjust.tint = v[1];
+    g_adjust.exposure = v[2];
+    g_adjust.contrast = v[3];
+    g_adjust.brightness = v[4];
+    g_adjust.saturation = v[5];
+    g_adjust.highlights = v[6];
+    g_adjust.shadows = v[7];
+    g_adjust.black_point = v[8];
+    g_adjust.white_point = v[9];
+    g_adjust.vignette = v[10];
+    g_adjust.vignette_mid = v[11] > 0.0 ? v[11] : 50.0;
+    // Four zones: master, shadows, midtones, highlights. Each is hue in
+    // degrees, saturation 0..1 and luminance -1..1 -- the same units the
+    // upstream grade layer takes.
+    if (n >= 24) {
+        constexpr double kPi = 3.14159265358979323846;
+        for (int z = 0; z < 4; ++z) {
+            const double hue = v[12 + z * 3] * kPi / 180.0;
+            const double sat = v[13 + z * 3] * 0.25;
+            for (int c = 0; c < 3; ++c)
+                g_adjust.cb[z][c] = std::cos(hue - 2.0 * kPi * c / 3.0) * sat;
+            g_adjust.cb_lum[z] = v[14 + z * 3] * 0.25;
+            if (std::fabs(g_adjust.cb[z][0]) + std::fabs(g_adjust.cb[z][1]) +
+                std::fabs(g_adjust.cb[z][2]) + std::fabs(g_adjust.cb_lum[z]) > 1e-9)
+                g_adjust.balance = true;
+        }
+    }
+    g_adjust.normalise();
+}
+
+// Five channels x eight control points, x < 0 meaning "unused". The tables are
+// built here with the engine's own monotone cubic, so a curve drawn in the app
+// is the curve the kernel would have drawn.
+JNI(void, nativeSetViewCurves)(JNIEnv* env, jclass, jdoubleArray packed) {
+    g_adjust.curves = false;
+    if (!packed || env->GetArrayLength(packed) < 80) { g_adjust.normalise(); return; }
+    double v[80] = {0};
+    env->GetDoubleArrayRegion(packed, 0, 80, v);
+    for (int ch = 0; ch < 5; ++ch) {
+        double xs[8], ys[8];
+        int n = 0;
+        for (int k = 0; k < 8; ++k) {
+            const double x = v[(ch * 8 + k) * 2], y = v[(ch * 8 + k) * 2 + 1];
+            if (x < 0.0) continue;
+            xs[n] = x;
+            ys[n] = y;
+            ++n;
+        }
+        if (n < 2) { for (int i = 0; i < 256; ++i) g_adjust.curve[ch][i] = float(i / 255.0); continue; }
+        spk_adjust::detail::build_curve(g_adjust.curve[ch], xs, ys, n);
+        for (int i = 0; i < 256; ++i)
+            if (std::fabs(double(g_adjust.curve[ch][i]) - i / 255.0) > 1e-3) { g_adjust.curves = true; }
+    }
+    g_adjust.normalise();
+}
+
+// One place for "grade this result before it leaves the library".
+static void grade_result(spk_result& r) {
+    if (g_adjust.neutral() || !r.rgba16 || !r.width || !r.height) return;
+    spk_adjust::apply(const_cast<uint16_t*>(r.rgba16), r.width, r.height,
+                      r.row_stride_px ? r.row_stride_px : r.width, g_adjust);
+}
+
+// **The same exposure the render will use.** The meter applies an EV to the
+// film, which is why the developed side of the comparison looks right while the
+// decoded side looks three stops under. The source copy is shown at that same
+// exposure, so "before" and "after" are a comparison of the film, not of two
+// different exposures.
+static double g_source_display_gain = 1.0;
+
+JNI(void, nativeSetSourceDisplayEv)(JNIEnv*, jclass, jdouble ev) {
+    const double clamped = ev < -4.0 ? -4.0 : (ev > 6.0 ? 6.0 : ev);
+    double gain = std::pow(2.0, clamped);
+    // **Cap the display gain so the frame's own highlights survive it.**
+    //
+    // The metered EV is computed for a *print*: `balanced` lifts a scene that is
+    // five stops under the meter into the paper's straight line, and the paper's
+    // shoulder absorbs what is left. Applied as a display exposure it has no
+    // shoulder -- it just clips. Measured on a lamp against a dark room: linear
+    // p50 0.23%, p99 65%, balanced +5.41 EV, and 19.07% of the frame past 1.0.
+    //
+    // p99.5 is sampled (40k pixels, a 200x200 grid) and the gain is stopped
+    // where that percentile reaches 0.995. A night frame -- small p99.5 -- still
+    // lifts all the way; a scene that is already bright is limited to what its
+    // own highlights allow. The cap never darkens: a frame whose p99.5 is
+    // already 1.0 keeps gain 1.0.
+    if (g_result_valid && g_result_is_source && g_result.rgba16 &&
+        g_result.width && g_result.height) {
+        const uint32_t w = g_result.width, h = g_result.height;
+        const uint32_t stride = g_result.row_stride_px ? g_result.row_stride_px : w;
+        const uint32_t ystep = std::max<uint32_t>(1, h / 200u);
+        const uint32_t xstep = std::max<uint32_t>(1, w / 200u);
+        std::vector<uint16_t> luma;
+        luma.reserve(size_t(w / xstep + 1) * size_t(h / ystep + 1));
+        for (uint32_t y = 0; y < h; y += ystep) {
+            const uint16_t* row = g_result.rgba16 + size_t(y) * stride * 4;
+            for (uint32_t x = 0; x < w; x += xstep) {
+                const uint16_t* q = row + size_t(x) * 4;
+                luma.push_back(uint16_t((uint32_t(q[0]) + uint32_t(q[1]) + uint32_t(q[2])) / 3u));
+            }
+        }
+        if (!luma.empty()) {
+            std::sort(luma.begin(), luma.end());
+            const double p50 = double(luma[luma.size() / 2]) / 65535.0;
+            const size_t k = std::min(luma.size() - 1, (luma.size() * 995) / 1000);
+            const double p995 = double(luma[k]) / 65535.0;
+            // **A display exposure, not the film's.** The reference's canvas
+            // reads a `.display` decode (CIRAWFilter's own auto), while its
+            // engine reads `.linear`; ours was feeding the *film* EV into the
+            // canvas, and a night frame metered +0.24 stops came back at 2/255.
+            // Put the median on 18 % of linear -- sRGB mid-grey -- and let the
+            // 99.5th percentile stop the gain before it clips, which is the
+            // same two rules the import sheet quotes.
+            if (p50 > 1e-5) {
+                double want = 0.18 / p50;
+                if (p995 > 1e-6) {
+                    const double cap = 0.995 / p995;
+                    if (want > cap) want = cap;
+                }
+                want = std::clamp(want, 0.25, 16.0);
+                gain = want;
+            }
+        }
+    }
+    g_source_display_gain = gain;
+}
+
+static const uint8_t* srgb_display_lut() {
+    static uint8_t table[65536];
+    static bool ready = false;
+    if (!ready) {
+        for (int i = 0; i < 65536; ++i) {
+            const double x = double(i) / 65535.0;
+            const double s = x <= 0.0031308 ? 12.92 * x : 1.055 * std::pow(x, 1.0 / 2.4) - 0.055;
+            const int q = int(s * 255.0 + 0.5);
+            table[i] = uint8_t(q < 0 ? 0 : (q > 255 ? 255 : q));
+        }
+        ready = true;
+    }
+    return table;
+}
+
 JNI(jintArray, nativeRenderBegin)(JNIEnv* env, jclass, jlong sessionHandle, jstring tier) {
     spk_session* session = reinterpret_cast<spk_session*>(sessionHandle);
     if (!session) { throw_runtime(env, "session is null"); return nullptr; }
@@ -339,6 +533,7 @@ JNI(jintArray, nativeRenderBegin)(JNIEnv* env, jclass, jlong sessionHandle, jstr
         return nullptr;
     }
     g_result_valid = true;
+    g_result_is_source = false;
 
     jintArray out = env->NewIntArray(2);
     if (!out) return nullptr;
@@ -379,12 +574,26 @@ JNI(jintArray, nativeExportSource)(JNIEnv* env, jclass, jlong sessionHandle, jst
         return nullptr;
     }
     g_result_valid = true;
+    g_result_is_source = true;
 
     jintArray out = env->NewIntArray(2);
     if (!out) return nullptr;
     jint dims[2] = {(jint)g_result.width, (jint)g_result.height};
     env->SetIntArrayRegion(out, 0, 2, dims);
     return out;
+}
+
+
+// Encoded-domain lift: 0 stays 0, 255 stays 255, the shadows come up.
+static inline uint8_t lift8(uint8_t v) {
+    static uint8_t table[256];
+    static bool ready = false;
+    if (!ready) {
+        for (int i = 0; i < 256; ++i)
+            table[i] = uint8_t(std::lround(255.0 * std::pow(i / 255.0, 0.85)));
+        ready = true;
+    }
+    return table[v];
 }
 
 JNI(jint, nativeCopyArgbRange)(JNIEnv* env, jclass, jintArray dst, jint rowOffset, jint rowCount) {
@@ -403,14 +612,86 @@ JNI(jint, nativeCopyArgbRange)(JNIEnv* env, jclass, jintArray dst, jint rowOffse
     for (uint32_t y = 0; y < rows; ++y) {
         const uint16_t* src = px + size_t(rowOffset + y) * g_result.row_stride_px * 4;
         jint* line = tmp.data() + size_t(y) * w;
-        for (uint32_t x = 0; x < w; ++x) {
-            const uint16_t r = src[x * 4 + 0];
-            const uint16_t g = src[x * 4 + 1];
-            const uint16_t b = src[x * 4 + 2];
-            line[x] = jint(0xFF000000u)
-                    | (jint((r & 0xFF00u) << 8))
-                    | (jint(g & 0xFF00u))
-                    | (jint(b >> 8));
+        if (!g_result_is_source && !g_adjust.neutral()) {
+            for (uint32_t x = 0; x < w; ++x) {
+                double c[3] = {src[x * 4 + 0] / 65535.0, src[x * 4 + 1] / 65535.0,
+                               src[x * 4 + 2] / 65535.0};
+                spk_adjust::apply_pixel(c, int(x), int(rowOffset + y), int(w), int(h), g_adjust);
+                const int r = int(std::clamp(c[0], 0.0, 1.0) * 255.0 + 0.5);
+                const int g = int(std::clamp(c[1], 0.0, 1.0) * 255.0 + 0.5);
+                const int b = int(std::clamp(c[2], 0.0, 1.0) * 255.0 + 0.5);
+                line[x] = jint(0xFF000000u) | (jint(r) << 16) | (jint(g) << 8) | jint(b);
+            }
+        } else if (g_result_is_source) {
+            const uint8_t* lut = srgb_display_lut();
+            const double gain = g_source_display_gain;
+            // **The reference has two decodes, not one.** Its engine reads a
+            // `.linear` decode with every tone rendering switched off
+            // (`boostAmount = 0`, `localToneMapAmount = 0`, gamut mapping off);
+            // its canvas reads a separate `.display` decode with CIRAWFilter's
+            // defaults on -- boost, local tone map, gamut mapping. Ours had only
+            // the linear one plus an sRGB OETF, which is exactly why an
+            // imported frame came back flatter than the same file in Photos.
+            //
+            // A gentle S-curve plus a little saturation is not Apple's boost,
+            // but it is the same *kind* of thing: a display rendering, not a
+            // measurement. The engine still gets the untouched numbers.
+            // **The working space is ProPhoto, not sRGB.** `raw_decoder` asks
+            // LibRaw for `output_color = 4`, and `spk_export_source` hands the
+            // engine's working numbers straight back. Encoding those as sRGB
+            // leaves the luminance alone and collapses the colour -- ProPhoto's
+            // primaries are far wider, so the same numbers mean a much duller
+            // picture once a display reads them. That is the whole of "导入进来
+            // 就是很寡淡", and it is why the highlight lift did not help.
+            //
+            // ProPhoto (D50) -> linear sRGB (D65), Bradford adapted.
+            static const double p2s[9] = {
+                 1.3459433, -0.2556075, -0.0511118,
+                -0.5445989,  1.5081673,  0.0205351,
+                 0.0000000,  0.0000000,  1.2118128,
+            };
+            for (uint32_t x = 0; x < w; ++x) {
+                const double pr = double(src[x * 4 + 0]) / 65535.0;
+                const double pg = double(src[x * 4 + 1]) / 65535.0;
+                const double pb = double(src[x * 4 + 2]) / 65535.0;
+                double c[3] = {
+                    std::clamp((p2s[0] * pr + p2s[1] * pg + p2s[2] * pb) * gain, 0.0, 1.0),
+                    std::clamp((p2s[3] * pr + p2s[4] * pg + p2s[5] * pb) * gain, 0.0, 1.0),
+                    std::clamp((p2s[6] * pr + p2s[7] * pg + p2s[8] * pb) * gain, 0.0, 1.0),
+                };
+                for (int i = 0; i < 3; ++i) {
+                    const double t = c[i];
+                    const double smooth = t * t * (3.0 - 2.0 * t);
+                    c[i] = 0.72 * t + 0.28 * smooth;
+                }
+                const double l = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+                for (int i = 0; i < 3; ++i) {
+                    c[i] = std::clamp(l + (c[i] - l) * 1.12, 0.0, 1.0);
+                }
+                const uint32_t ir = uint32_t(c[0] * 65535.0 + 0.5);
+                const uint32_t ig = uint32_t(c[1] * 65535.0 + 0.5);
+                const uint32_t ib = uint32_t(c[2] * 65535.0 + 0.5);
+                // **A display lift on top of the OETF.** A night frame's median
+                // is 2 % linear; the sRGB curve leaves that at 30/255, which
+                // reads as a black rectangle next to what Photos shows. Gamma
+                // 0.85 in the encoded domain lifts the shadows and leaves 255
+                // where it is -- a display decision, exactly like the S-curve
+                // above, and the engine never sees it.
+                line[x] = jint(0xFF000000u)
+                        | (jint(lift8(lut[ir])) << 16)
+                        | (jint(lift8(lut[ig])) << 8)
+                        | jint(lift8(lut[ib]));
+            }
+        } else {
+            for (uint32_t x = 0; x < w; ++x) {
+                const uint16_t r = src[x * 4 + 0];
+                const uint16_t g = src[x * 4 + 1];
+                const uint16_t b = src[x * 4 + 2];
+                line[x] = jint(0xFF000000u)
+                        | (jint((r & 0xFF00u) << 8))
+                        | (jint(g & 0xFF00u))
+                        | (jint(b >> 8));
+            }
         }
     }
     env->SetIntArrayRegion(dst, 0, jsize(tmp.size()), tmp.data());
@@ -551,7 +832,8 @@ static std::string now_exif_datetime() {
     return buf;
 }
 
-static bool write_jpeg_file(const char* path, const spk_result& r, int quality) {
+static bool write_jpeg_file(const char* path, const spk_result& r, int quality,
+                            const spk_export::SourceExif& source = {}) {
     const uint32_t w = r.width, h = r.height;
     const uint32_t stride = r.row_stride_px ? r.row_stride_px : r.width;
     if (!r.rgba16 || !w || !h) return false;
@@ -582,7 +864,7 @@ static bool write_jpeg_file(const char* path, const spk_result& r, int quality) 
     // no software and no dimensions in its metadata at all.
     {
         const std::vector<uint8_t> exif = spk_export::build_exif_app1(export_software(),
-                                                          now_exif_datetime(), w, h);
+                                                          now_exif_datetime(), w, h, source);
         if (!exif.empty())
             jpeg_write_marker(&cinfo, JPEG_APP0 + 1, exif.data(), unsigned(exif.size()));
         std::vector<uint8_t> icc;
@@ -604,6 +886,75 @@ static bool write_jpeg_file(const char* path, const spk_result& r, int quality) 
     jpeg_destroy_compress(&cinfo);
     std::fclose(f);
     return true;
+}
+
+// **Source capture metadata, handed over just before an export.**
+//
+// The writer below appends one APP1 segment with these fields and then the ICC
+// profile, in the same pass that encodes the pixels. The alternative -- letting
+// Java reopen the finished file and save attributes through the platform's
+// ExifInterface -- rewrites a ten-megabyte JPEG from another process boundary,
+// and nothing in that path is ours: not the segment order, not the colour
+// profile that has to survive it. Metadata belongs with the encoder that knows
+// what it wrote.
+static spk_export::SourceExif g_export_exif;
+
+static std::string jni_string(JNIEnv* env, jstring value) {
+    if (!value) return std::string();
+    const char* text = env->GetStringUTFChars(value, nullptr);
+    std::string out = text ? text : "";
+    if (text) env->ReleaseStringUTFChars(value, text);
+    return out;
+}
+
+// "1/204" or "0.0049" -- a camera writes the first, ExifInterface returns it,
+// and the writer wants seconds.
+static double jni_seconds(const std::string& text) {
+    if (text.empty()) return 0.0;
+    const size_t slash = text.find('/');
+    if (slash != std::string::npos) {
+        const double numerator = std::atof(text.substr(0, slash).c_str());
+        const double denominator = std::atof(text.substr(slash + 1).c_str());
+        return denominator > 0.0 ? numerator / denominator : 0.0;
+    }
+    return std::atof(text.c_str());
+}
+
+JNI(void, nativeSetExportExif)(JNIEnv* env, jclass, jstring make, jstring model, jstring datetime,
+                               jstring shutter, jstring aperture, jstring iso, jstring focal) {
+    g_export_exif = spk_export::SourceExif{};
+    g_export_exif.make = jni_string(env, make);
+    g_export_exif.model = jni_string(env, model);
+    g_export_exif.datetime = jni_string(env, datetime);
+    g_export_exif.shutter = jni_seconds(jni_string(env, shutter));
+    g_export_exif.aperture = jni_seconds(jni_string(env, aperture));
+    g_export_exif.iso = jni_seconds(jni_string(env, iso));
+    g_export_exif.focal_mm = jni_seconds(jni_string(env, focal));
+    g_export_exif.present = !(g_export_exif.make.empty() && g_export_exif.model.empty() &&
+                              g_export_exif.datetime.empty());
+}
+
+// **What the source JPEG's own APP1 says, as seven fields.**
+//
+// Returned rather than stashed: the caller merges it with whatever the platform
+// reader managed to produce and logs both, so a field that goes missing can be
+// traced to the reader that dropped it instead of to "EXIF is broken".
+// Fields: make, model, datetime, shutter(s), aperture, iso, focal(mm).
+JNI(jstring, nativeReadJpegExif)(JNIEnv* env, jclass, jbyteArray head) {
+    if (!head) return env->NewStringUTF("");
+    const jsize n = env->GetArrayLength(head);
+    if (n <= 0) return env->NewStringUTF("");
+    std::vector<uint8_t> bytes(static_cast<size_t>(n), 0);
+    env->GetByteArrayRegion(head, 0, n, reinterpret_cast<jbyte*>(bytes.data()));
+    spk_export::SourceExif parsed;
+    if (!spk_export::read_jpeg_source_exif(bytes.data(), bytes.size(), parsed))
+        return env->NewStringUTF("");
+    char numbers[256];
+    std::snprintf(numbers, sizeof numbers, "%.6f\x01%.2f\x01%.0f\x01%.2f",
+                  parsed.shutter, parsed.aperture, parsed.iso, parsed.focal_mm);
+    std::string joined = parsed.make + '\x01' + parsed.model + '\x01' + parsed.datetime
+                       + '\x01' + numbers;
+    return env->NewStringUTF(joined.c_str());
 }
 
 JNI(jintArray, nativeExportJpeg)(JNIEnv* env, jclass, jlong sessionHandle,
@@ -642,13 +993,14 @@ JNI(jintArray, nativeExportJpeg)(JNIEnv* env, jclass, jlong sessionHandle,
         return nullptr;
     }
     trim_to_canvas(session, result, progPath);
+    grade_result(result);
     log_content_profile(result, progPath);
     prog_line(progPath, "rendered %ux%u render_ms=%.0f", result.width, result.height,
               std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
     const double render_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     const int w = int(result.width), h = int(result.height);
-    const bool ok = write_jpeg_file(outPath.c_str(), result, int(quality));
+    const bool ok = write_jpeg_file(outPath.c_str(), result, int(quality), g_export_exif);
     const double total_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     spk_result_free(&result);
@@ -700,6 +1052,7 @@ JNI(jintArray, nativeExportTiff)(JNIEnv* env, jclass, jlong sessionHandle, jstri
         return nullptr;
     }
     trim_to_canvas(session, result, progPath);
+    grade_result(result);
     log_content_profile(result, progPath);
     const double render_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
@@ -763,6 +1116,7 @@ JNI(jintArray, nativeExportDng)(JNIEnv* env, jclass, jlong sessionHandle, jstrin
         return nullptr;
     }
     trim_to_canvas(session, result, progPath);
+    grade_result(result);
     log_content_profile(result, progPath);
     const double render_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();

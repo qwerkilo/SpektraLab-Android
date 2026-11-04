@@ -7,7 +7,9 @@ line in the same form the check reads.
 
 ## KI-1 · Rebate bottom print lost above ~16.7 MP
 
-**Status:** open. **Release gate: open.**
+**Status:** fixed in the 1.4.4 engine. **Release gate: open.** Upstream 1.4.4 moves the rebate and canvas passes to banded rendering end to end; this build adopts that native core while the M3 Console is retained.
+
+**Verified:** 2026-11-04 on `10.110.67.69:44329` (Android 17) with `1.4.4-m3` (code 155), CineStill 800T, 135 full frame, a 4500×3000 JPEG exported as **4704×4345 (20.44 MP)**. The bottom band now carries the frame number and the `2A` edge print. The previous 1.4.0-m3 build lost both at this size.
 
 **Affected:** the fork from `1.4.0-m3` (engine upstream `445e314`, out of
 tree). The Rebate/overscan path on any export whose rebate **canvas** is
@@ -19,11 +21,7 @@ preview shows it. The picture area itself is complete, and the file's size and
 the stage preview look normal, so the loss is easy to miss without looking at
 the bottom edge of the file.
 
-**Cause:** engine-side. The rebate draw runs as a dispatch over the canvas;
-past the ~16.7 MP workgroup ceiling the final rows are not drawn into the
-export buffer. The app-side canvas trim (ticket 01) crops to the engine's
-top-left canvas and does not fix the lost rows. The engine is out of tree;
-this sync does not change it (ADR-0005, `docs/specs/upstream-1.4-sync.md`).
+**Cause:** engine-side. The rebate draw ran as a single dispatch over the canvas; past the ~16.7 MP workgroup ceiling the final rows were not drawn into the export buffer. The app-side canvas trim (ticket 01) crops to the engine's top-left canvas and could not fix the lost rows. The 1.4.4 engine bands the rebate and canvas passes end to end; this tree now carries that engine/JNI core (ADR-0006).
 
 **Reproduced:** 2026-11-03 on `10.110.67.69:39613` (Android 17) with
 `1.4.0-m3` (code 69): CineStill 800T, 135 full frame, a 4500×3000 JPEG
