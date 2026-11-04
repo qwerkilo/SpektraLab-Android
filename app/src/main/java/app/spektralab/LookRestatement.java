@@ -163,31 +163,8 @@ public final class LookRestatement {
      * parameter that has no matching key.
      */
     public static String engineKey(OpticsDelta.Param param) {
-        switch (param) {
-            case EXPOSURE: return "print_exposure";
-            case HIGHLIGHT_ROOM: return "scene_latitude_highlight_room";
-            case SHADOW_ROOM: return "scene_latitude_shadow_room";
-            case GRAIN: return "grain_amount";
-            case HALATION: return "halation_amount";
-            case HALATION_BOOST: return "halation_boost_ev";
-            case HALATION_SCATTER: return "halation_scatter_amount";
-            case GLARE: return "glare_amount";
-            case LENS_BLUR: return "lens_blur_um";
-            case Y_FILTER: return "y_filter_shift";
-            case M_FILTER: return "m_filter_shift";
-            case FILTER_SCALE: return "filter_shift_scale";
-            case PREFLASH: return "preflash_exposure";
-            case SHADOW_ROLLOFF: return "scene_latitude_rolloff";
-            case MAX_LIFT: return "scene_latitude_max_lift";
-            case HALATION_ON: return "halation_active";
-            case ANTIHALATION_REMOVED: return "antihalation_removed";
-            case GRAIN_ON: return "grain_active";
-            case COUPLERS_ON: return "dir_couplers_active";
-            case SCANNER_WHITE: return "scanner_white_correction";
-            case SCANNER_BLACK: return "scanner_black_correction";
-            case EDR_ON: return "extended_dynamic_range";
-            default: throw new IllegalArgumentException("unknown parameter " + param);
-        }
+        if (param == null) throw new IllegalArgumentException("param is null");
+        return param.engineKey;
     }
 
     /**
