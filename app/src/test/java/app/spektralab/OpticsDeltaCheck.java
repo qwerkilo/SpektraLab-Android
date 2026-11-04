@@ -164,8 +164,12 @@ public final class OpticsDeltaCheck {
             require(p.name() + " resets to its default",
                     p.isDefault(p.defaultValue) && !p.isDefault(p.max == p.defaultValue
                             ? p.min : p.max));
+            require(p.name() + " has a stable engine key",
+                    p.engineKey != null && !p.engineKey.isEmpty());
             for (int j = i + 1; j < params.length; ++j) {
                 require(p.name() + " wire is unique", !p.wire.equals(params[j].wire));
+                require(p.name() + " engine key is unique",
+                        !p.engineKey.equals(params[j].engineKey));
             }
         }
         require("highlight room range", OpticsDelta.Param.HIGHLIGHT_ROOM.min == 0f
