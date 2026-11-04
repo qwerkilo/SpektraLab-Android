@@ -35,7 +35,7 @@ shift 3
 
 SITE="https://spektralab.workshop.skin"
 UPD="https://update.workshop.skin"
-REPO="SAINTTaiYi/SpektraLab-Android"
+REPO="qwerkilo/SpektraLab-Android"
 GATE="docs/known-issues.md"
 
 # The gate is read, not trusted to memory: a build with KI-1 open may only be
