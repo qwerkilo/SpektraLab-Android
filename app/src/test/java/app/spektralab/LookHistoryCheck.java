@@ -29,11 +29,17 @@ public final class LookHistoryCheck {
         // A new edit after undo starts a fresh branch from the restored state.
         final Look third = restored.copy();
         third.halationAmount = 2.5f;
+        third.view.temperature = 42f;
+        third.geometryTurns = 1;
+        third.geometryCropW = 0.5f;
         history.record(third);
         ok(history.canUndo());
         final Look thirdRestored = history.undo();
         near(OpticsDelta.GRAIN_DEFAULT, thirdRestored.grainAmount);
         near(OpticsDelta.HALATION_DEFAULT, thirdRestored.halationAmount);
+        near(0f, thirdRestored.view.temperature);
+        eq(0, thirdRestored.geometryTurns);
+        near(1f, thirdRestored.geometryCropW);
 
         // LIMIT trims the oldest state, not the newest.
         final LookHistory bounded = new LookHistory();
