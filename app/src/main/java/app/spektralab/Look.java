@@ -91,62 +91,16 @@ public final class Look {
 
     /** Current value for one contract parameter. */
     float get(OpticsDelta.Param param) {
-        switch (param) {
-            case EXPOSURE: return printExposure;
-            case HIGHLIGHT_ROOM: return highlightRoom;
-            case SHADOW_ROOM: return shadowRoom;
-            case GRAIN: return grainAmount;
-            case HALATION: return halationAmount;
-            case HALATION_BOOST: return halationBoost;
-            case HALATION_SCATTER: return halationScatter;
-            case GLARE: return glareAmount;
-            case LENS_BLUR: return lensBlur;
-            case Y_FILTER: return yFilter;
-            case M_FILTER: return mFilter;
-            case FILTER_SCALE: return filterScale;
-            case PREFLASH: return preflash;
-            case SHADOW_ROLLOFF: return shadowRolloff;
-            case MAX_LIFT: return maxLift;
-            case HALATION_ON: return halationOn;
-            case ANTIHALATION_REMOVED: return antihalationRemoved;
-            case GRAIN_ON: return grainOn;
-            case COUPLERS_ON: return couplersOn;
-            case SCANNER_WHITE: return scannerWhite;
-            case SCANNER_BLACK: return scannerBlack;
-            case EDR_ON: return edrOn;
-            default: throw new IllegalArgumentException("unknown parameter " + param);
-        }
+        if (param == null) throw new IllegalArgumentException("param is null");
+        return param.getter.get(this);
     }
 
     /** Store one contract parameter, unchanged. The slider clamps to the
      *  contract range before calling; reading an older Look must not rewrite a
      *  value the engine still understands. */
     void set(OpticsDelta.Param param, float value) {
-        switch (param) {
-            case EXPOSURE: printExposure = value; break;
-            case HIGHLIGHT_ROOM: highlightRoom = value; break;
-            case SHADOW_ROOM: shadowRoom = value; break;
-            case GRAIN: grainAmount = value; break;
-            case HALATION: halationAmount = value; break;
-            case HALATION_BOOST: halationBoost = value; break;
-            case HALATION_SCATTER: halationScatter = value; break;
-            case GLARE: glareAmount = value; break;
-            case LENS_BLUR: lensBlur = value; break;
-            case Y_FILTER: yFilter = value; break;
-            case M_FILTER: mFilter = value; break;
-            case FILTER_SCALE: filterScale = value; break;
-            case PREFLASH: preflash = value; break;
-            case SHADOW_ROLLOFF: shadowRolloff = value; break;
-            case MAX_LIFT: maxLift = value; break;
-            case HALATION_ON: halationOn = value; break;
-            case ANTIHALATION_REMOVED: antihalationRemoved = value; break;
-            case GRAIN_ON: grainOn = value; break;
-            case COUPLERS_ON: couplersOn = value; break;
-            case SCANNER_WHITE: scannerWhite = value; break;
-            case SCANNER_BLACK: scannerBlack = value; break;
-            case EDR_ON: edrOn = value; break;
-            default: throw new IllegalArgumentException("unknown parameter " + param);
-        }
+        if (param == null) throw new IllegalArgumentException("param is null");
+        param.setter.set(this, value);
     }
 
     /** Return one parameter to its contract default; every other value stays. */
