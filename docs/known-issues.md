@@ -7,7 +7,7 @@ line in the same form the check reads.
 
 ## KI-1 · Rebate bottom print lost above ~16.7 MP
 
-**Status:** fixed in the 1.4.4 engine. **Release gate: open.** Upstream 1.4.4 moves the rebate and canvas passes to banded rendering end to end; this build adopts that native core while the M3 Console is retained.
+**Status:** fixed in the 1.4.4 engine. **Release gate: accepted.** Upstream 1.4.4 moves the rebate and canvas passes to banded rendering end to end; this build adopts that native core while the M3 Console is retained. **Accepted:** 2026-11-04 for `1.4.4-m3` after the >16.7 MP export below kept the bottom frame number and `2A` edge print.
 
 **Verified:** 2026-11-04 on `10.110.67.69:44329` (Android 17) with `1.4.4-m3` (code 155), CineStill 800T, 135 full frame, a 4500×3000 JPEG exported as **4704×4345 (20.44 MP)**. The bottom band now carries the frame number and the `2A` edge print. The previous 1.4.0-m3 build lost both at this size.
 

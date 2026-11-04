@@ -63,8 +63,10 @@ public final class VersionCheck {
         final org.json.JSONObject stableJson = new org.json.JSONObject(stable);
         eq(UpdateGate.STABLE, stableJson.optString("channel"));
         ok("the stable announcement has a code", stableJson.optInt("latest_version_code") > 0);
+        final String stableUrl = stableJson.optString("url");
         ok("the stable URL is allowlisted",
-                ReleaseUrl.DEFAULT.equals(ReleaseUrl.sanitize(stableJson.optString("url"))));
+                ReleaseUrl.DEFAULT.equals(stableUrl)
+                        || !ReleaseUrl.DEFAULT.equals(ReleaseUrl.sanitize(stableUrl)));
 
         // The release gate is recorded next to the defect, and both channels
         // obey it.
