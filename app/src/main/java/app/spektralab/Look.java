@@ -83,6 +83,11 @@ public final class Look {
     String overscanFormat = DEFAULT_OVERSCAN_FORMAT;
     /** The print-view layer, part of this Frame's Look. */
     ViewAdjust view = new ViewAdjust();
+    /** Composition: the engine geometry node, not a bitmap transform. */
+    int geometryTurns;
+    float geometryRotation;
+    float geometryCropX, geometryCropY, geometryCropW = 1f, geometryCropH = 1f;
+    boolean geometryFlipH, geometryFlipV;
 
     /** Current value for one contract parameter. */
     float get(OpticsDelta.Param param) {
@@ -191,6 +196,14 @@ public final class Look {
             o.put("format", overscanFormat == null ? DEFAULT_OVERSCAN_FORMAT : overscanFormat);
             o.put("date", dateOn);
             o.put("view", view.toJson());
+            o.put("gturn", geometryTurns);
+            o.put("grot", (double) geometryRotation);
+            o.put("gcx", (double) geometryCropX);
+            o.put("gcy", (double) geometryCropY);
+            o.put("gcw", (double) geometryCropW);
+            o.put("gch", (double) geometryCropH);
+            o.put("gfliph", geometryFlipH);
+            o.put("gflipv", geometryFlipV);
         } catch (JSONException ignored) { }
         return o;
     }
@@ -234,6 +247,14 @@ public final class Look {
         final String format = o.optString("format", DEFAULT_OVERSCAN_FORMAT);
         l.overscanFormat = format.isEmpty() ? DEFAULT_OVERSCAN_FORMAT : format;
         l.view.load(o.optJSONObject("view"));
+        l.geometryTurns = o.optInt("gturn", 0);
+        l.geometryRotation = (float) o.optDouble("grot", 0.0);
+        l.geometryCropX = (float) o.optDouble("gcx", 0.0);
+        l.geometryCropY = (float) o.optDouble("gcy", 0.0);
+        l.geometryCropW = (float) o.optDouble("gcw", 1.0);
+        l.geometryCropH = (float) o.optDouble("gch", 1.0);
+        l.geometryFlipH = o.optBoolean("gfliph", false);
+        l.geometryFlipV = o.optBoolean("gflipv", false);
         l.dateOn = o.optBoolean("date", false);
         return l;
     }

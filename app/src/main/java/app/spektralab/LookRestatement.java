@@ -83,6 +83,10 @@ public final class LookRestatement {
             + "\"scene_latitude_rolloff\":%.2f,\"scene_latitude_max_lift\":%.2f,"
             + "\"glare_amount\":%.3f,\"film_format_mm\":%.1f,"
             + "\"lens_blur_um\":%.1f,"
+            + "\"geometry_crop_x\":%.6f,\"geometry_crop_y\":%.6f,"
+            + "\"geometry_crop_w\":%.6f,\"geometry_crop_h\":%.6f,"
+            + "\"geometry_rotation_deg\":%.3f,\"geometry_quarter_turns\":%d,"
+            + "\"geometry_flip_h\":%s,\"geometry_flip_v\":%s,"
             + "\"m_filter_shift\":%.3f,\"y_filter_shift\":%.3f,\"filter_shift_scale\":%.1f,"
             + "\"preflash_exposure\":%.4f,"
             + "\"overscan_active\":%s,\"overscan_format\":\"%s\",\"overscan_edge_text\":\"%s\","
@@ -123,6 +127,11 @@ public final class LookRestatement {
             look.maxLift,
             look.glareAmount, filmFormatMm(look),
             look.lensBlur,
+            look.geometryCropX, look.geometryCropY,
+            look.geometryCropW, look.geometryCropH,
+            look.geometryRotation, look.geometryTurns,
+            look.geometryFlipH ? "true" : "false",
+            look.geometryFlipV ? "true" : "false",
             look.mFilter,
             look.yFilter,
             look.filterScale,
