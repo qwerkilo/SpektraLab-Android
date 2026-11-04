@@ -197,6 +197,10 @@ public class MainActivity extends AppCompatActivity {
      * capture, a preview, and a restored JSON cannot drift apart.
      */
     private final Look optics = new Look();
+    private int geometryTurns;
+    private float geometryRotation;
+    private float geometryCropX, geometryCropY, geometryCropW = 1f, geometryCropH = 1f;
+    private boolean geometryFlipH, geometryFlipV;
     private final LookHistory lookHistory = new LookHistory();
     private MaterialButton undoButton;
     private boolean restoringUndo;
@@ -2115,6 +2119,14 @@ public class MainActivity extends AppCompatActivity {
         look.cameraFilter = optics.cameraFilter;
         look.sceneNorm = optics.sceneNorm;
         look.view = optics.view.copy();
+        look.geometryTurns = geometryTurns;
+        look.geometryRotation = geometryRotation;
+        look.geometryCropX = geometryCropX;
+        look.geometryCropY = geometryCropY;
+        look.geometryCropW = geometryCropW;
+        look.geometryCropH = geometryCropH;
+        look.geometryFlipH = geometryFlipH;
+        look.geometryFlipV = geometryFlipV;
         look.overscanOn = overscanOn;
         look.overscanFormat = overscanFormat;
         look.dateOn = dateOn;
@@ -2161,6 +2173,14 @@ public class MainActivity extends AppCompatActivity {
         optics.cameraFilter = look.cameraFilter;
         optics.sceneNorm = look.sceneNorm;
         optics.view = look.view.copy();
+        geometryTurns = look.geometryTurns;
+        geometryRotation = look.geometryRotation;
+        geometryCropX = look.geometryCropX;
+        geometryCropY = look.geometryCropY;
+        geometryCropW = look.geometryCropW;
+        geometryCropH = look.geometryCropH;
+        geometryFlipH = look.geometryFlipH;
+        geometryFlipV = look.geometryFlipV;
         overscanOn = look.overscanOn;
         overscanFormat = look.overscanFormat;
         dateOn = look.dateOn;
@@ -3076,6 +3096,113 @@ public class MainActivity extends AppCompatActivity {
         dialog.show();
     }
 
+    /**
+     * Composition as an M3 sheet. The values are part of the Look and go
+     * through the engine's geometry node; no bitmap transform is baked in.
+     */
+    private void showComposeSheet() {
+        final BottomSheetDialog dialog = new BottomSheetDialog(this);
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(18), dp(20), dp(24));
+        root.addView(m3Label("构图 / COMPOSE", M3Tokens.TypeRole.TITLE_MEDIUM,
+                m3OnSurface(), tfDisplay));
+
+        final ChipGroup turns = new ChipGroup(this);
+        turns.setSingleSelection(true);
+        turns.setSelectionRequired(true);
+        final String[] labels = {"0°", "90°", "180°", "270°"};
+        for (int i = 0; i < labels.length; ++i) {
+            final int quarter = i;
+            final Chip chip = new Chip(this);
+            styleOpticsChip(chip);
+            chip.setText(labels[i]);
+            chip.setCheckable(true);
+            chip.setChecked(geometryTurns == quarter);
+            chip.setMinimumHeight(dp(MIN_TOUCH_DP));
+            chip.setOnClickListener(v -> {
+                geometryTurns = quarter;
+                renderImage();
+            });
+            turns.addView(chip);
+        }
+        root.addView(turns, new LinearLayout.LayoutParams(-1, -2));
+
+        composeSlider(root, "旋转 / ROTATION", -45f, 45f, geometryRotation,
+                v -> geometryRotation = v);
+        composeSlider(root, "裁切 X / CROP X", 0f, 1f, geometryCropX,
+                v -> geometryCropX = v);
+        composeSlider(root, "裁切 Y / CROP Y", 0f, 1f, geometryCropY,
+                v -> geometryCropY = v);
+        composeSlider(root, "裁切宽 / CROP W", 0.05f, 1f, geometryCropW,
+                v -> geometryCropW = v);
+        composeSlider(root, "裁切高 / CROP H", 0.05f, 1f, geometryCropH,
+                v -> geometryCropH = v);
+
+        final MaterialSwitch flipH = new MaterialSwitch(this);
+        flipH.setText(mixedText("水平翻转 / FLIP H"));
+        flipH.setChecked(geometryFlipH);
+        flipH.setOnCheckedChangeListener((b, checked) -> {
+            geometryFlipH = checked;
+            renderImage();
+        });
+        root.addView(flipH, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        final MaterialSwitch flipV = new MaterialSwitch(this);
+        flipV.setText(mixedText("垂直翻转 / FLIP V"));
+        flipV.setChecked(geometryFlipV);
+        flipV.setOnCheckedChangeListener((b, checked) -> {
+            geometryFlipV = checked;
+            renderImage();
+        });
+        root.addView(flipV, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        final MaterialButton reset = actionButton(mixedText("重置构图"), "重置旋转、裁切和翻转");
+        reset.setOnClickListener(v -> {
+            geometryTurns = 0;
+            geometryRotation = 0f;
+            geometryCropX = geometryCropY = 0f;
+            geometryCropW = geometryCropH = 1f;
+            geometryFlipH = geometryFlipV = false;
+            dialog.dismiss();
+            renderImage();
+        });
+        root.addView(reset, new LinearLayout.LayoutParams(-2, dp(48)));
+
+        dialog.setContentView(root);
+        dialog.show();
+    }
+
+    private void composeSlider(LinearLayout parent, String label, float min, float max,
+                               float value, java.util.function.Consumer<Float> apply) {
+        final LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        head.addView(m3Label(label, M3Tokens.TypeRole.LABEL_LARGE, m3OnSurface(), tfHan),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        final TextView readout = m3Label(String.format(java.util.Locale.US, "%.2f", value),
+                M3Tokens.TypeRole.BODY_MEDIUM, m3Primary(), tfBody);
+        head.addView(readout);
+        parent.addView(head, new LinearLayout.LayoutParams(-1, -2));
+
+        final Slider slider = new Slider(this);
+        slider.setValueFrom(min);
+        slider.setValueTo(max);
+        slider.setStepSize(0.01f);
+        slider.setValue(Math.max(min, Math.min(max, value)));
+        slider.setLabelBehavior(com.google.android.material.slider.LabelFormatter.LABEL_GONE);
+        slider.setContentDescription(label);
+        slider.addOnChangeListener((s, v, fromUser) -> {
+            apply.accept(v);
+            readout.setText(String.format(java.util.Locale.US, "%.2f", v));
+        });
+        slider.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+            @Override public void onStartTrackingTouch(Slider s) { }
+            @Override public void onStopTrackingTouch(Slider s) { renderImage(); }
+        });
+        parent.addView(slider, new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
+    }
+
     private void populateViewFields(LinearLayout fields, ViewAdjust.Group group) {
         fields.removeAllViews();
         for (ViewAdjust.Field field : ViewAdjust.Field.values()) {
@@ -3472,6 +3599,11 @@ public class MainActivity extends AppCompatActivity {
         formatScroll = scroll;
         scroll.addView(formatCardStrip, new android.widget.FrameLayout.LayoutParams(-2, dp(127)));
         panel.addView(scroll, new LinearLayout.LayoutParams(-1, dp(127)));
+
+        final MaterialButton compose = actionButton(
+                mixedText("构图 / COMPOSE"), "打开构图：旋转、翻转、裁切");
+        compose.setOnClickListener(v -> showComposeSheet());
+        panel.addView(compose, new LinearLayout.LayoutParams(-2, dp(48)));
 
         LinearLayout foot = new LinearLayout(this);
         foot.setOrientation(LinearLayout.HORIZONTAL);
