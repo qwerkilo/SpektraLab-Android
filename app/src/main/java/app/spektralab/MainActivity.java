@@ -2114,6 +2114,7 @@ public class MainActivity extends AppCompatActivity {
         }
         look.cameraFilter = optics.cameraFilter;
         look.sceneNorm = optics.sceneNorm;
+        look.view = optics.view.copy();
         look.overscanOn = overscanOn;
         look.overscanFormat = overscanFormat;
         look.dateOn = dateOn;
@@ -2159,6 +2160,7 @@ public class MainActivity extends AppCompatActivity {
         // them; the page shows the documented fallback until the user picks.
         optics.cameraFilter = look.cameraFilter;
         optics.sceneNorm = look.sceneNorm;
+        optics.view = look.view.copy();
         overscanOn = look.overscanOn;
         overscanFormat = look.overscanFormat;
         dateOn = look.dateOn;
@@ -3026,11 +3028,6 @@ public class MainActivity extends AppCompatActivity {
         opticsNormButton = opticsChoiceRow(panel, "保护基准 / PROTECTION NORM",
                 this::showProtectionNormPicker);
 
-        final MaterialButton viewButton = actionButton(
-                mixedText("视图调整 / VIEW"), "打开视图调整：白平衡、亮度、颜色、分级");
-        viewButton.setOnClickListener(v -> showViewAdjustSheet());
-        panel.addView(viewButton, new LinearLayout.LayoutParams(-1, dp(48)));
-
         bindActiveOptics();
         syncOpticsChoices();
         return panel;
@@ -3449,6 +3446,10 @@ public class MainActivity extends AppCompatActivity {
         head.addView(titles, largeText()
                 ? new LinearLayout.LayoutParams(-1, -2)
                 : new LinearLayout.LayoutParams(0, -2, 1f));
+        final MaterialButton viewAction = actionButton(
+                mixedText("视图"), "打开视图调整：白平衡、亮度、颜色、分级");
+        viewAction.setOnClickListener(v -> showViewAdjustSheet());
+        head.addView(viewAction, new LinearLayout.LayoutParams(-2, dp(48)));
         return head;
     }
 
