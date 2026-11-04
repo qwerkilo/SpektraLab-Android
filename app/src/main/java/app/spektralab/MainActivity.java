@@ -106,7 +106,6 @@ public class MainActivity extends AppCompatActivity {
     private final java.util.Map<String, FilmStock> filmStocks = new java.util.HashMap<>();
     /** null until the user picks a film: a fresh launch must not look like
      *  a Portra 400 session, and must not render one behind their back. */
-    private float filmFormatMm = 36.0f;    // frame's long edge, 135 = 36 mm
     private boolean uiReady = false;
     private String lastImportError = null;
 
@@ -196,10 +195,6 @@ public class MainActivity extends AppCompatActivity {
      */
     private Look optics = new Look();
     private FrameLookSession currentSession;
-    private int geometryTurns;
-    private float geometryRotation;
-    private float geometryCropX, geometryCropY, geometryCropW = 1f, geometryCropH = 1f;
-    private boolean geometryFlipH, geometryFlipV;
     private MaterialButton undoButton;
     private boolean restoringUndo;
     private int activeOptics = 0;
@@ -231,24 +226,13 @@ public class MainActivity extends AppCompatActivity {
 
     // RFC-032/031, the two things the phone build never exposed: the rebate the
     // frame was cut from, and the date a point-and-shoot burned into it.
-    private boolean overscanOn = false;
-    private String overscanFormat = "135";
-    private boolean dateOn = false;
     /** A typed Date back text; null/empty means "follow the Frame's EXIF date". */
-    private String dateText = null;
     /** The current file's own imprint date, cached until another image opens. */
     private String defaultDateText = null;
     /** The Rebate page's own controls. Dimming while off is presentation only:
      *  these values stay live so re-enabling or switching Frame finds them. */
-    private boolean edgeTextOn = true;
-    private String edgeMode = "strip", edgeGate = "auto", edgeHoles = "white", edgeCarrier = "none";
-    private float edgeFog = 1f, edgeLeaks, frameNumber, edgeFNumber;
-    private int cameraSeed = 1, frameSeed = 1;
     /** Date-back values; the page lands in a later ticket, the Look already
      *  carries them and switching Frame must not drop them. */
-    private String datePlacement = "frame", dateCorner = "br", dateStyle = "lcd";
-    private float dateInsetX = 3f, dateInsetY = 2.4f, dateSize = 1f, dateEv = 3.5f;
-    private String dataText = "", dateTextB = "";
     /** -1 = the two Edge entry cards, 0 = Rebate, 1 = Date back. */
     private int edgePageIndex = -1;
     /** True while a Look restore fills the page; its listeners must not render. */
@@ -296,8 +280,8 @@ public class MainActivity extends AppCompatActivity {
     private void selectGate(String id) {
         final GateScale.Gate gate = GateScale.byId(id);
         if (gate == null) return;
-        overscanFormat = gate.id;
-        filmFormatMm = gate.longEdgeMm;
+        live().overscanFormat = gate.id;
+        live().filmFormatMm = gate.longEdgeMm;
         updateEdgeValue();
         if (formatFootValue != null) {
             formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
@@ -315,11 +299,11 @@ public class MainActivity extends AppCompatActivity {
     /** The Gate the Scale/Edge readout is showing, or the honest empty state. */
     private void updateEdgeValue() {
         if (edgeValue == null) return;
-        final int selected = edgeIds.indexOf(overscanFormat);
+        final int selected = edgeIds.indexOf(live().overscanFormat);
         if (selected >= 0) {
             edgeValue.setText(edgeLabels.get(selected));
         } else {
-            edgeValue.setText(edgeIds.isEmpty() ? "无可用片门" : gateLabel(overscanFormat));
+            edgeValue.setText(edgeIds.isEmpty() ? "无可用片门" : gateLabel(live().overscanFormat));
         }
     }
 
@@ -708,7 +692,7 @@ public class MainActivity extends AppCompatActivity {
         }
         if (sharePill != null) sharePill.setVisibility(s.shareVisible ? View.VISIBLE : View.GONE);
         if (formatFootValue != null) {
-            formatFootValue.setText(mmText(filmFormatMm) + " mm");
+            formatFootValue.setText(mmText(live().filmFormatMm) + " mm");
         }
         setTab(s.activeTab);
         setPanelCollapsed(s.panelCollapsed);
@@ -2112,47 +2096,12 @@ public class MainActivity extends AppCompatActivity {
      */
     private Look captureLook() {
         final Look look = currentSession != null ? currentSession.look() : new Look();
-        look.filmFormatMm = filmFormatMm;
         for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
             look.set(param, optics.get(param));
         }
         look.cameraFilter = optics.cameraFilter;
         look.sceneNorm = optics.sceneNorm;
         look.view = optics.view.copy();
-        look.geometryTurns = geometryTurns;
-        look.geometryRotation = geometryRotation;
-        look.geometryCropX = geometryCropX;
-        look.geometryCropY = geometryCropY;
-        look.geometryCropW = geometryCropW;
-        look.geometryCropH = geometryCropH;
-        look.geometryFlipH = geometryFlipH;
-        look.geometryFlipV = geometryFlipV;
-        look.overscanOn = overscanOn;
-        look.overscanFormat = overscanFormat;
-        look.dateOn = dateOn;
-        look.edgeTextOn = edgeTextOn;
-        look.edgeMode = edgeMode;
-        look.edgeGate = edgeGate;
-        look.edgeHoles = edgeHoles;
-        look.edgeCarrier = edgeCarrier;
-        look.edgeFog = edgeFog;
-        look.edgeLeaks = edgeLeaks;
-        look.frameNumber = frameNumber;
-        look.edgeFNumber = edgeFNumber;
-        look.cameraSeed = cameraSeed;
-        look.frameSeed = frameSeed;
-        look.datePlacement = datePlacement;
-        look.dateCorner = dateCorner;
-        look.dateStyle = dateStyle;
-        look.dateInsetX = dateInsetX;
-        look.dateInsetY = dateInsetY;
-        look.dateSize = dateSize;
-        look.dateEv = dateEv;
-        look.dataText = dataText;
-        look.dateTextB = dateTextB;
-        // Only a *typed* text is part of the Look; the EXIF default stays with
-        // the Frame's file, so a Frame with no typed date keeps following it.
-        look.dateText = dateText == null ? "" : dateText;
         return look.copy();
     }
 
@@ -2162,7 +2111,6 @@ public class MainActivity extends AppCompatActivity {
      *  glare above its 12.0 cap still reaches the engine. */
     private void applyLook(Look look) {
         if (look == null) return;
-        filmFormatMm = look.filmFormatMm;
         for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
             optics.set(param, look.get(param));
         }
@@ -2171,43 +2119,11 @@ public class MainActivity extends AppCompatActivity {
         optics.cameraFilter = look.cameraFilter;
         optics.sceneNorm = look.sceneNorm;
         optics.view = look.view.copy();
-        geometryTurns = look.geometryTurns;
-        geometryRotation = look.geometryRotation;
-        geometryCropX = look.geometryCropX;
-        geometryCropY = look.geometryCropY;
-        geometryCropW = look.geometryCropW;
-        geometryCropH = look.geometryCropH;
-        geometryFlipH = look.geometryFlipH;
-        geometryFlipV = look.geometryFlipV;
-        overscanOn = look.overscanOn;
-        overscanFormat = look.overscanFormat;
-        dateOn = look.dateOn;
-        edgeTextOn = look.edgeTextOn;
-        edgeMode = look.edgeMode;
-        edgeGate = look.edgeGate;
-        edgeHoles = look.edgeHoles;
-        edgeCarrier = look.edgeCarrier;
-        edgeFog = look.edgeFog;
-        edgeLeaks = look.edgeLeaks;
-        frameNumber = look.frameNumber;
-        edgeFNumber = look.edgeFNumber;
-        cameraSeed = look.cameraSeed;
-        frameSeed = look.frameSeed;
-        datePlacement = look.datePlacement;
-        dateCorner = look.dateCorner;
-        dateStyle = look.dateStyle;
-        dateInsetX = look.dateInsetX;
-        dateInsetY = look.dateInsetY;
-        dateSize = look.dateSize;
-        dateEv = look.dateEv;
-        dataText = look.dataText == null ? "" : look.dataText;
-        dateTextB = look.dateTextB == null ? "" : look.dateTextB;
-        dateText = look.dateText == null || look.dateText.isEmpty() ? null : look.dateText;
-        final GateScale.Gate pair = GateScale.pair(overscanFormat, filmFormatMm);
+        final GateScale.Gate pair = GateScale.pair(look.overscanFormat, look.filmFormatMm);
         // One piece of film geometry: a stored Gate and Scale that disagree are
         // pulled onto the Gate's measured edge before either control can draw.
-        overscanFormat = pair.id;
-        filmFormatMm = pair.longEdgeMm;
+        live().overscanFormat = pair.id;
+        live().filmFormatMm = pair.longEdgeMm;
         if (opticsSlider != null) bindActiveOptics();
         syncOpticsChoices();
         syncToggleRows();
@@ -3113,10 +3029,10 @@ public class MainActivity extends AppCompatActivity {
         final ChipGroup turns = new ChipGroup(this);
         turns.setSingleSelection(true);
         turns.setSelectionRequired(true);
-        final int[] draftTurns = {geometryTurns};
-        final float[] draft = {geometryRotation, geometryCropX, geometryCropY,
-                geometryCropW, geometryCropH};
-        final boolean[] draftFlips = {geometryFlipH, geometryFlipV};
+        final int[] draftTurns = {live().geometryTurns};
+        final float[] draft = {live().geometryRotation, live().geometryCropX, live().geometryCropY,
+                live().geometryCropW, live().geometryCropH};
+        final boolean[] draftFlips = {live().geometryFlipH, live().geometryFlipV};
         final String[] labels = {"0°", "90°", "180°", "270°"};
         for (int i = 0; i < labels.length; ++i) {
             final int quarter = i;
@@ -3157,14 +3073,14 @@ public class MainActivity extends AppCompatActivity {
         final MaterialButton apply = actionButton(
                 mixedText("应用构图"), "应用旋转、裁切和翻转");
         apply.setOnClickListener(v -> {
-            geometryTurns = draftTurns[0];
-            geometryRotation = draft[0];
-            geometryCropX = draft[1];
-            geometryCropY = draft[2];
-            geometryCropW = draft[3];
-            geometryCropH = draft[4];
-            geometryFlipH = draftFlips[0];
-            geometryFlipV = draftFlips[1];
+            live().geometryTurns = draftTurns[0];
+            live().geometryRotation = draft[0];
+            live().geometryCropX = draft[1];
+            live().geometryCropY = draft[2];
+            live().geometryCropW = draft[3];
+            live().geometryCropH = draft[4];
+            live().geometryFlipH = draftFlips[0];
+            live().geometryFlipV = draftFlips[1];
             dialog.dismiss();
             renderImage();
         });
@@ -3172,11 +3088,11 @@ public class MainActivity extends AppCompatActivity {
 
         final MaterialButton reset = actionButton(mixedText("重置构图"), "重置旋转、裁切和翻转");
         reset.setOnClickListener(v -> {
-            geometryTurns = 0;
-            geometryRotation = 0f;
-            geometryCropX = geometryCropY = 0f;
-            geometryCropW = geometryCropH = 1f;
-            geometryFlipH = geometryFlipV = false;
+            live().geometryTurns = 0;
+            live().geometryRotation = 0f;
+            live().geometryCropX = live().geometryCropY = 0f;
+            live().geometryCropW = live().geometryCropH = 1f;
+            live().geometryFlipH = live().geometryFlipV = false;
             dialog.dismiss();
             renderImage();
         });
@@ -3639,7 +3555,7 @@ public class MainActivity extends AppCompatActivity {
         foot.addView(m3Label("片门与尺度联动 · 不裁切构图",
                 M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant(), tfHan),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        formatFootValue = m3Label(mmText(GateScale.resolve(overscanFormat, filmFormatMm).longEdgeMm) + " mm",
+        formatFootValue = m3Label(mmText(GateScale.resolve(live().overscanFormat, live().filmFormatMm).longEdgeMm) + " mm",
                 M3Tokens.TypeRole.LABEL_LARGE, m3Primary(), tfBody);
         foot.addView(formatFootValue);
         panel.addView(foot, new LinearLayout.LayoutParams(-1, dp(28)));
@@ -3665,7 +3581,7 @@ public class MainActivity extends AppCompatActivity {
             final String gateId = edgeIds.get(i);
             final GateScale.Gate gate = GateScale.byId(gateId);
             if (gate == null) continue;
-            final boolean active = gate.id.equals(overscanFormat);
+            final boolean active = gate.id.equals(live().overscanFormat);
 
             final int surface = m3Role(
                     com.google.android.material.R.attr.colorSurfaceContainerLow,
@@ -3764,12 +3680,12 @@ public class MainActivity extends AppCompatActivity {
     private void pickScale(String gateId) {
         final GateScale.Gate gate = GateScale.byId(gateId);
         if (gate == null) return;
-        if (gate.id.equals(overscanFormat)
-                && Math.abs(gate.longEdgeMm - filmFormatMm) < 0.01f) {
+        if (gate.id.equals(live().overscanFormat)
+                && Math.abs(gate.longEdgeMm - live().filmFormatMm) < 0.01f) {
             return;
         }
-        overscanFormat = gate.id;
-        filmFormatMm = gate.longEdgeMm;
+        live().overscanFormat = gate.id;
+        live().filmFormatMm = gate.longEdgeMm;
         updateEdgeValue();
         if (formatFootValue != null) {
             formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
@@ -3904,13 +3820,13 @@ public class MainActivity extends AppCompatActivity {
                 Palette.Role.MUTED_INK);
 
         rebateSwitch = new MaterialSwitch(this);
-        page.addView(switchRow("开启片边", null, rebateSwitch, () -> overscanOn, on -> {
+        page.addView(switchRow("开启片边", null, rebateSwitch, () -> live().overscanOn, on -> {
             if (on && !GateScale.canHostRebate(sourceWidth, sourceHeight)) {
                 showSnackbar("这张图的长宽比不对应任何片门");
                 syncRebatePage();
                 return;
             }
-            overscanOn = on;
+            live().overscanOn = on;
             syncRebatePage();
             commitRebate();
         }), new LinearLayout.LayoutParams(-1, dp(56)));
@@ -3948,7 +3864,7 @@ public class MainActivity extends AppCompatActivity {
         rebateRefreshers.add(() -> {
             final String label = edgeIds.isEmpty()
                     ? "无可用片门"
-                    : GateScale.resolve(overscanFormat, filmFormatMm).label;
+                    : GateScale.resolve(live().overscanFormat, live().filmFormatMm).label;
             rebateGateValue.setText(label);
             rebateGateCard.setContentDescription("片门格式，" + label);
         });
@@ -3958,8 +3874,8 @@ public class MainActivity extends AppCompatActivity {
 
         edgeTextSwitch = new MaterialSwitch(this);
         rebateControls.addView(switchRow("片边文字（厂标 / 张数）", null,
-                edgeTextSwitch, () -> edgeTextOn, on -> {
-                    edgeTextOn = on;
+                edgeTextSwitch, () -> live().edgeTextOn, on -> {
+                    live().edgeTextOn = on;
                     syncRebatePage();
                     commitRebate();
                 }), new LinearLayout.LayoutParams(-1, dp(56)));
@@ -3968,86 +3884,86 @@ public class MainActivity extends AppCompatActivity {
         rebateFogSlider = rebateSliderRow(rebateControls, "片基雾",
                 "片基本身的灰雾。0 是完全透明，越大越脏",
                 RebateControls.FOG_MIN, RebateControls.FOG_MAX, 0.05f,
-                RebateControls.clampFog(edgeFog),
+                RebateControls.clampFog(live().edgeFog),
                 value -> String.format(java.util.Locale.US, "%.2f", value),
-                value -> edgeFog = RebateControls.clampFog(value),
-                () -> edgeFog, rebateFogValue);
+                value -> live().edgeFog = RebateControls.clampFog(value),
+                () -> live().edgeFog, rebateFogValue);
 
         rebateLeaksValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
         rebateLeaksSlider = rebateSliderRow(rebateControls, "漏光",
                 "卷轴漏进来的光，从片边渗向画面",
                 RebateControls.LEAKS_MIN, RebateControls.LEAKS_MAX, 0.05f,
-                RebateControls.clampLeaks(edgeLeaks),
+                RebateControls.clampLeaks(live().edgeLeaks),
                 value -> String.format(java.util.Locale.US, "%.2f", value),
-                value -> edgeLeaks = RebateControls.clampLeaks(value),
-                () -> edgeLeaks, rebateLeaksValue);
+                value -> live().edgeLeaks = RebateControls.clampLeaks(value),
+                () -> live().edgeLeaks, rebateLeaksValue);
 
         rebateFrameNoValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
         rebateFrameNoSlider = rebateSliderRow(rebateControls, "片边张数",
                 "片边上印的张数。0 = 按 seed 随机",
                 RebateControls.FRAME_NUMBER_MIN, RebateControls.FRAME_NUMBER_MAX, 1f,
-                RebateControls.clampFrameNumber(frameNumber),
+                RebateControls.clampFrameNumber(live().frameNumber),
                 value -> value < 0.5f ? "自动" : String.valueOf(Math.round(value)),
-                value -> frameNumber = RebateControls.clampFrameNumber(value),
-                () -> frameNumber, rebateFrameNoValue);
+                value -> live().frameNumber = RebateControls.clampFrameNumber(value),
+                () -> live().frameNumber, rebateFrameNoValue);
 
         rebateFNumberValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
         rebateFNumberSlider = rebateSliderRow(rebateControls, "光圈值",
                 "相机记录的 f 值。决定片门边缘的虚化。0 = 未知（按 f/5.6）",
                 RebateControls.F_NUMBER_MIN, RebateControls.F_NUMBER_MAX, 1f,
-                RebateControls.clampFNumber(edgeFNumber),
+                RebateControls.clampFNumber(live().edgeFNumber),
                 value -> value < 0.5f
                         ? "未知"
                         : "f/" + String.format(java.util.Locale.US, "%.1f", value),
-                value -> edgeFNumber = RebateControls.clampFNumber(value),
-                () -> edgeFNumber, rebateFNumberValue);
+                value -> live().edgeFNumber = RebateControls.clampFNumber(value),
+                () -> live().edgeFNumber, rebateFNumberValue);
 
         rebateModeValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         rebateControls.addView(edgeChoiceRow("片边模式", rebateModeValue, RebateControls.MODES,
-                () -> edgeMode, id -> {
-                    edgeMode = id;
+                () -> live().edgeMode, id -> {
+                    live().edgeMode = id;
                     syncRebatePage();
                     commitRebate();
                 }), new LinearLayout.LayoutParams(-1, -2));
 
         rebateGateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         rebateControls.addView(edgeChoiceRow("片门形状", rebateGateStyleValue,
-                RebateControls.GATE_STYLES, () -> edgeGate, id -> {
-                    edgeGate = id;
+                RebateControls.GATE_STYLES, () -> live().edgeGate, id -> {
+                    live().edgeGate = id;
                     syncRebatePage();
                     commitRebate();
                 }), new LinearLayout.LayoutParams(-1, -2));
 
         rebateHolesValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         rebateControls.addView(edgeChoiceRow("齿孔", rebateHolesValue, RebateControls.HOLES,
-                () -> edgeHoles, id -> {
-                    edgeHoles = id;
+                () -> live().edgeHoles, id -> {
+                    live().edgeHoles = id;
                     syncRebatePage();
                     commitRebate();
                 }), new LinearLayout.LayoutParams(-1, -2));
 
         rebateCarrierValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         rebateControls.addView(edgeChoiceRow("片夹", rebateCarrierValue,
-                RebateControls.CARRIERS, () -> edgeCarrier, id -> {
-                    edgeCarrier = id;
+                RebateControls.CARRIERS, () -> live().edgeCarrier, id -> {
+                    live().edgeCarrier = id;
                     syncRebatePage();
                     commitRebate();
                 }), new LinearLayout.LayoutParams(-1, -2));
 
         rebateCameraSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
         rebateControls.addView(rebateValueRow("片边种子", rebateCameraSeedValue,
-                () -> String.valueOf(cameraSeed),
-                () -> askSeed("片边随机种子（0 – 2147483647）", cameraSeed, value -> {
-                    cameraSeed = value;
+                () -> String.valueOf(live().cameraSeed),
+                () -> askSeed("片边随机种子（0 – 2147483647）", live().cameraSeed, value -> {
+                    live().cameraSeed = value;
                     syncRebatePage();
                     commitRebate();
                 })), new LinearLayout.LayoutParams(-1, -2));
 
         rebateFrameSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
         rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
-                () -> String.valueOf(frameSeed),
-                () -> askSeed("帧随机种子（0 – 2147483647）", frameSeed, value -> {
-                    frameSeed = value;
+                () -> String.valueOf(live().frameSeed),
+                () -> askSeed("帧随机种子（0 – 2147483647）", live().frameSeed, value -> {
+                    live().frameSeed = value;
                     syncRebatePage();
                     commitRebate();
                 })), new LinearLayout.LayoutParams(-1, -2));
@@ -4076,8 +3992,8 @@ public class MainActivity extends AppCompatActivity {
 
         dateSwitch = new MaterialSwitch(this);
         dateDetail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
-        page.addView(switchRow("开启日期水印", dateDetail, dateSwitch, () -> dateOn, on -> {
-            dateOn = on;
+        page.addView(switchRow("开启日期水印", dateDetail, dateSwitch, () -> live().dateOn, on -> {
+            live().dateOn = on;
             syncDatePage();
             commitRebate();
         }), new LinearLayout.LayoutParams(-1, dp(56)));
@@ -4091,8 +4007,8 @@ public class MainActivity extends AppCompatActivity {
         dateControls.addView(rebateValueRow("日期文字", dateTextValue,
                 this::effectiveDateText, () -> {
                     askText("印在画面上的日期（可以自己写）", effectiveDateText(), value -> {
-                        dateText = value == null || value.trim().isEmpty()
-                                ? null : value.trim();
+                        live().dateText = value == null || value.trim().isEmpty()
+                                ? "" : value.trim();
                         syncDatePage();
                         commitRebate();
                     });
@@ -4102,76 +4018,76 @@ public class MainActivity extends AppCompatActivity {
         dateInsetXSlider = rebateSliderRow(dateControls, "左右内边距",
                 "字到片门左右边的距离，毫米",
                 DateBack.INSET_MIN, DateBack.INSET_MAX, 0.1f,
-                DateBack.clampInset(dateInsetX),
+                DateBack.clampInset(live().dateInsetX),
                 value -> String.format(java.util.Locale.US, "%.1f mm", value),
-                value -> dateInsetX = DateBack.clampInset(value),
-                () -> dateInsetX, dateInsetXValue);
+                value -> live().dateInsetX = DateBack.clampInset(value),
+                () -> live().dateInsetX, dateInsetXValue);
 
         dateInsetYValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
         dateInsetYSlider = rebateSliderRow(dateControls, "上下内边距",
                 "字到片门上下边的距离，毫米",
                 DateBack.INSET_MIN, DateBack.INSET_MAX, 0.1f,
-                DateBack.clampInset(dateInsetY),
+                DateBack.clampInset(live().dateInsetY),
                 value -> String.format(java.util.Locale.US, "%.1f mm", value),
-                value -> dateInsetY = DateBack.clampInset(value),
-                () -> dateInsetY, dateInsetYValue);
+                value -> live().dateInsetY = DateBack.clampInset(value),
+                () -> live().dateInsetY, dateInsetYValue);
 
         dateSizeValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
         dateSizeSlider = rebateSliderRow(dateControls, "日期大小",
                 "相对该样式的字高",
                 DateBack.SIZE_MIN, DateBack.SIZE_MAX, 0.05f,
-                DateBack.clampSize(dateSize),
+                DateBack.clampSize(live().dateSize),
                 value -> String.format(java.util.Locale.US, "%.2f×", value),
-                value -> dateSize = DateBack.clampSize(value),
-                () -> dateSize, dateSizeValue);
+                value -> live().dateSize = DateBack.clampSize(value),
+                () -> live().dateSize, dateSizeValue);
 
         dateEvValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
         dateEvSlider = rebateSliderRow(dateControls, "日期亮度",
                 "红光在 18% 灰之上的曝光，单位挡",
                 DateBack.EV_MIN, DateBack.EV_MAX, 0.1f,
-                DateBack.clampEv(dateEv),
+                DateBack.clampEv(live().dateEv),
                 value -> String.format(java.util.Locale.US, "%+.1f EV", value),
-                value -> dateEv = DateBack.clampEv(value),
-                () -> dateEv, dateEvValue);
+                value -> live().dateEv = DateBack.clampEv(value),
+                () -> live().dateEv, dateEvValue);
 
         datePlacementValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(edgeChoiceRow("日期位置", datePlacementValue,
-                DateBack.PLACEMENTS, () -> datePlacement, id -> {
-                    datePlacement = id;
+                DateBack.PLACEMENTS, () -> live().datePlacement, id -> {
+                    live().datePlacement = id;
                     syncDatePage();
                     commitRebate();
                 }), new LinearLayout.LayoutParams(-1, -2));
 
         dateCornerValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(edgeChoiceRow("日期角位", dateCornerValue,
-                DateBack.CORNERS, () -> dateCorner, id -> {
-                    dateCorner = id;
+                DateBack.CORNERS, () -> live().dateCorner, id -> {
+                    live().dateCorner = id;
                     syncDatePage();
                     commitRebate();
                 }), new LinearLayout.LayoutParams(-1, -2));
 
         dateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(edgeChoiceRow("日期样式", dateStyleValue,
-                DateBack.STYLES, () -> dateStyle, id -> {
-                    dateStyle = id;
+                DateBack.STYLES, () -> live().dateStyle, id -> {
+                    live().dateStyle = id;
                     syncDatePage();
                     commitRebate();
                 }), new LinearLayout.LayoutParams(-1, -2));
 
         dateDataValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(rebateValueRow("拍摄数据", dateDataValue,
-                () -> dataText.isEmpty() ? "（空）" : dataText,
-                () -> askText("拍摄数据（和日期一起印在片边）", dataText, value -> {
-                    dataText = value == null ? "" : value.trim();
+                () -> live().dataText.isEmpty() ? "（空）" : live().dataText,
+                () -> askText("拍摄数据（和日期一起印在片边）", live().dataText, value -> {
+                    live().dataText = value == null ? "" : value.trim();
                     syncDatePage();
                     commitRebate();
                 })), new LinearLayout.LayoutParams(-1, -2));
 
         dateTextBValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(rebateValueRow("第二帧日期", dateTextBValue,
-                () -> dateTextB.isEmpty() ? "（空）" : dateTextB,
-                () -> askText("半格对的第二帧日期（用不到就留空）", dateTextB, value -> {
-                    dateTextB = value == null ? "" : value.trim();
+                () -> live().dateTextB.isEmpty() ? "（空）" : live().dateTextB,
+                () -> askText("半格对的第二帧日期（用不到就留空）", live().dateTextB, value -> {
+                    live().dateTextB = value == null ? "" : value.trim();
                     syncDatePage();
                     commitRebate();
                 })), new LinearLayout.LayoutParams(-1, -2));
@@ -4225,20 +4141,20 @@ public class MainActivity extends AppCompatActivity {
 
     private String rebateSummary() {
         if (!GateScale.canHostRebate(sourceWidth, sourceHeight)) return "这张图没有可用片门";
-        if (!overscanOn) return "未开启 · 点进去设置";
+        if (!live().overscanOn) return "未开启 · 点进去设置";
         final String gate = edgeIds.isEmpty()
-                ? gateLabel(overscanFormat)
-                : GateScale.resolve(overscanFormat, filmFormatMm).label;
-        return gate + " · 雾 " + fmt1(edgeFog) + " · 漏光 " + fmt1(edgeLeaks)
-                + " · 张数 " + (frameNumber < 0.5f
-                        ? "自动" : String.valueOf(Math.round(frameNumber)));
+                ? gateLabel(live().overscanFormat)
+                : GateScale.resolve(live().overscanFormat, live().filmFormatMm).label;
+        return gate + " · 雾 " + fmt1(live().edgeFog) + " · 漏光 " + fmt1(live().edgeLeaks)
+                + " · 张数 " + (live().frameNumber < 0.5f
+                        ? "自动" : String.valueOf(Math.round(live().frameNumber)));
     }
 
     private String dateSummary() {
-        if (!dateOn) return "未开启 · 点进去设置";
-        return ControlChoice.labelOf(DateBack.PLACEMENTS, datePlacement)
-                + ControlChoice.labelOf(DateBack.CORNERS, dateCorner)
-                + " · " + ControlChoice.labelOf(DateBack.STYLES, dateStyle)
+        if (!live().dateOn) return "未开启 · 点进去设置";
+        return ControlChoice.labelOf(DateBack.PLACEMENTS, live().datePlacement)
+                + ControlChoice.labelOf(DateBack.CORNERS, live().dateCorner)
+                + " · " + ControlChoice.labelOf(DateBack.STYLES, live().dateStyle)
                 + " · " + effectiveDateText();
     }
 
@@ -4257,19 +4173,19 @@ public class MainActivity extends AppCompatActivity {
         syncingRebate = true;
         syncingToggles = true;
         try {
-            rebateSwitch.setChecked(overscanOn);
-            rebateSwitch.setContentDescription(toggleDescription("开启片边", overscanOn));
+            rebateSwitch.setChecked(live().overscanOn);
+            rebateSwitch.setContentDescription(toggleDescription("开启片边", live().overscanOn));
             if (edgeTextSwitch != null) {
-                edgeTextSwitch.setChecked(edgeTextOn);
+                edgeTextSwitch.setChecked(live().edgeTextOn);
                 edgeTextSwitch.setContentDescription(
-                        toggleDescription("片边文字（厂标 / 张数）", edgeTextOn));
+                        toggleDescription("片边文字（厂标 / 张数）", live().edgeTextOn));
             }
             refreshEdgeCards();
         } finally {
             syncingRebate = false;
             syncingToggles = false;
         }
-        setEnabledDeep(rebateControls, overscanOn);
+        setEnabledDeep(rebateControls, live().overscanOn);
     }
 
     /**
@@ -4282,15 +4198,15 @@ public class MainActivity extends AppCompatActivity {
         syncingRebate = true;
         syncingToggles = true;
         try {
-            dateSwitch.setChecked(dateOn);
-            dateSwitch.setContentDescription(toggleDescription("开启日期水印", dateOn));
+            dateSwitch.setChecked(live().dateOn);
+            dateSwitch.setContentDescription(toggleDescription("开启日期水印", live().dateOn));
             syncDateDetail();
             refreshEdgeCards();
         } finally {
             syncingRebate = false;
             syncingToggles = false;
         }
-        setEnabledDeep(dateControls, dateOn);
+        setEnabledDeep(dateControls, live().dateOn);
     }
 
     /** Dim and disable a whole control group without hiding what it offers. */
@@ -4508,7 +4424,7 @@ public class MainActivity extends AppCompatActivity {
             showSnackbar("这张图没有可用片门");
             return;
         }
-        final int current = edgeIds.indexOf(overscanFormat);
+        final int current = edgeIds.indexOf(live().overscanFormat);
         showChoiceSheet("选择片门格式", "只列出与这张图形状相符的片门",
                 edgeLabels, current, picked -> {
                     if (picked < 0 || picked >= edgeIds.size()) return;
@@ -5011,29 +4927,29 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void resetEdgePanel() {
-        overscanOn = false;
-        dateOn = false;
-        dateText = null;
-        edgeMode = "strip";
-        edgeGate = "auto";
-        edgeHoles = "white";
-        edgeCarrier = "none";
-        edgeTextOn = true;
-        edgeFog = 1f;
-        edgeLeaks = 0f;
-        frameNumber = 0f;
-        edgeFNumber = 0f;
-        cameraSeed = 1;
-        frameSeed = 1;
-        datePlacement = "frame";
-        dateCorner = "br";
-        dateStyle = "lcd";
-        dateInsetX = 3f;
-        dateInsetY = 2.4f;
-        dateSize = 1f;
-        dateEv = 3.5f;
-        dataText = "";
-        dateTextB = "";
+        live().overscanOn = false;
+        live().dateOn = false;
+        live().dateText = "";
+        live().edgeMode = "strip";
+        live().edgeGate = "auto";
+        live().edgeHoles = "white";
+        live().edgeCarrier = "none";
+        live().edgeTextOn = true;
+        live().edgeFog = 1f;
+        live().edgeLeaks = 0f;
+        live().frameNumber = 0f;
+        live().edgeFNumber = 0f;
+        live().cameraSeed = 1;
+        live().frameSeed = 1;
+        live().datePlacement = "frame";
+        live().dateCorner = "br";
+        live().dateStyle = "lcd";
+        live().dateInsetX = 3f;
+        live().dateInsetY = 2.4f;
+        live().dateSize = 1f;
+        live().dateEv = 3.5f;
+        live().dataText = "";
+        live().dateTextB = "";
         syncToggleRows();
         syncDateDetail();
         if (session != null) onEdgeChanged();
@@ -5133,30 +5049,30 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (!edgeIds.isEmpty()) {
-            if (!edgeIds.contains(overscanFormat)) {
-                overscanFormat = edgeIds.get(Math.max(0, Math.min(best, edgeIds.size() - 1)));
+            if (!edgeIds.contains(live().overscanFormat)) {
+                live().overscanFormat = edgeIds.get(Math.max(0, Math.min(best, edgeIds.size() - 1)));
             }
             // The Scale is the Gate's measured long edge, never a neighbouring
             // page value: 6x17 is 168 mm, not the old 170 mm card.
-            final GateScale.Gate gate = GateScale.byId(overscanFormat);
-            if (gate != null) filmFormatMm = gate.longEdgeMm;
+            final GateScale.Gate gate = GateScale.byId(live().overscanFormat);
+            if (gate != null) live().filmFormatMm = gate.longEdgeMm;
         } else {
             // No Gate fits this shape. Keep the stored pair consistent even
             // though the Rebate has nothing to cut.
-            final GateScale.Gate pair = GateScale.pair(overscanFormat, filmFormatMm);
-            overscanFormat = pair.id;
-            filmFormatMm = pair.longEdgeMm;
-            if (overscanOn) {
+            final GateScale.Gate pair = GateScale.pair(live().overscanFormat, live().filmFormatMm);
+            live().overscanFormat = pair.id;
+            live().filmFormatMm = pair.longEdgeMm;
+            if (live().overscanOn) {
                 // A rebate cannot be drawn for a shape no Gate can hold. Leaving
                 // it on would send the engine a layout it has already refused.
-                overscanOn = false;
+                live().overscanOn = false;
                 syncToggleRows();
             }
         }
 
         updateEdgeValue();
         if (formatFootValue != null) {
-            formatFootValue.setText(mmText(filmFormatMm) + " mm");
+            formatFootValue.setText(mmText(live().filmFormatMm) + " mm");
         }
         rebuildFormatCards();
         // The page's Gate row and switch follow the same available set: a shape
@@ -5164,7 +5080,7 @@ public class MainActivity extends AppCompatActivity {
         syncRebatePage();
         try {
             DebugSink.text("overscan", "aspect=" + aspect + " gates=" + edgeIds
-                    + " chosen=" + overscanFormat + " scale=" + filmFormatMm);
+                    + " chosen=" + live().overscanFormat + " scale=" + live().filmFormatMm);
         } catch (Throwable ignored) { }
     }
 
@@ -5195,8 +5111,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** "'26 10 31" — a typed imprint, or the frame's own EXIF date. */
+    private String typedDateText() {
+        final String text = live().dateText;
+        return text == null || text.isEmpty() ? null : text;
+    }
+
+    /** A typed imprint, or the frame's own EXIF date. */
     private String imprintDate() {
-        if (dateText != null && !dateText.isEmpty()) return dateText;
+        final String typed = typedDateText();
+        if (typed != null) return typed;
         return defaultImprintDate();
     }
 
@@ -5233,7 +5156,8 @@ public class MainActivity extends AppCompatActivity {
 
     /** A custom imprint, or the Frame's own EXIF date until the user writes one. */
     private String effectiveDateText() {
-        return dateText != null && !dateText.isEmpty() ? dateText : imprintDate();
+        final String typed = typedDateText();
+        return typed != null ? typed : imprintDate();
     }
 
     /**
@@ -5295,7 +5219,7 @@ public class MainActivity extends AppCompatActivity {
     /** Show the date back's line only while the imprint is enabled. */
     private void syncDateDetail() {
         if (dateDetail == null) return;
-        if (dateOn) {
+        if (live().dateOn) {
             dateDetail.setText(imprintDate());
             dateDetail.setVisibility(View.VISIBLE);
         } else {
@@ -6183,7 +6107,7 @@ public class MainActivity extends AppCompatActivity {
         final int sh = Math.max(1, (int) Math.round(h * fit));
         final String budgetMessage = "原图 " + w + "×" + h + "（" + megapixels(w, h) + " MP），这台机器一次能渲染约 "
                 + String.format(java.util.Locale.US, "%.1f", capPixels / 1e6) + " MP"
-                + (overscanOn ? "（已按片边预留画布，片边会把画布再撑大约 1.5 倍）" : "") + "。"
+                + (live().overscanOn ? "（已按片边预留画布，片边会把画布再撑大约 1.5 倍）" : "") + "。"
                 + "\n\n按 " + sw + "×" + sh + " 导入一定出得来；按原尺寸可能在本机渲染失败（E-1001）。";
         showActionSheet("这张图超过本机预算", budgetMessage, new String[]{
                 "按 " + sw + "×" + sh + " 导入", "按原尺寸", "取消"
@@ -6623,7 +6547,6 @@ public class MainActivity extends AppCompatActivity {
     sourceUri = uri;
         // A new import works out its own imprint date; the previous frame's
         // cached text must not travel with the new Source.
-        dateText = null;
         defaultDateText = null;
         // The frame's own look, stated before any session is built: a chip
         // returns to a photograph *and* to what was done to it; a pick from ＋
@@ -6935,7 +6858,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private int maxImportPixels() {
-        return maxImportPixels(overscanOn);
+        return maxImportPixels(live().overscanOn);
     }
 
     private void loadRawImage(Uri uri) {
