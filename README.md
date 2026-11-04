@@ -8,7 +8,7 @@
 
 **下载** — [spektralab.workshop.skin](https://spektralab.workshop.skin/) ·
 直链 [`/download`](https://spektralab.workshop.skin/download) ·
-[GitHub Releases](https://github.com/SAINTTaiYi/SpektraLab-Android/releases)
+[GitHub Releases](https://github.com/qwerkilo/SpektraLab-Android/releases)
 
 ## 现在能做什么
 
