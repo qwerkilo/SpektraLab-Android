@@ -81,6 +81,8 @@ public final class Look {
     int cameraSeed = 1, frameSeed = 1;
     boolean overscanOn, dateOn;
     String overscanFormat = DEFAULT_OVERSCAN_FORMAT;
+    /** The print-view layer, part of this Frame's Look. */
+    ViewAdjust view = new ViewAdjust();
 
     /** Current value for one contract parameter. */
     float get(OpticsDelta.Param param) {
@@ -188,6 +190,7 @@ public final class Look {
             o.put("overscan", overscanOn);
             o.put("format", overscanFormat == null ? DEFAULT_OVERSCAN_FORMAT : overscanFormat);
             o.put("date", dateOn);
+            o.put("view", view.toJson());
         } catch (JSONException ignored) { }
         return o;
     }
@@ -230,6 +233,7 @@ public final class Look {
         l.overscanOn = o.optBoolean("overscan", false);
         final String format = o.optString("format", DEFAULT_OVERSCAN_FORMAT);
         l.overscanFormat = format.isEmpty() ? DEFAULT_OVERSCAN_FORMAT : format;
+        l.view.load(o.optJSONObject("view"));
         l.dateOn = o.optBoolean("date", false);
         return l;
     }

@@ -209,6 +209,9 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout opticsStrip;
     private final List<Chip> opticsChips = new ArrayList<>();
     private Slider opticsSlider;
+    private final android.os.Handler viewAdjustHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable viewAdjustCommit = this::renderImage;
     private TextView opticsName, opticsValue, opticsUnit, opticsDelta, opticsRange;
     private MaterialButton opticsReset, opticsFilterButton, opticsNormButton;
     private LinearLayout opticsPanel;
@@ -3023,14 +3026,124 @@ public class MainActivity extends AppCompatActivity {
         opticsNormButton = opticsChoiceRow(panel, "保护基准 / PROTECTION NORM",
                 this::showProtectionNormPicker);
 
+        final MaterialButton viewButton = actionButton(
+                mixedText("视图调整 / VIEW"), "打开视图调整：白平衡、亮度、颜色、分级");
+        viewButton.setOnClickListener(v -> showViewAdjustSheet());
+        panel.addView(viewButton, new LinearLayout.LayoutParams(-1, dp(48)));
+
         bindActiveOptics();
         syncOpticsChoices();
         return panel;
     }
 
+    /**
+     * The view-adjust layer as an M3 sheet: four category chips, then one
+     * labelled slider per field. Values live in {@code optics.view}, so the
+     * Frame switch and undo see them with the rest of the Look.
+     */
+    private void showViewAdjustSheet() {
+        final BottomSheetDialog dialog = new BottomSheetDialog(this);
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(18), dp(20), dp(24));
+
+        root.addView(m3Label("视图调整 / VIEW", M3Tokens.TypeRole.TITLE_MEDIUM,
+                m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
+                tfDisplay));
+
+        final ChipGroup groups = new ChipGroup(this);
+        groups.setSingleSelection(true);
+        groups.setSelectionRequired(true);
+        final LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+
+        for (ViewAdjust.Group group : ViewAdjust.Group.values()) {
+            final Chip chip = new Chip(this);
+            styleOpticsChip(chip);
+            chip.setText(mixedText(group.label + " / " + group.english));
+            chip.setCheckable(true);
+            chip.setChecked(group == ViewAdjust.Group.WHITE_BALANCE);
+            chip.setMinimumHeight(dp(MIN_TOUCH_DP));
+            chip.setOnClickListener(v -> populateViewFields(fields, group));
+            groups.addView(chip);
+        }
+        root.addView(groups, new LinearLayout.LayoutParams(-1, -2));
+
+        final ScrollView scroll = new ScrollView(this);
+        scroll.addView(fields, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        populateViewFields(fields, ViewAdjust.Group.WHITE_BALANCE);
+        dialog.setContentView(root);
+        dialog.setOnDismissListener(d -> viewAdjustHandler.removeCallbacks(viewAdjustCommit));
+        dialog.show();
+    }
+
+    private void populateViewFields(LinearLayout fields, ViewAdjust.Group group) {
+        fields.removeAllViews();
+        for (ViewAdjust.Field field : ViewAdjust.Field.values()) {
+            if (field.group != group) continue;
+            final LinearLayout block = new LinearLayout(this);
+            block.setOrientation(LinearLayout.VERTICAL);
+            block.setPadding(0, dp(10), 0, dp(4));
+
+            final LinearLayout head = new LinearLayout(this);
+            head.setOrientation(LinearLayout.HORIZONTAL);
+            head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            head.addView(m3Label(field.label, M3Tokens.TypeRole.LABEL_LARGE,
+                    m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
+                    tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
+            final TextView value = m3Label(
+                    ViewAdjust.valueText(field.get(optics.view), field.unit),
+                    M3Tokens.TypeRole.BODY_MEDIUM,
+                    m3Role(com.google.android.material.R.attr.colorPrimary, Palette.Role.ACCENT),
+                    tfBody);
+            head.addView(value, new LinearLayout.LayoutParams(-2, -2));
+            block.addView(head, new LinearLayout.LayoutParams(-1, -2));
+
+            final Slider slider = new Slider(this);
+            slider.setValueFrom(field.min);
+            slider.setValueTo(field.max);
+            slider.setStepSize(field.max - field.min > 50f ? 1f : 0.01f);
+            slider.setValue(Math.max(field.min, Math.min(field.max, field.get(optics.view))));
+            slider.setLabelBehavior(
+                    com.google.android.material.slider.LabelFormatter.LABEL_GONE);
+            slider.setContentDescription(field.label + "，视图调整");
+            ViewCompat.setStateDescription(slider,
+                    ViewAdjust.valueText(field.get(optics.view), field.unit));
+            slider.addOnChangeListener((s, v, fromUser) -> {
+                field.set(optics.view, v);
+                value.setText(ViewAdjust.valueText(v, field.unit));
+                ViewCompat.setStateDescription(s,
+                        ViewAdjust.valueText(v, field.unit));
+                if (!fromUser) return;
+                viewAdjustHandler.removeCallbacks(viewAdjustCommit);
+                viewAdjustHandler.postDelayed(viewAdjustCommit, 180);
+            });
+            slider.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+                @Override public void onStartTrackingTouch(Slider s) {
+                    viewAdjustHandler.removeCallbacks(viewAdjustCommit);
+                }
+                @Override public void onStopTrackingTouch(Slider s) {
+                    viewAdjustHandler.removeCallbacks(viewAdjustCommit);
+                    renderImage();
+                }
+            });
+            block.addView(slider, new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
+            fields.addView(block, new LinearLayout.LayoutParams(-1, -2));
+        }
+
+        final MaterialButton reset = actionButton(mixedText("重置本页"), "重置当前视图调整分类");
+        reset.setOnClickListener(v -> {
+            optics.view.reset(group);
+            populateViewFields(fields, group);
+            renderImage();
+        });
+        fields.addView(reset, new LinearLayout.LayoutParams(-2, dp(48)));
+    }
+
     /** Set a chip's M3 filter style from the current theme's roles. */
-    private void styleOpticsChip(Chip chip) {
-        chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null, 0,
+    private void styleOpticsChip(Chip chip) {        chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null, 0,
                 com.google.android.material.R.style.Widget_Material3_Chip_Filter));
         final int chipSurface = m3Role(
                 com.google.android.material.R.attr.colorSurfaceContainerLow,
@@ -7376,8 +7489,12 @@ public class MainActivity extends AppCompatActivity {
         // A settled edit is whatever Look the next render will use. Recording
         // here catches every control path (slider release, stock, switch, reset)
         // without each one having to remember undo.
-        if (!restoringUndo) lookHistory.record(captureLook());
+        final Look renderLook = captureLook();
+        if (!restoringUndo) lookHistory.record(renderLook);
         updateUndoAction();
+        // The view layer is a process-global native pass, so snapshot its
+        // values with the Look and send them under the render lock.
+        final double[] viewAdjust = renderLook.view.toNative();
         // Snapshot the whole Look here, on the UI thread: the render thread gets
         // one finished string and never reads a control or a Frame.
         final String previewParams;
@@ -7404,6 +7521,7 @@ public class MainActivity extends AppCompatActivity {
                 if (session == null) throw new RuntimeException("session closed before render");
                 // The finished Look snapshot, taken on the UI thread before
                 // this thread started. Under the render lock it is one writer.
+                SpektraLabEngine.setViewAdjust(viewAdjust);
                 session.setParams(previewParams);
                 int[] dims = session.renderBegin("live");
                 int w = dims[0], h = dims[1];
@@ -7647,6 +7765,8 @@ public class MainActivity extends AppCompatActivity {
         // controls say by the time the render thread picks it up: a Frame
         // switch or a slider drag during a long export must not move the file.
         final String exportStock = filmStock;
+        final Look exportLook = captureLook();
+        final double[] exportViewAdjust = exportLook.view.toNative();
         final String exportParams = snapshotRestatement(exportStock, PREVIEW_LONG_EDGE);
         final String rawExportPath = isRawFile ? (rawFilePath == null ? "" : rawFilePath) : null;
         // A bitmap export renders from the preview session; a RAW export opens
@@ -7707,6 +7827,7 @@ public class MainActivity extends AppCompatActivity {
                                         rawImportMaxPixels, rawImportLongEdge);
                                 target = rawExport;
                             }
+                            SpektraLabEngine.setViewAdjust(exportViewAdjust);
                             target.setParams(exportParams);
                             try {
                                 DebugSink.text("overscan-geom", "tier=" + tier + " before "
