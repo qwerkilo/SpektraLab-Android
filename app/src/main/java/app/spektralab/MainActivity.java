@@ -106,8 +106,6 @@ public class MainActivity extends AppCompatActivity {
     private final java.util.Map<String, FilmStock> filmStocks = new java.util.HashMap<>();
     /** null until the user picks a film: a fresh launch must not look like
      *  a Portra 400 session, and must not render one behind their back. */
-    private String filmStock = null;
-    private String printStock = "kodak_portra_endura";
     private float filmFormatMm = 36.0f;    // frame's long edge, 135 = 36 mm
     private boolean uiReady = false;
     private String lastImportError = null;
@@ -404,7 +402,7 @@ public class MainActivity extends AppCompatActivity {
     private int formatIndex = 0;
     /** The film panel's own views: brands, chips, curve, measured values, note. They
      *  read the current Look on every refresh; no field here is a second copy
-     *  of `filmStock`. */
+     *  of `live().filmStock`. */
     private ChipGroup brandRow;
     private LinearLayout filmChipRow, filmMetricsRow;
     private HorizontalScrollView filmChipScroll;
@@ -1635,9 +1633,9 @@ public class MainActivity extends AppCompatActivity {
         if (stageExposureValue != null) stageExposureValue.setText(exposure);
         if (readoutExposure == null) return;
         readoutExposure.setText(exposure);
-        readoutFilm.setText(stockLabel(filmStock, filmIds, filmLabels));
-        readoutPaper.setText(isPositiveFilm(filmStock)
-                ? "DIRECT SCAN" : stockLabel(printStock, printIds, printLabels));
+        readoutFilm.setText(stockLabel(live().filmStock, filmIds, filmLabels));
+        readoutPaper.setText(isPositiveFilm(live().filmStock)
+                ? "DIRECT SCAN" : stockLabel(live().printStock, printIds, printLabels));
 
         final FilmStock stock = currentFilmStock();
         final SpectrumSamples spectrum = stock == null
@@ -1647,7 +1645,7 @@ public class MainActivity extends AppCompatActivity {
         readoutSpectrumDetail.setText(spectrum.detailText());
         if (readoutSpectrumCell != null) {
             final String description;
-            if (filmStock == null) {
+            if (live().filmStock == null) {
                 description = "光谱：未选择胶片";
             } else if (spectrum.available()) {
                 description = "光谱：" + spectrum.sampleCount() + " 个采样，"
@@ -2101,6 +2099,11 @@ public class MainActivity extends AppCompatActivity {
         optics = session == null ? new Look() : session.look();
     }
 
+    /** The live Look: the current Frame's session, or the idle default before one exists. */
+    private Look live() {
+        return currentSession != null ? currentSession.look() : optics;
+    }
+
     /**
      * Capture the live controls into the current Frame's Look. The session is
      * the source; the legacy Film/Scale/Edge fields are written back into it
@@ -2109,8 +2112,6 @@ public class MainActivity extends AppCompatActivity {
      */
     private Look captureLook() {
         final Look look = currentSession != null ? currentSession.look() : new Look();
-        look.filmStock = filmStock;
-        look.printStock = printStock;
         look.filmFormatMm = filmFormatMm;
         for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
             look.set(param, optics.get(param));
@@ -2161,8 +2162,6 @@ public class MainActivity extends AppCompatActivity {
      *  glare above its 12.0 cap still reaches the engine. */
     private void applyLook(Look look) {
         if (look == null) return;
-        filmStock = look.filmStock;
-        printStock = look.printStock;
         filmFormatMm = look.filmFormatMm;
         for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
             optics.set(param, look.get(param));
@@ -2567,7 +2566,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** A film record currently on the strip, or null when none is chosen. */
     private FilmStock currentFilmStock() {
-        return filmStock == null ? null : filmStocks.get(filmStock);
+        return live().filmStock == null ? null : filmStocks.get(live().filmStock);
     }
 
     /** Rebuild the chips, curve, measured values, and note from the Look. */
@@ -2587,7 +2586,7 @@ public class MainActivity extends AppCompatActivity {
         // The active stock is the one the curve and the readout describe. If
         // another brand is selected, FilmBrand.shelf pins it first so the
         // shelf never hides the Look that is still in force.
-        final String activeId = filmStock == null || showingOriginal ? null : filmStock;
+        final String activeId = live().filmStock == null || showingOriginal ? null : live().filmStock;
         for (String id : FilmBrand.shelf(filmIds, brandFilter, activeId)) {
             final int i = filmIds.indexOf(id);
             if (i < 0) continue;
@@ -2606,7 +2605,7 @@ public class MainActivity extends AppCompatActivity {
         final boolean revealNow = nextCurve.available() && nextCurve != revealedCurve;
         filmCurve.setCurve(nextCurve,
                 stock == null ? "" : stock.seriesLabel,
-                filmStock == null ? "NO FILM STOCK SELECTED" : SpectrumCurve.UNAVAILABLE_LABEL,
+                live().filmStock == null ? "NO FILM STOCK SELECTED" : SpectrumCurve.UNAVAILABLE_LABEL,
                 revealNow ? motionDuration(FILM_CURVE_REVEAL_MS) : 0);
         if (revealNow) revealedCurve = nextCurve;
         filmCurve.setContentDescription(curveDescription(stock));
@@ -2776,13 +2775,13 @@ public class MainActivity extends AppCompatActivity {
     private void pickFilmChip(String id) {
         final int index = filmIds.indexOf(id);
         if (index < 0) return;
-        if (id.equals(filmStock) && !showingOriginal) return;
-        filmStock = id;
+        if (id.equals(live().filmStock) && !showingOriginal) return;
+        live().filmStock = id;
         // Upstream's `selectFilmStock` rule: the Film the user picks brings its
         // own paper. An explicit paper chosen afterwards stays until the next
         // Film selection; a Frame restore keeps its stored Film/paper pair.
         final FilmStock chosen = filmStocks.get(id);
-        printStock = PrintTarget.choose(printStock,
+        live().printStock = PrintTarget.choose(live().printStock,
                 chosen == null ? null : chosen.targetPrint, printIds);
         showingOriginal = false;
         refreshFilmPanel();
@@ -2807,8 +2806,8 @@ public class MainActivity extends AppCompatActivity {
         if (filmMetricsRow == null) return;
         filmMetricsRow.removeAllViews();
         if (stock == null) {
-            final String label = filmStock == null ? "—" : stockLabel(
-                    filmStock, filmIds, filmLabels);
+            final String label = live().filmStock == null ? "—" : stockLabel(
+                    live().filmStock, filmIds, filmLabels);
             addMetricCell("FILM", label);
             return;
         }
@@ -2853,12 +2852,12 @@ public class MainActivity extends AppCompatActivity {
 
     /** A short factual line from the profile; a missing field is not invented. */
     private String filmNoteText(FilmStock stock) {
-        if (filmStock == null) return "SELECT A STOCK TO SEE ITS MEASURED RESPONSE.";
+        if (live().filmStock == null) return "SELECT A STOCK TO SEE ITS MEASURED RESPONSE.";
         if (stock == null) {
-            return "CATALOGUE RECORD MISSING FOR " + filmStock.toUpperCase(java.util.Locale.US);
+            return "CATALOGUE RECORD MISSING FOR " + live().filmStock.toUpperCase(java.util.Locale.US);
         }
         final String description = stock.info.get("description");
-        if (isPositiveFilm(filmStock)) {
+        if (isPositiveFilm(live().filmStock)) {
             final String scan = "REVERSAL · DIRECT SCAN · PAPER NOT USED";
             return description != null && !description.isEmpty()
                     ? scan + " · " + description : scan;
@@ -2892,7 +2891,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String curveDescription(FilmStock stock) {
-        if (filmStock == null) return "光谱：未选择胶片";
+        if (live().filmStock == null) return "光谱：未选择胶片";
         if (stock == null || !stock.curve.available()) {
             return "光谱：所选胶片没有随附采样，曲线不可用";
         }
@@ -2905,7 +2904,7 @@ public class MainActivity extends AppCompatActivity {
         if (paperValue != null) {
             // The picker value is the full catalogue name; only the Readout
             // strip shortens it. Both read the same printLabels record.
-            paperValue.setText(fullStockLabel(printStock, printIds, printLabels));
+            paperValue.setText(fullStockLabel(live().printStock, printIds, printLabels));
         }
         refreshReadoutStrip();
     }
@@ -2923,7 +2922,7 @@ public class MainActivity extends AppCompatActivity {
         final List<String> names = new ArrayList<>();
         names.add("原图");
         names.addAll(filmLabels);
-        final int filmIndex = filmStock == null ? -1 : filmIds.indexOf(filmStock);
+        final int filmIndex = live().filmStock == null ? -1 : filmIds.indexOf(live().filmStock);
         final int current = showingOriginal ? 0 : (filmIndex < 0 ? -1 : 1 + filmIndex);
         showChoiceSheet("选择胶片", "共 " + filmIds.size() + " 支，品牌标签只筛片架",
                 names, current, picked -> {
@@ -2943,12 +2942,12 @@ public class MainActivity extends AppCompatActivity {
             showSnackbar("没有可用的相纸");
             return;
         }
-        final int current = printIds.indexOf(printStock);
+        final int current = printIds.indexOf(live().printStock);
         showChoiceSheet("选择相纸 / 拷贝片", "当前 Look 会沿这张相纸显影",
                 printLabels, current, picked -> {
                     if (picked < 0 || picked >= printIds.size()
-                            || printStock.equals(printIds.get(picked))) return;
-                    printStock = printIds.get(picked);
+                            || live().printStock.equals(printIds.get(picked))) return;
+                    live().printStock = printIds.get(picked);
                     refreshPaperLabel();
                     showingOriginal = false;
                     onStockChanged();
@@ -5177,7 +5176,7 @@ public class MainActivity extends AppCompatActivity {
      * everything anyway.
      */
     private void onEdgeChanged() {
-        if (!uiReady || session == null || filmStock == null) return;
+        if (!uiReady || session == null || live().filmStock == null) return;
         showingOriginal = false;
         setOriginalVisual(false);
         try {
@@ -6817,7 +6816,7 @@ public class MainActivity extends AppCompatActivity {
             if (!reopening) brandFilter = FilmBrand.ALL;
             setOriginalVisual(true);
             refreshFilmPanel();
-            if (filmStock != null) {
+            if (live().filmStock != null) {
                 // A chip came back with a look: develop it again rather than
                 // making the user re-pick a film that was never unpicked.
                 showingOriginal = false;
@@ -6944,8 +6943,8 @@ public class MainActivity extends AppCompatActivity {
         // The Look the RAW session must carry, snapshotted here on the UI
         // thread: `solve` below meters with it, and the worker never reads a
         // control.
-        final String importParams = filmStock == null
-                ? null : snapshotRestatement(filmStock, PREVIEW_LONG_EDGE);
+        final String importParams = live().filmStock == null
+                ? null : snapshotRestatement(live().filmStock, PREVIEW_LONG_EDGE);
         try {
             String filePath = getFilePathFromUri(uri);
             rawFilePath = filePath;
@@ -6985,11 +6984,11 @@ public class MainActivity extends AppCompatActivity {
                     // `load_profile` fail ("bad stock name"), so an unchosen film
                     // omits the key and the engine keeps its own default. The UI
                     // still shows 原图 and renders nothing until a chip is picked.
-                    final String filmField = filmStock == null ? ""
-                            : String.format("\"film_stock\":\"%s\",", filmStock);
+                    final String filmField = live().filmStock == null ? ""
+                            : String.format("\"film_stock\":\"%s\",", live().filmStock);
                     String params = String.format(
                         "{%s\"print_stock\":\"%s\",\"input_color_space\":\"ProPhoto RGB\",\"input_cctf_decoding\":false,\"output_color_space\":\"sRGB\",\"print_exposure\":%.2f,\"preview_long_edge\":2048}",
-                        filmField, printStock,
+                        filmField, live().printStock,
                         optics.get(OpticsDelta.Param.EXPOSURE)
                     );
                     
@@ -7094,7 +7093,7 @@ public class MainActivity extends AppCompatActivity {
                         if (!reopening) brandFilter = FilmBrand.ALL;
                         setOriginalVisual(true);
                         refreshFilmPanel();
-                        if (filmStock != null) {
+                        if (live().filmStock != null) {
                             showingOriginal = false;
                             refreshFilmPanel();
                             renderImage();
@@ -7574,7 +7573,7 @@ public class MainActivity extends AppCompatActivity {
      */
     private void onStockChanged() {
         if (session == null || !uiReady) return;
-        if (filmStock == null) {
+        if (live().filmStock == null) {
             // No film yet: the frame stays the import's own, and the sheet's
             // choice is remembered for the first render.
             showSnackbar("选择一张胶片开始渲染");
@@ -7645,7 +7644,7 @@ public class MainActivity extends AppCompatActivity {
                     : "上次导入没有完成：\n\n" + lastImportError);
             return;
         }
-        if (filmStock == null) {
+        if (live().filmStock == null) {
             showSnackbar("先在下方选一张胶片");
             return;
         }
@@ -7660,7 +7659,7 @@ public class MainActivity extends AppCompatActivity {
             showSnackbar("正在渲染，完成后按新选择再画一次…");
             return;
         }
-        final String renderedStock = filmStock;
+        final String renderedStock = live().filmStock;
         // A settled edit is whatever Look the next render will use. Recording
         // here catches every control path (slider release, stock, switch, reset)
         // without each one having to remember undo.
@@ -7681,7 +7680,7 @@ public class MainActivity extends AppCompatActivity {
             previewParams = snapshotRestatement(renderedStock, PREVIEW_LONG_EDGE);
             // The line a "every film looks the same" report needs: what this
             // render is about to tell the engine, next to the UI selection.
-            DebugSink.text("params", "draw film=" + renderedStock + " print=" + printStock
+            DebugSink.text("params", "draw film=" + renderedStock + " print=" + live().printStock
                     + " render=" + rendering + " long=" + PREVIEW_LONG_EDGE);
         } catch (Throwable t) {
             showErrorSnackbar("渲染参数有误", describe(t));
@@ -7936,14 +7935,14 @@ public class MainActivity extends AppCompatActivity {
             showSnackbar("请先导入照片");
             return;
         }
-        if (filmStock == null) {
+        if (live().filmStock == null) {
             showSnackbar("先选一张胶片，再导出");
             return;
         }
         // The export states the Look it was started with, not whatever the
         // controls say by the time the render thread picks it up: a Frame
         // switch or a slider drag during a long export must not move the file.
-        final String exportStock = filmStock;
+        final String exportStock = live().filmStock;
         final Look exportLook = captureLook();
         final double[] exportViewAdjust = exportLook.view.toNative();
         final String exportParams = snapshotRestatement(exportStock, PREVIEW_LONG_EDGE);
@@ -7963,7 +7962,7 @@ public class MainActivity extends AppCompatActivity {
                 // 102.4 std 12481 after, and the two hashes differ). It is the
                 // same delta the preview renders with, which is the point.
                 try {
-                    DebugSink.text("export-params", "film=" + exportStock + " print=" + printStock
+                    DebugSink.text("export-params", "film=" + exportStock + " print=" + live().printStock
                             + " raw=" + (rawExportPath != null) + " " + exportParams);
                 } catch (Throwable ignored) {}
 
