@@ -196,12 +196,12 @@ public class MainActivity extends AppCompatActivity {
      * them; the strip and the one slider only read and write this object, so a
      * capture, a preview, and a restored JSON cannot drift apart.
      */
-    private final Look optics = new Look();
+    private Look optics = new Look();
+    private FrameLookSession currentSession;
     private int geometryTurns;
     private float geometryRotation;
     private float geometryCropX, geometryCropY, geometryCropW = 1f, geometryCropH = 1f;
     private boolean geometryFlipH, geometryFlipV;
-    private final LookHistory lookHistory = new LookHistory();
     private MaterialButton undoButton;
     private boolean restoringUndo;
     private int activeOptics = 0;
@@ -215,7 +215,7 @@ public class MainActivity extends AppCompatActivity {
     private Slider opticsSlider;
     private final android.os.Handler viewAdjustHandler =
             new android.os.Handler(android.os.Looper.getMainLooper());
-    private final Runnable viewAdjustCommit = this::renderImage;
+    private final Runnable viewAdjustCommit = this::commitViewAdjust;
     private TextView opticsName, opticsValue, opticsUnit, opticsDelta, opticsRange;
     private MaterialButton opticsReset, opticsFilterButton, opticsNormButton;
     private LinearLayout opticsPanel;
@@ -354,12 +354,13 @@ public class MainActivity extends AppCompatActivity {
         final boolean raw;
         final String name;
         Bitmap thumb;
-        Look look = new Look();
+        FrameLookSession session;
         /** Scan inspect belongs to the Frame it was moved on, not to the Look. */
         float scanFraction = ScanSample.DEFAULT_FRACTION;
         boolean scanVisible = false;
-        Frame(Uri uri, boolean raw, String name) {
+        Frame(Uri uri, boolean raw, String name, Look initial) {
             this.uri = uri; this.raw = raw; this.name = name;
+            this.session = new FrameLookSession(initial);
         }
     }
     /** One catalogue film record, in the form the panel reads. */
@@ -1402,10 +1403,10 @@ public class MainActivity extends AppCompatActivity {
     /** The M3 undo action is visible only while a previous Look exists. */
     private void updateUndoAction() {
         if (undoButton == null) return;
-        final boolean can = lookHistory.canUndo();
+        final boolean can = currentSession != null && currentSession.canUndo();
         undoButton.setVisibility(can ? View.VISIBLE : View.GONE);
         undoButton.setContentDescription(can
-                ? "撤销上一次调整，共 " + (lookHistory.size() - 1) + " 步"
+                ? "撤销上一次调整，共 " + (currentSession.size() - 1) + " 步"
                 : "没有可撤销的调整");
     }
 
@@ -1415,19 +1416,20 @@ public class MainActivity extends AppCompatActivity {
             showSnackbar("正在渲染，完成后才能撤销…");
             return;
         }
-        final Look previous = lookHistory.undo();
+        final Look previous = currentSession == null ? null : currentSession.undo();
         if (previous == null) {
             updateUndoAction();
             return;
         }
+        optics = currentSession.look();
         restoringUndo = true;
         try {
             applyLook(previous);
+            renderImage();
         } finally {
             restoringUndo = false;
         }
         updateUndoAction();
-        renderImage();
     }
 
     /** A top app bar action: the real M3 text-button style, 48 dp tall. */
@@ -2093,23 +2095,20 @@ public class MainActivity extends AppCompatActivity {
         return handle;
     }
 
-    private Look captureLook() {
-        return captureLook(false);
+    /** Make one Frame's session the live one; the Activity keeps no Look copy. */
+    private void attachSession(FrameLookSession session) {
+        currentSession = session;
+        optics = session == null ? new Look() : session.look();
     }
 
     /**
-     * Capture the live controls into the Frame's Look. A save from an existing
-     * Frame starts from a detached copy of that Frame's stored Look, so a field
-     * this build does not yet expose is carried through instead of being reset
-     * by a Frame switch. A brand-new photograph starts from a fresh Look and
-     * inherits nothing. Nothing is clamped on the way in.
+     * Capture the live controls into the current Frame's Look. The session is
+     * the source; the legacy Film/Scale/Edge fields are written back into it
+     * here, so this is the one transitional bridge until those panels move too.
+     * Nothing is clamped on the way in.
      */
-    private Look captureLook(boolean preserveHidden) {
-        final Look look = preserveHidden
-                && currentFrame >= 0 && currentFrame < frames.size()
-                && frames.get(currentFrame).look != null
-                ? frames.get(currentFrame).look.copy()
-                : new Look();
+    private Look captureLook() {
+        final Look look = currentSession != null ? currentSession.look() : new Look();
         look.filmStock = filmStock;
         look.printStock = printStock;
         look.filmFormatMm = filmFormatMm;
@@ -2153,7 +2152,7 @@ public class MainActivity extends AppCompatActivity {
         // Only a *typed* text is part of the Look; the EXIF default stays with
         // the Frame's file, so a Frame with no typed date keeps following it.
         look.dateText = dateText == null ? "" : dateText;
-        return look;
+        return look.copy();
     }
 
     /** Put a frame's own look back, controls included: a slider that says 1.00
@@ -2240,7 +2239,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void saveLookIntoFrames() {
         if (currentFrame < 0 || currentFrame >= frames.size()) return;
-        frames.get(currentFrame).look = captureLook(true);
+        // The current Frame owns the live session already; captureLook writes
+        // the legacy Film/Scale/Edge fields into it before the switch.
+        captureLook();
     }
 
     private void updateShelfHandle() {
@@ -2299,8 +2300,7 @@ public class MainActivity extends AppCompatActivity {
             rebuildFrameChips();
             return;
         }
-        final Frame frame = new Frame(uri, isRawFile, name);
-        frame.look = captureLook();
+        final Frame frame = new Frame(uri, isRawFile, name, captureLook());
         frame.scanFraction = scanFraction;
         frame.scanVisible = scanVisible;
         if (beforeBitmap != null) {
@@ -2313,6 +2313,7 @@ public class MainActivity extends AppCompatActivity {
         }
         frames.add(frame);
         currentFrame = frames.size() - 1;
+        attachSession(frame.session);
         rebuildFrameChips();
     }
 
@@ -2385,6 +2386,8 @@ public class MainActivity extends AppCompatActivity {
         frames.remove(index);
         if (index == currentFrame) {
             currentFrame = -1;
+            currentSession = null;
+            optics = new Look();
             lastRenderedBitmap = null;
             scanVisible = false;
             scanFraction = ScanSample.DEFAULT_FRACTION;
@@ -3260,7 +3263,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 @Override public void onStopTrackingTouch(Slider s) {
                     viewAdjustHandler.removeCallbacks(viewAdjustCommit);
-                    renderImage();
+                    commitViewAdjust();
                 }
             });
             block.addView(slider, new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
@@ -3271,6 +3274,7 @@ public class MainActivity extends AppCompatActivity {
         reset.setOnClickListener(v -> {
             optics.view.reset(group);
             populateViewFields(fields, group);
+            recordOpticsEdit();
             renderImage();
         });
         fields.addView(reset, new LinearLayout.LayoutParams(-2, dp(48)));
@@ -3495,7 +3499,12 @@ public class MainActivity extends AppCompatActivity {
         }
         final OpticsDelta.Param spec = activeOptics();
         if (spec.isDefault(optics.get(spec))) return;
-        optics.reset(spec);
+        if (currentSession != null) {
+            currentSession.edit(look -> look.reset(spec));
+            optics = currentSession.look();
+        } else {
+            optics.reset(spec);
+        }
         bindActiveOptics();
         refreshReadoutStrip();
         commitOptics();
@@ -3516,7 +3525,12 @@ public class MainActivity extends AppCompatActivity {
                     if (picked < 0 || picked >= all.length) return;
                     final OpticsDelta.CameraFilter chosen = all[picked];
                     if (chosen.wire.equals(optics.cameraFilter)) return;
-                    optics.cameraFilter = chosen.wire;
+                    if (currentSession != null) {
+                        currentSession.edit(look -> look.cameraFilter = chosen.wire);
+                        optics = currentSession.look();
+                    } else {
+                        optics.cameraFilter = chosen.wire;
+                    }
                     syncOpticsChoices();
                     commitOptics();
                 });
@@ -3537,7 +3551,12 @@ public class MainActivity extends AppCompatActivity {
                     if (picked < 0 || picked >= all.length) return;
                     final OpticsDelta.ProtectionNorm chosen = all[picked];
                     if (chosen.wire.equals(optics.sceneNorm)) return;
-                    optics.sceneNorm = chosen.wire;
+                    if (currentSession != null) {
+                        currentSession.edit(look -> look.sceneNorm = chosen.wire);
+                        optics = currentSession.look();
+                    } else {
+                        optics.sceneNorm = chosen.wire;
+                    }
                     syncOpticsChoices();
                     commitOptics();
                 });
@@ -5302,8 +5321,20 @@ public class MainActivity extends AppCompatActivity {
         if (uiReady && session != null) {
             showingOriginal = false;
             setOriginalVisual(false);
+            recordOpticsEdit();
             renderImage();
         }
+    }
+
+    /** Record the settled Optics/View state in this Frame's session. */
+    private void recordOpticsEdit() {
+        if (currentSession != null) currentSession.record();
+    }
+
+    private void commitViewAdjust() {
+        viewAdjustHandler.removeCallbacks(viewAdjustCommit);
+        recordOpticsEdit();
+        renderImage();
     }
 
     /** The old four-step ribbon is gone; the render state is in the canvas foot. */
@@ -6603,13 +6634,14 @@ public class MainActivity extends AppCompatActivity {
             final Frame target = (currentFrame >= 0 && currentFrame < frames.size())
                     ? frames.get(currentFrame) : null;
             restoreScanStateFromFrame(target);
-            if (target != null) applyLook(target.look);
+            attachSession(target == null ? new FrameLookSession(defaultLook()) : target.session);
+            applyLook(optics);
         } else {
             saveScanStateIntoFrame();
             restoreScanStateFromFrame(null);
-            applyLook(defaultLook());
+            attachSession(new FrameLookSession(defaultLook()));
+            applyLook(optics);
         }
-        lookHistory.reset(captureLook());
         updateUndoAction();
         try {
             // Check if this is a RAW file by extension
@@ -7633,7 +7665,11 @@ public class MainActivity extends AppCompatActivity {
         // here catches every control path (slider release, stock, switch, reset)
         // without each one having to remember undo.
         final Look renderLook = captureLook();
-        if (!restoringUndo) lookHistory.record(renderLook);
+        // A settled edit is whatever Look the next render will use. Recording
+        // here catches every control path (slider release, stock, switch, reset)
+        // without each one having to remember undo. The session owns the state
+        // and the history; this only decides when an edit is settled.
+        if (!restoringUndo && currentSession != null) currentSession.record();
         updateUndoAction();
         // The view layer is a process-global native pass, so snapshot its
         // values with the Look and send them under the render lock.
