@@ -1,13 +1,13 @@
 {
-  "latest_version_code": 155,
-  "latest_version_name": "1.4.4-m3",
-  "url": "https://github.com/qwerkilo/SpektraLab-Android/releases/tag/v1.4.4-m3",
+  "latest_version_code": 156,
+  "latest_version_name": "1.4.4-m3a",
+  "url": "https://github.com/qwerkilo/SpektraLab-Android/releases/tag/v1.4.4-m3a",
   "notes": [
-    "1.4.4-m3：接入上游 1.4.4 的分带渲染、解码白平衡、加性光晕、导出元数据与 RAW 修复。",
+    "1.4.4-m3a：修复安装后启动器图标为黑色的资源问题，补回自适应图标与各密度图标。",
+    "1.4.4-m3 的全部内容：上游 1.4.4 分带渲染、解码白平衡、加性光晕、导出元数据与 RAW 修复。",
     "M3 控制台：视图调整、构图（旋转/裁切/翻转，Apply 提案）、撤销、画布缩放。",
-    "修复 >16.7 MP 片边导出底部帧号与厂标丢失。",
-    "本版为稳定通道；下载页在 GitHub Releases。"
+    "修复 >16.7 MP 片边导出底部帧号与厂标丢失。"
   ],
-  "updated_at": "2026-11-04T05:18:00Z",
+  "updated_at": "2026-11-04T06:26:18Z",
   "channel": "stable"
 }
