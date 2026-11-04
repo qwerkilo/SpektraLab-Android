@@ -3111,6 +3111,10 @@ public class MainActivity extends AppCompatActivity {
         final ChipGroup turns = new ChipGroup(this);
         turns.setSingleSelection(true);
         turns.setSelectionRequired(true);
+        final int[] draftTurns = {geometryTurns};
+        final float[] draft = {geometryRotation, geometryCropX, geometryCropY,
+                geometryCropW, geometryCropH};
+        final boolean[] draftFlips = {geometryFlipH, geometryFlipV};
         final String[] labels = {"0°", "90°", "180°", "270°"};
         for (int i = 0; i < labels.length; ++i) {
             final int quarter = i;
@@ -3118,44 +3122,51 @@ public class MainActivity extends AppCompatActivity {
             styleOpticsChip(chip);
             chip.setText(labels[i]);
             chip.setCheckable(true);
-            chip.setChecked(geometryTurns == quarter);
+            chip.setChecked(draftTurns[0] == quarter);
             chip.setMinimumHeight(dp(MIN_TOUCH_DP));
-            chip.setOnClickListener(v -> {
-                geometryTurns = quarter;
-                renderImage();
-            });
+            chip.setOnClickListener(v -> draftTurns[0] = quarter);
             turns.addView(chip);
         }
         root.addView(turns, new LinearLayout.LayoutParams(-1, -2));
 
-        composeSlider(root, "旋转 / ROTATION", -45f, 45f, geometryRotation,
-                v -> geometryRotation = v);
-        composeSlider(root, "裁切 X / CROP X", 0f, 1f, geometryCropX,
-                v -> geometryCropX = v);
-        composeSlider(root, "裁切 Y / CROP Y", 0f, 1f, geometryCropY,
-                v -> geometryCropY = v);
-        composeSlider(root, "裁切宽 / CROP W", 0.05f, 1f, geometryCropW,
-                v -> geometryCropW = v);
-        composeSlider(root, "裁切高 / CROP H", 0.05f, 1f, geometryCropH,
-                v -> geometryCropH = v);
+        composeSlider(root, "旋转 / ROTATION", -45f, 45f, draft[0],
+                v -> draft[0] = v);
+        composeSlider(root, "裁切 X / CROP X", 0f, 1f, draft[1],
+                v -> draft[1] = v);
+        composeSlider(root, "裁切 Y / CROP Y", 0f, 1f, draft[2],
+                v -> draft[2] = v);
+        composeSlider(root, "裁切宽 / CROP W", 0.05f, 1f, draft[3],
+                v -> draft[3] = v);
+        composeSlider(root, "裁切高 / CROP H", 0.05f, 1f, draft[4],
+                v -> draft[4] = v);
 
         final MaterialSwitch flipH = new MaterialSwitch(this);
         flipH.setText(mixedText("水平翻转 / FLIP H"));
-        flipH.setChecked(geometryFlipH);
-        flipH.setOnCheckedChangeListener((b, checked) -> {
-            geometryFlipH = checked;
-            renderImage();
-        });
+        flipH.setChecked(draftFlips[0]);
+        flipH.setOnCheckedChangeListener((b, checked) -> draftFlips[0] = checked);
         root.addView(flipH, new LinearLayout.LayoutParams(-1, dp(48)));
 
         final MaterialSwitch flipV = new MaterialSwitch(this);
         flipV.setText(mixedText("垂直翻转 / FLIP V"));
-        flipV.setChecked(geometryFlipV);
-        flipV.setOnCheckedChangeListener((b, checked) -> {
-            geometryFlipV = checked;
+        flipV.setChecked(draftFlips[1]);
+        flipV.setOnCheckedChangeListener((b, checked) -> draftFlips[1] = checked);
+        root.addView(flipV, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        final MaterialButton apply = actionButton(
+                mixedText("应用构图"), "应用旋转、裁切和翻转");
+        apply.setOnClickListener(v -> {
+            geometryTurns = draftTurns[0];
+            geometryRotation = draft[0];
+            geometryCropX = draft[1];
+            geometryCropY = draft[2];
+            geometryCropW = draft[3];
+            geometryCropH = draft[4];
+            geometryFlipH = draftFlips[0];
+            geometryFlipV = draftFlips[1];
+            dialog.dismiss();
             renderImage();
         });
-        root.addView(flipV, new LinearLayout.LayoutParams(-1, dp(48)));
+        root.addView(apply, new LinearLayout.LayoutParams(-2, dp(48)));
 
         final MaterialButton reset = actionButton(mixedText("重置构图"), "重置旋转、裁切和翻转");
         reset.setOnClickListener(v -> {
@@ -3198,10 +3209,6 @@ public class MainActivity extends AppCompatActivity {
             apply.accept(v);
             readout.setText(String.format(java.util.Locale.US, "%.2f", v));
             ViewCompat.setStateDescription(s, String.format(java.util.Locale.US, "%.2f", v));
-        });
-        slider.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
-            @Override public void onStartTrackingTouch(Slider s) { }
-            @Override public void onStopTrackingTouch(Slider s) { renderImage(); }
         });
         parent.addView(slider, new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
     }
