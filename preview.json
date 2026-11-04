@@ -1,8 +1,12 @@
 {
-  "latest_version_code": 69,
-  "latest_version_name": "1.4.0-m3",
+  "latest_version_code": 155,
+  "latest_version_name": "1.4.4-m3",
   "url": "https://spektralab.workshop.skin/",
-  "notes": ["1.4.0-m3：M3 控制台接入上游 1.4.0 的 22 项光学参数、相机滤镜与保护测光。", "新增片边 / 日期后背二级页；每张照片各自保存一份 Look，导出会完整重述整份 Look。", "RAW 导出现在使用独立会话，不再影响预览或另一张照片。", "这是测试版：大于 16.7 MP 的片边导出仍会丢失底边打印；引擎修复前不会发布稳定版。请见 docs/known-issues.md。"],
-  "updated_at": "2026-11-03T03:57:12Z",
+  "notes": [
+    "1.4.4-m3：接入上游 1.4.1–1.4.4 的引擎/JNI：分带渲染、解码白平衡、加性光晕、导出元数据与 RAW 修复。",
+    "M3 控制台保留；上游的组合页、画布捏合与撤销仍在移植中。",
+    "测试版：片边大图导出正在验证 1.4.4 分带引擎；确认前不发布稳定版。详见 docs/known-issues.md。"
+  ],
+  "updated_at": "2026-11-04T00:00:00Z",
   "channel": "preview"
 }
