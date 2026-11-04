@@ -85,4 +85,5 @@
     <color name="m3_brand_dark_shadow">#FF000000</color>
     <color name="m3_brand_dark_scrim">#FF000000</color>
     <color name="m3_brand_dark_surface_tint">#FF99D4A2</color>
+    <color name="ic_launcher_background">#FFFFFF</color>
 </resources>
