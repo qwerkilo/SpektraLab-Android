@@ -30,12 +30,12 @@ On Windows without Termux, `app/build/build-apk-windows.ps1` compiles, dexes wit
 
 ## Gradle / Material 3
 
-`./gradlew assembleDebug` is the primary build for the M3 migration. It uses `JAVA_HOME` (CI sets JDK 17; local JDK 17 or 21 works), compiles and targets SDK 36, and stages `assets/` plus `arm64-v8a` libraries from `app/build/SpektraLab-1.4.4-qa.apk` (override with `-PbaseApk=<path>`). The donor's `stock_catalog.json` is deliberately excluded; `generateStockCatalog` rebuilds it from the staged profiles into `build/generated/stockAssets`, so `targetPrint` and the spectral series match the shipped profiles. Set the same `SPK_*` variables to sign with the release key; without them Gradle uses its debug key and the APK will not update an installed release build. For Android 15/16 devices with 16 KB pages, run `./gradlew align16k` (needs build-tools 36) and install `app/build/outputs/apk/debug/app-debug-16k-signed.apk`; the plain debug APK is only 4 KB zip-aligned. The legacy scripts remain the fallback for the pre-M3 tree.
+`./gradlew assembleDebug` is the primary build for the M3 migration. It uses `JAVA_HOME` (CI sets JDK 17; local JDK 17 or 21 works), compiles and targets SDK 36, and stages `assets/` plus `arm64-v8a` libraries from `app/build/SpektraLab-1.4.4-qa.apk` (override with `-PbaseApk=<path>`). The donor's `stock_catalog.json` is deliberately excluded; `generateStockCatalog` rebuilds it from the staged profiles into `build/generated/stockAssets`, so `targetPrint` and the spectral series match the shipped profiles. Set the same `SPK_*` variables to sign with the release key; without them Gradle uses its debug key and the APK will not update an installed release build. For Android 15/16 devices with 16 KB pages, run `./gradlew align16k` (needs build-tools 36) and install `app/build/outputs/apk/debug/app-debug-16k-signed.apk`; the plain debug APK is only 4 KB zip-aligned. Never run `./gradlew clean`: `app/build/` holds tracked build scripts (`gen-stock-catalog.py`, `check-*.py`, the Windows/Termux helpers), and `clean` deletes them. Use `--rerun-tasks`, or remove only generated outputs. The legacy scripts remain the fallback for the pre-M3 tree.
 
 ## Upstreams
 
 - **Engine**: `JamesQiu2005/SpektraLab`, branch `assist/vulkan-engine-1.3.4` at `445e314`. The engine is out of tree; sync by reapplying `patches/engine-android.patch` to the new baseline, never by merging the desktop app.
-- **Android app**: `SAINTTaiYi/SpektraLab-Android`, branch `master` at `1.4.4` (`9875785`). The fork's `origin` is `qwerkilo/SpektraLab-Android`; pushing there does not update the user-facing channel. The 1.4.4 native/JNI core is merged; its new Console pages, canvas pinch, and undo are a follow-up port.
+- **Android app**: `SAINTTaiYi/SpektraLab-Android`, branch `master` at `1.4.4` (`9875785`). The fork's `origin` is `qwerkilo/SpektraLab-Android`; pushing there does not update the user-facing channel. The 1.4.4 native/JNI core is merged; its new Console pages, canvas pinch, and undo are a follow-up port (issue #3). Merge upstream syncs with a **merge commit**, never squash: squash drops the upstream parent and GitHub reports the fork behind even when the trees match.
 - On Windows, build-tools 34 `d8` crashes on `MainActivity$1.class` (`NullPointerException`). Use the R8 jar in `android-sdk/cmdline-tools/latest/lib/r8.jar` with JDK 17 instead.
 
 ## Where the code lives
@@ -111,7 +111,7 @@ Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents
 
 Enable once per clone: `git config core.hooksPath .githooks`.
 The hook syntax-checks staged `.sh` files with `bash -n`, staged `.py` files with `ast.parse`, rejects staged text that is not valid UTF-8, and runs `git diff --cached --check`.
-It does not run the Android build.
+It does not run the Android build. Edit UTF-8 docs with the editor tool or Python (`newline='\n'`); Windows PowerShell 5 `Set-Content -Encoding utf8` writes a BOM and has corrupted non-ASCII text.
 
 ## Git workflow
 
