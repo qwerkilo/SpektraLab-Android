@@ -28,6 +28,10 @@ _Avoid_: Before, source
 The complete set of choices that turn a Frame's Source into a print: film stock, print stock, exposure, grain, halation, glare, scale, and edge settings.
 _Avoid_: Preset, filter, style, theme
 
+**Frame Look session**:
+The live Look and its undo history for one Frame. A Frame owns exactly one; switching Frame switches the session, not a copy of the Look.
+_Avoid_: Editor state, session, working copy
+
 **Render**:
 The engine work that applies a Look to a Frame's Source and produces the preview or the exported pixels.
 _Avoid_: Develop, process, export (export is writing the file)
