@@ -5767,18 +5767,14 @@ public class MainActivity extends AppCompatActivity {
         loadImage(uri);
     }
 
-    private void loadImage(Uri uri) {
-        /** Re-opens a chip; captured before rememberFrame consumes the flag. */
-    final boolean reopening = reopeningFrame;
-    sourceUri = uri;
+    /** Reset the live Look session and Scan state before decoding an import. */
+    private void prepareImportState(boolean reopening) {
         // A new import works out its own imprint date; the previous frame's
         // cached text must not travel with the new Source.
         defaultDateText = null;
-        // The frame's own look, stated before any session is built: a chip
-        // returns to a photograph *and* to what was done to it; a pick from ＋
-        // starts with no film at all. Scan inspect belongs to the same Frame,
-        // so its position comes back with it.
-        if (reopeningFrame) {
+        // A chip returns to a photograph and to what was done to it; a pick
+        // starts with no film. Scan inspect belongs to the same Frame.
+        if (reopening) {
             final Frame target = (currentFrame >= 0 && currentFrame < frames.size())
                     ? frames.get(currentFrame) : null;
             restoreScanStateFromFrame(target);
@@ -5791,6 +5787,12 @@ public class MainActivity extends AppCompatActivity {
             applyLook(optics);
         }
         updateUndoAction();
+    }
+
+    private void loadImage(Uri uri) {
+        final boolean reopening = reopeningFrame;
+        sourceUri = uri;
+        prepareImportState(reopening);
         try {
             // Check if this is a RAW file by extension
             String fileName = getFileName(uri);
