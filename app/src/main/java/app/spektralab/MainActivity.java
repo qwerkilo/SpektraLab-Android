@@ -5876,24 +5876,12 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             sourceBitmap = applyExifRotation(uri, sourceBitmap);
-            final long area = (long) sourceBitmap.getWidth() * sourceBitmap.getHeight();
-            final int longEdge = Math.max(sourceBitmap.getWidth(), sourceBitmap.getHeight());
-            // Three ceilings in three units, and the strictest wins: area is
-            // quadratic in the scale, the long edge is linear, and the third is
-            // what this phone can actually hold -- the import's float buffer is
-            // 12 B/px, which is 240 MB at 20 MP and the largest single
-            // allocation the app makes. Asking before taking it is what turns
-            // an OutOfMemoryError (an Error, so the old `catch (Exception)`
-            // never saw it and the process died) into a smaller import.
-            double k = 1.0;
-            if (area > capPixels) k = Math.min(k, Math.sqrt((double) capPixels / (double) area));
-            if (longEdge > edgeCap) k = Math.min(k, (double) edgeCap / longEdge);
+            // Three ceilings in three units, and the strictest wins. The rule
+            // lives in ImportBudget so the decoder and the budget dialog cannot
+            // disagree about what this phone may hold.
             final long availBytes = availableMemoryBytes();
-            if (availBytes > 0) {
-                final long budget = Math.max(1L << 20, availBytes - (128L << 20));
-                final double wantBytes = (double) area * 12.0;
-                if (wantBytes > budget) k = Math.min(k, Math.sqrt((double) budget / wantBytes));
-            }
+            final double k = ImportBudget.scale(sourceBitmap.getWidth(),
+                    sourceBitmap.getHeight(), capPixels, edgeCap, availBytes);
             if (k < 1.0) {
                 final int nw = Math.max(1, (int) Math.round(sourceBitmap.getWidth() * k));
                 final int nh = Math.max(1, (int) Math.round(sourceBitmap.getHeight() * k));
