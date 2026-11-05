@@ -1,5 +1,7 @@
 package app.spektralab;
 
+import app.spektralab.core.ReleaseUrl;
+
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;

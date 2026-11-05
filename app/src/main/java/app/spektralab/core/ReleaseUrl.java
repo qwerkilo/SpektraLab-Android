@@ -1,4 +1,4 @@
-package app.spektralab;
+package app.spektralab.core;
 
 import java.net.URI;
 
@@ -19,14 +19,24 @@ public final class ReleaseUrl {
     private ReleaseUrl() { }
 
     public static String sanitize(String raw) {
-        if (raw == null) return DEFAULT;
+        if (raw == null) {
+            return DEFAULT;
+        }
         try {
             final URI uri = new URI(raw);
-            if (!"https".equalsIgnoreCase(uri.getScheme())) return DEFAULT;
+            if (!"https".equalsIgnoreCase(uri.getScheme())) {
+                return DEFAULT;
+            }
             final String host = uri.getHost();
-            if (host == null) return DEFAULT;
-            if ("spektralab.workshop.skin".equalsIgnoreCase(host)) return raw;
-            if ("update.workshop.skin".equalsIgnoreCase(host)) return raw;
+            if (host == null) {
+                return DEFAULT;
+            }
+            if ("spektralab.workshop.skin".equalsIgnoreCase(host)) {
+                return raw;
+            }
+            if ("update.workshop.skin".equalsIgnoreCase(host)) {
+                return raw;
+            }
             final String path = uri.getPath();
             if ("github.com".equalsIgnoreCase(host) && path != null) {
                 if (path.startsWith("/SAINTTaiYi/SpektraLab-Android/")

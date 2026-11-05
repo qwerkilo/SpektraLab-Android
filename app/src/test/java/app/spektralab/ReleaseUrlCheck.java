@@ -1,5 +1,7 @@
 package app.spektralab;
 
+import app.spektralab.core.ReleaseUrl;
+
 /** An announcement URL may only reach the release page or the update host. */
 public final class ReleaseUrlCheck {
     private static int checks;
