@@ -6980,6 +6980,38 @@ public class MainActivity extends AppCompatActivity {
      * A native crash kills the process before the export path can report, so
      * any *.prog the JNI left in the cache dir is picked up on the next start.
      */
+    /** Show a finished export and clear the progress state. */
+    private void applyExportResult(Uri outUri, String mime, String canvas, int fw, int fh,
+                                   long renderMs, long secs, String sizeLabel,
+                                   boolean tiff, boolean dng) {
+        lastExportUri = outUri;
+        lastExportMime = mime;
+        // A separate control, and only when it has something to do: every
+        // other format opens where it lands.
+        if (sharePill != null) {
+            sharePill.setVisibility((tiff || dng) ? View.VISIBLE : View.GONE);
+        }
+        final String canvasNote = canvas.isEmpty() ? "" : " · 画布 " + canvas;
+        final String tiffHint = tiff
+                ? "（TIFF：点导出旁边的「分享」发给手机版 Lightroom 即可使用）"
+                : dng ? "（DNG：线性 16 位，给电脑上的 Lightroom / ACR；手机版打不开，已知问题，不必反馈）" : "";
+        showSnackbar("已保存 " + fw + "x" + fh + canvasNote + " · " + sizeLabel + tiffHint);
+        statusText.setText("已导出 " + fw + "x" + fh + canvasNote + " · " + sizeLabel
+                + "（" + secs + " 秒，其中渲染 " + (renderMs / 1000.0) + " 秒）" + tiffHint);
+        exportProgressBar.setVisibility(View.GONE);
+        setStep(2);
+    }
+
+    /** Show an export failure with the size and probe context. */
+    private void applyExportFailure(String msg) {
+        statusText.setText("导出失败 " + SpkError.shortForm(msg));
+        showErrorSnackbar("导出失败", SpkError.format(msg)
+                + "\n\n" + sourceWidth + "×" + sourceHeight
+                + "\n" + probe.describe());
+        exportProgressBar.setVisibility(View.GONE);
+        setStep(2);
+    }
+
     private void uploadStaleExportProgress() {
         try {
             java.io.File[] files = getCacheDir().listFiles();
@@ -7228,40 +7260,14 @@ public class MainActivity extends AppCompatActivity {
                 final long bytes = tmp.exists() ? tmp.length() : 0;
                 final String sizeLabel = bytes > 0
                         ? String.format("%.1f MB", bytes / 1048576.0) : "?";
-                runOnUiThread(() -> {
-                    lastExportUri = outUri;
-                    lastExportMime = mime;
-                    // A separate control, and only when it has something to do:
-                    // every other format opens where it lands, and a permanent
-                    // share button on a photograph app reads as "post to
-                    // social", which is not what this is.
-                    if (sharePill != null) sharePill.setVisibility((tiff || dng) ? View.VISIBLE : View.GONE);
-                    // Dimensions and file size together: "3.3 MB" alone reads as
-                    // a bug when the frame is 16 MP, and the reason is worth
-                    // saying out loud rather than guessing at later.
-                    final String canvasNote = canvas.isEmpty() ? "" : " · 画布 " + canvas;
-                    final String tiffHint = tiff
-                            ? "（TIFF：点导出旁边的「分享」发给手机版 Lightroom 即可使用）"
-                            : dng ? "（DNG：线性 16 位，给电脑上的 Lightroom / ACR；手机版打不开，已知问题，不必反馈）" : "";
-                    showSnackbar("已保存 " + fw + "x" + fh + canvasNote + " · " + sizeLabel + tiffHint);
-                    statusText.setText("已导出 " + fw + "x" + fh + canvasNote + " · " + sizeLabel
-                        + "（" + secs + " 秒，其中渲染 " + (fRender / 1000.0) + " 秒）" + tiffHint);
-                    exportProgressBar.setVisibility(View.GONE);
-                    setStep(2);
-                });
+                runOnUiThread(() -> applyExportResult(outUri, mime, canvas, fw, fh,
+                        fRender, secs, sizeLabel, tiff, dng));
             } catch (Throwable e) {
                 final String msg = describe(e);
                 try { DebugSink.text("export-error", "tier=" + tier + " " + msg); } catch (Throwable ignored) {}
                 uploadExportProgress(tmp);
                 uploadVkLog();
-                runOnUiThread(() -> {
-                    statusText.setText("导出失败 " + SpkError.shortForm(msg));
-                    showErrorSnackbar("导出失败", SpkError.format(msg)
-                            + "\n\n" + sourceWidth + "×" + sourceHeight
-                            + "\n" + probe.describe());
-                    exportProgressBar.setVisibility(View.GONE);
-                    setStep(2);
-                });
+                runOnUiThread(() -> applyExportFailure(msg));
                 final int code = SpkError.codeOf(msg);
                 if (code == 1001 || code == 1009) offerSmallerImport();
             } finally {
