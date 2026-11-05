@@ -60,7 +60,7 @@ public final class SpkError {
     /** "[E-1001] 中文说明" plus the engine's own text, which carries the numbers. */
     public static String format(String raw) {
         if (raw == null || raw.isEmpty()) return "[E-0000] 未知错误";
-        if (isMediaStoreFailure(raw)) return "[E-1305] " + GALLERY_WRITE + "（" + raw + "）";
+        if (isMediaStoreFailure(raw)) return "[E-1306] " + GALLERY_WRITE + "（" + raw + "）";
         if (isPermissionFailure(raw)) return "[E-1304] " + IMPORT_PERMISSION + "（" + raw + "）";
         int code = codeOf(raw);
         if (code == 0) code = 9000;
@@ -94,7 +94,7 @@ public final class SpkError {
 
     /** Short form for a status line, without the engine text. */
     public static String shortForm(String raw) {
-        if (isMediaStoreFailure(raw)) return "[E-1305] 写入相册失败，请检查存储权限";
+        if (isMediaStoreFailure(raw)) return "[E-1306] 写入相册失败，请检查存储权限";
         if (isPermissionFailure(raw)) return "[E-1304] 照片权限已失效，请重新导入";
         int code = codeOf(raw);
         if (code == 0) code = 9000;
@@ -166,9 +166,13 @@ public final class SpkError {
             case 1302: return "参数超出允许范围";
             case 1303: return "会话状态异常，请重新导入照片";
             case 1304: return IMPORT_PERMISSION;
-            // The export rendered; only the gallery write was refused. Same
-            // code family as the request errors, not the picker's grant.
-            case 1305: return GALLERY_WRITE;
+            // The gate and the picture disagree about their shape. A crop is
+            // the cure, and there are two ways to make one, so name both.
+            case 1305: return "片门与照片比例不符：到「边框」页换一个同比例的片门，" +
+                              "或到「构图」页裁成片门的比例";
+            // App-level: the export rendered, only the gallery write failed.
+            // Kept distinct from the engine's 1305 gate mismatch.
+            case 1306: return GALLERY_WRITE;
             // 2xxx — the update channel
             case 2001: return "检查更新失败：网络不可用，或公告地址被当前网络拦截";
             case 2002: return "更新公告格式错误";

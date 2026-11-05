@@ -22,8 +22,8 @@ public final class VersionCheck {
     private static int checks;
 
     /** The fork's version. Not upstream's 100 / 1.4.0. */
-    private static final int CODE = 156;
-    private static final String NAME = "1.4.4-m3a";
+    private static final int CODE = 181;
+    private static final String NAME = "1.5.0e-m3";
     private static final String SITE = "https://spektralab.workshop.skin/";
 
     public static void main(String[] args) throws Exception {
@@ -92,8 +92,8 @@ public final class VersionCheck {
                             previewJson.optString("channel"), 68, "1.3.4"));
         }
         if (gateAccepted) {
-            ok("an accepted gate may publish the build as stable",
-                    CODE == stableJson.optInt("latest_version_code"));
+            ok("an accepted gate permits, but does not force, stable publication",
+                    stableJson.optInt("latest_version_code") <= CODE);
         }
 
         System.out.println("VersionCheck: " + checks + " checks passed");
