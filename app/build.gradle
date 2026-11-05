@@ -18,6 +18,7 @@ tasks.register('checkstyleGovernance', Checkstyle) {
     source = fileTree('src/main/java/app/spektralab') {
         include 'ui/**/*.java'
         include 'model/**/*.java'
+        include 'core/**/*.java'
     }
     configFile = rootProject.file('config/checkstyle/checkstyle.xml')
     configDirectory = rootProject.file('config/checkstyle')
