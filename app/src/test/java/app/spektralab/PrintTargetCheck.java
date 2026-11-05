@@ -1,5 +1,7 @@
 package app.spektralab;
 
+import app.spektralab.core.PrintTarget;
+
 import java.util.Arrays;
 import java.util.List;
 

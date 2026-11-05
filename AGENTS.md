@@ -53,6 +53,7 @@ On Windows without Termux, `app/build/build-apk-windows.ps1` compiles, dexes wit
 - `core/SafeFileName.java` — provider filename sanitiser used before a cache write.
 - `core/ReleaseUrl.java` — HTTPS/host whitelist for the update-check link.
 - `core/FilmBrand.java` — brand facet order, counts and shelf pinning.
+- `core/PrintTarget.java` — the film's declared paper, applied only when it exists.
 - `StockCatalogue.java` — the one store for the film/print catalogue entries (id, label, type, use). The Activity exposes read-only id/label/type views over those lists; do not add a parallel list.
 - `SpektraLabEngine.java` — JNI facade. `prepare(libDir)` loads bundled `.so` by absolute path before the engine; there is intentionally no `static {}` loader, so a load failure keeps its cause. One native result buffer, serialized by `RENDER_LOCK`.
 - `spektralab_jni.cpp` — session, render, JPEG/TIFF/DNG export. `spektralab_raw_jni.cpp` — LibRaw decode.
