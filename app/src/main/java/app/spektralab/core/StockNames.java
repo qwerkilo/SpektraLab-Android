@@ -1,4 +1,4 @@
-package app.spektralab;
+package app.spektralab.core;
 
 /**
  * The two faces of one catalogue record.
@@ -22,7 +22,9 @@ public final class StockNames {
      * card's narrow width cannot carry. Everything before the suffix stays.
      */
     public static String shelf(String label) {
-        if (label == null) return "";
+        if (label == null) {
+            return "";
+        }
         final int cut = label.indexOf(" · ");
         return cut > 0 ? label.substring(0, cut) : label;
     }
