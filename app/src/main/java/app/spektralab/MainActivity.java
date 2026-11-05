@@ -96,9 +96,37 @@ public class MainActivity extends AppCompatActivity {
     private TextView statusText;
     private ProgressBar progressBar;
     private ProgressBar exportProgressBar;
-    private final List<String> filmIds = new ArrayList<>(), filmLabels = new ArrayList<>();
-    private final List<String> filmTypes = new ArrayList<>();
-    private final List<String> printIds = new ArrayList<>(), printLabels = new ArrayList<>();
+    private final List<StockCatalogue.Stock> filmCatalogue = new ArrayList<>();
+    private final List<StockCatalogue.Stock> printCatalogue = new ArrayList<>();
+    private final List<String> filmIds = stockIds(filmCatalogue);
+    private final List<String> filmLabels = stockLabels(filmCatalogue);
+    private final List<String> filmTypes = stockTypes(filmCatalogue);
+    private final List<String> printIds = stockIds(printCatalogue);
+    private final List<String> printLabels = stockLabels(printCatalogue);
+    /** A read-only id view over the catalogue; the catalogue is the only store. */
+    private static List<String> stockIds(final List<StockCatalogue.Stock> source) {
+        return new java.util.AbstractList<String>() {
+            @Override public String get(int index) { return source.get(index).id; }
+            @Override public int size() { return source.size(); }
+        };
+    }
+
+    /** A read-only label view over the same catalogue. */
+    private static List<String> stockLabels(final List<StockCatalogue.Stock> source) {
+        return new java.util.AbstractList<String>() {
+            @Override public String get(int index) { return source.get(index).label; }
+            @Override public int size() { return source.size(); }
+        };
+    }
+
+    /** A read-only type view over the same catalogue. */
+    private static List<String> stockTypes(final List<StockCatalogue.Stock> source) {
+        return new java.util.AbstractList<String>() {
+            @Override public String get(int index) { return source.get(index).type; }
+            @Override public int size() { return source.size(); }
+        };
+    }
+
     /** The catalogue's film records, keyed by stock id: the shipped spectral
      *  series, its declared source, and the real scalar `info` fields. An
      *  absent record is the only truthful "unavailable"; it is never filled
@@ -6271,31 +6299,27 @@ public class MainActivity extends AppCompatActivity {
     private void loadStockCatalog() {
         // A theme rebuild runs this again through the composition root. Clear
         // first, or every toggle appends a second copy of the catalogue.
-        filmIds.clear();
-        filmLabels.clear();
-        filmTypes.clear();
-        printIds.clear();
-        printLabels.clear();
+        filmCatalogue.clear();
+        printCatalogue.clear();
         filmStocks.clear();
         try (InputStream in = getAssets().open("resources/stock_catalog.json")) {
             final org.json.JSONObject root = new org.json.JSONObject(
                     new String(readFully(in), java.nio.charset.StandardCharsets.UTF_8));
             final org.json.JSONArray films = root.optJSONArray("films");
-            for (StockCatalogue.Stock stock : StockCatalogue.read(films)) {
-                filmIds.add(stock.id);
-                filmLabels.add(stock.label);
-                filmTypes.add(stock.type);
-            }
-            for (StockCatalogue.Stock stock : StockCatalogue.read(root.optJSONArray("prints"))) {
-                printIds.add(stock.id);
-                printLabels.add(stock.label);
-            }
+            filmCatalogue.addAll(StockCatalogue.read(films));
+            printCatalogue.addAll(StockCatalogue.read(root.optJSONArray("prints")));
             readFilmStocks(films);
         } catch (Throwable t) {
             android.util.Log.w("SpektraLab", "stock catalog: " + t);
         }
-        if (filmIds.isEmpty()) { filmIds.add("kodak_portra_400"); filmLabels.add("Kodak Portra 400"); }
-        if (printIds.isEmpty()) { printIds.add("kodak_portra_endura"); printLabels.add("Kodak Portra Endura"); }
+        if (filmCatalogue.isEmpty()) {
+            filmCatalogue.add(new StockCatalogue.Stock(
+                    "kodak_portra_400", "Kodak Portra 400", "negative", ""));
+        }
+        if (printCatalogue.isEmpty()) {
+            printCatalogue.add(new StockCatalogue.Stock(
+                    "kodak_portra_endura", "Kodak Portra Endura", "print", ""));
+        }
 
         refreshFilmPanel();
         refreshPaperLabel();
