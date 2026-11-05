@@ -6867,7 +6867,8 @@ public class MainActivity extends AppCompatActivity {
         // thread: `solve` below meters with it, and the worker never reads a
         // control.
         final String importParams = live().filmStock == null
-                ? null : snapshotRestatement(live().filmStock, PREVIEW_LONG_EDGE);
+                ? null
+                : snapshotFor(live(), live().filmStock, PREVIEW_LONG_EDGE).params;
         try {
             String filePath = getFilePathFromUri(uri);
             rawFilePath = filePath;
@@ -7532,16 +7533,14 @@ public class MainActivity extends AppCompatActivity {
      * one and not the other was invisible until a file disagreed with the
      * screen. There is now one string, built in one place.
      */
-    private String snapshotRestatement(String stock, int longEdge) {
-        final Look look = captureLook();
-        look.filmStock = stock;
-        // The typed text is on the Look; this is only the Frame's default.
-        return LookRestatement.json(look, new LookRestatement.Context(
-                isRawFile,
-                longEdge,
-                isPositiveFilm(stock),
-                edgeTextFor(stock),
-                look.dateOn ? defaultImprintDate() : ""));
+    private RenderSnapshot snapshotFor(Look look, String stock, int longEdge) {
+        return RenderSnapshot.of(look, stock, longEdge,
+                new LookRestatement.Context(
+                        isRawFile,
+                        longEdge,
+                        isPositiveFilm(stock),
+                        edgeTextFor(stock),
+                        look.dateOn ? defaultImprintDate() : ""));
     }
 
     /*
@@ -7595,12 +7594,13 @@ public class MainActivity extends AppCompatActivity {
         updateUndoAction();
         // The view layer is a process-global native pass, so snapshot its
         // values with the Look and send them under the render lock.
-        final double[] viewAdjust = renderLook.view.toNative();
+        final RenderSnapshot snapshot = snapshotFor(renderLook, renderedStock, PREVIEW_LONG_EDGE);
+        final double[] viewAdjust = snapshot.viewAdjust;
         // Snapshot the whole Look here, on the UI thread: the render thread gets
         // one finished string and never reads a control or a Frame.
         final String previewParams;
         try {
-            previewParams = snapshotRestatement(renderedStock, PREVIEW_LONG_EDGE);
+            previewParams = snapshot.params;
             // The line a "every film looks the same" report needs: what this
             // render is about to tell the engine, next to the UI selection.
             DebugSink.text("params", "draw film=" + renderedStock + " print=" + live().printStock
@@ -7867,8 +7867,9 @@ public class MainActivity extends AppCompatActivity {
         // switch or a slider drag during a long export must not move the file.
         final String exportStock = live().filmStock;
         final Look exportLook = captureLook();
-        final double[] exportViewAdjust = exportLook.view.toNative();
-        final String exportParams = snapshotRestatement(exportStock, PREVIEW_LONG_EDGE);
+        final RenderSnapshot exportSnapshot = snapshotFor(exportLook, exportStock, PREVIEW_LONG_EDGE);
+        final double[] exportViewAdjust = exportSnapshot.viewAdjust;
+        final String exportParams = exportSnapshot.params;
         final String rawExportPath = isRawFile ? (rawFilePath == null ? "" : rawFilePath) : null;
         // A bitmap export renders from the preview session; a RAW export opens
         // its own below. The render lock keeps a stock change out of either.

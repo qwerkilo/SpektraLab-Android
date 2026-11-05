@@ -42,6 +42,7 @@ On Windows without Termux, `app/build/build-apk-windows.ps1` compiles, dexes wit
 
 - `MainActivity.java` — ~8.2k lines, programmatic `View` UI in one file. No XML layouts; the M3 theme, color roles, and type attrs live in `app/src/main/res/values/*` (`themes.xml`, `colors.xml`, `attrs.xml`), with the rail menu in `app/src/main/res/menu/console_nav.xml` and its icons in `app/src/main/res/drawable/`.
 - `FrameLookSession.java` — the live per-Frame `Look` and undo history. The Activity holds only the current session; `look()` is read-only and edits go through `edit`/`record`. Every panel (Film, Optics, View, Scale, Edge, Date) reads and writes that session; do not add a parallel copy of a Look value.
+- `RenderSnapshot.java` — one UI-thread snapshot of the Look, engine JSON, stock, long edge and view-adjust values. Preview, export and RAW import build it once and hand it to their worker; do not rebuild parameters inside the worker.
 - `SpektraLabEngine.java` — JNI facade. `prepare(libDir)` loads bundled `.so` by absolute path before the engine; there is intentionally no `static {}` loader, so a load failure keeps its cause. One native result buffer, serialized by `RENDER_LOCK`.
 - `spektralab_jni.cpp` — session, render, JPEG/TIFF/DNG export. `spektralab_raw_jni.cpp` — LibRaw decode.
 - The engine itself is not in this repo; only `patches/engine-android.patch` and `docs/tiling.md` are.
