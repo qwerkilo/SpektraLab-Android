@@ -5789,6 +5789,31 @@ public class MainActivity extends AppCompatActivity {
         updateUndoAction();
     }
 
+    /** Drop the previous source and canvas before a new decode. */
+    private void resetCanvasForImport() {
+        // Free the previous frame before decoding: a 20 MP pick wants a
+        // ~200 MB direct buffer and the old session still holds its planes.
+        // Closing under the render lock avoids the SIGSEGV seen when a
+        // render races a session close.
+        synchronized (renderMutex) {
+            if (session != null) {
+                session.close();
+                session = null;
+            }
+        }
+        lastRenderedBitmap = null;
+        setOpticsUnlocked(false);
+        setStage(0, null);
+        sourceBitmap = null;
+        sourcePixels = null;
+        // The canvas is not a control: CompareView holds the last render and
+        // it survives a new session unless it is cleared here.
+        if (compare != null) {
+            compare.clear();
+        }
+        System.gc();
+    }
+
     private void loadImage(Uri uri) {
         final boolean reopening = reopeningFrame;
         sourceUri = uri;
@@ -5827,29 +5852,7 @@ public class MainActivity extends AppCompatActivity {
             }
             importBudgetAccepted = false;
 
-            // Free the previous frame before decoding: a 20 MP pick wants a
-            // ~200 MB direct buffer and the old session still holds its planes
-            // (this OOM was 241 MB with 201 MB left in the heap).
-            //
-            // **Under the render lock.** Closing a session out from under a
-            // render is the SIGSEGV this device logs as `vkCmdCopyBuffer`
-            // against a destroyed buffer.
-            synchronized (renderMutex) {
-                if (session != null) { session.close(); session = null; }
-            }
-            lastRenderedBitmap = null;
-            setOpticsUnlocked(false);
-            setStage(0, null);
-            sourceBitmap = null;
-            sourcePixels = null;
-            // The canvas is not a control. `setOriginalVisual` only paints the
-            // 原图 button; what CompareView holds is `after` (the last render)
-            // and it survives a new session. That was the whole "I changed the
-            // photo and the canvas still shows the old one" report: the frame
-            // was never dropped, so the next render was the first thing to
-            // replace it.
-            if (compare != null) compare.clear();
-            System.gc();
+            resetCanvasForImport();
 
             // Cap by area, the way the RAW path does. inSampleSize only halves,
             // so one exact scale follows if the sample still overshoots.
