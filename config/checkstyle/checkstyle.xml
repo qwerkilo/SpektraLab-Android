@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+    "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+    "https://checkstyle.org/dtds/configuration_1_3.dtd">
+<module name="Checker">
+    <property name="charset" value="UTF-8"/>
+    <property name="severity" value="error"/>
+
+    <module name="LineLength">
+        <property name="max" value="120"/>
+        <property name="ignorePattern" value="^package.*|^import.*|a href|href|http://|https://"/>
+    </module>
+
+    <module name="TreeWalker">
+        <module name="JavadocType">
+            <property name="scope" value="public"/>
+        </module>
+        <module name="MethodLength">
+            <property name="max" value="80"/>
+        </module>
+        <module name="NestedIfDepth">
+            <property name="max" value="3"/>
+        </module>
+        <module name="NestedForDepth">
+            <property name="max" value="3"/>
+        </module>
+        <module name="NeedBraces"/>
+        <module name="EmptyBlock">
+            <property name="option" value="text"/>
+        </module>
+        <module name="TypeName"/>
+        <module name="MethodName"/>
+        <module name="MemberName"/>
+        <module name="ConstantName"/>
+        <module name="LocalVariableName"/>
+        <module name="ParameterName"/>
+    </module>
+</module>

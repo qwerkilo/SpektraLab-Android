@@ -37,7 +37,7 @@ jobs:
         run: |
           python app/build/check-manifest.py
           python app/build/test-gen-stock-catalog.py
-          .\gradlew.bat checkJvm lintDebug --no-daemon
+          .\gradlew.bat checkstyleGovernance checkJvm lintDebug --no-daemon
 
       - name: Fetch the donor APK
         shell: pwsh

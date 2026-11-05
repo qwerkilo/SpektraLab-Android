@@ -23,6 +23,12 @@ import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.core.view.ViewCompat;
 import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
+import app.spektralab.ui.widget.ArrowView;
+import app.spektralab.ui.widget.EdgeBackdrop;
+import app.spektralab.ui.widget.GuideView;
+import app.spektralab.ui.widget.SnackbarHost;
+import app.spektralab.ui.widget.SpectralRail;
+import app.spektralab.ui.widget.ToolGlyph;
 import com.google.android.material.appbar.AppBarLayout;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
@@ -977,104 +983,7 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /**
-     * The M3 snackbar's parent. A CoordinatorLayout is what Snackbar expects
-     * for anchoring and swipe behaviour; the width cap is the M3 600 dp
-     * maximum, so a tablet gets a readable bar rather than a full-window strip.
-     */
-    private static final class SnackbarHost extends CoordinatorLayout {
-        private final int maxWidthPx;
-
-        SnackbarHost(android.content.Context context) {
-            super(context);
-            maxWidthPx = Math.round(600f * context.getResources().getDisplayMetrics().density);
-        }
-
-        @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-            final int mode = MeasureSpec.getMode(widthMeasureSpec);
-            if (mode != MeasureSpec.UNSPECIFIED) {
-                final int width = Math.min(MeasureSpec.getSize(widthMeasureSpec), maxWidthPx);
-                widthMeasureSpec = MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY);
-            }
-            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-        }
-    }
-
-    private static class EdgeBackdrop extends android.graphics.drawable.Drawable {
-        private final int background;
-        private final android.graphics.Paint paint = new android.graphics.Paint();
-        EdgeBackdrop(int background) {
-            this.background = background;
-        }
-        @Override public void draw(android.graphics.Canvas canvas) {
-            paint.setColor(background);
-            canvas.drawRect(getBounds(), paint);
-        }
-        @Override public void setAlpha(int alpha) { }
-        @Override public void setColorFilter(android.graphics.ColorFilter cf) { }
-        @Override public int getOpacity() { return android.graphics.PixelFormat.OPAQUE; }
-    }
-
-    /**
-     * The Spectrum's spatial reference: 380–780 nm along the preview's right
-     * edge. It is a scale, not a measurement -- no sample, look, or render is
-     * read here.
-     */
-    private static class SpectralRail extends View {
-        private static final int TICKS = 40;   // one per 10 nm
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final int lineColor, majorColor, textColor, shadowColor;
-        private final float density;
-
-        SpectralRail(android.content.Context context, Palette palette) {
-            super(context);
-            density = getResources().getDisplayMetrics().density;
-            lineColor = palette.color(Palette.Role.GUIDE_LINE);
-            majorColor = palette.color(Palette.Role.GUIDE_CORNER);
-            textColor = palette.color(Palette.Role.STAGE_INK);
-            shadowColor = palette.color(Palette.Role.STAGE_SHADOW);
-            setContentDescription("光谱参考刻度，380 至 780 纳米，不是测量值");
-        }
-
-        private float dp(float v) {
-            return v * density;
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            final float h = getHeight();
-            final float pad = dp(14);
-            paint.setStrokeWidth(Math.max(1f, density));
-            paint.setStyle(android.graphics.Paint.Style.STROKE);
-
-            paint.setColor(lineColor);
-            canvas.drawLine(0.5f, 0, 0.5f, h, paint);
-
-            for (int i = 0; i <= TICKS; ++i) {
-                final int nm = SpectrumSamples.RAIL_MIN_NM + i * 10;
-                final boolean major = nm % 50 == 0;
-                final float y = pad + (h - 2f * pad) * i / (float) TICKS;
-                paint.setColor(major ? majorColor : lineColor);
-                canvas.drawLine(0.5f, y, dp(major ? 7 : 3), y, paint);
-            }
-
-            paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setColor(textColor);
-            paint.setShadowLayer(dp(2), 0, dp(1), shadowColor);
-            paint.setTextSize(dp(5.5f));
-            paint.setTypeface(android.graphics.Typeface.create("sans-serif", Typeface.NORMAL));
-            final float x = dp(8);
-            canvas.drawText(String.valueOf(SpectrumSamples.RAIL_MIN_NM), x,
-                    pad + dp(2), paint);
-            canvas.drawText(String.valueOf(SpectrumSamples.RAIL_MID_NM), x,
-                    h * 0.5f + dp(2), paint);
-            canvas.drawText(String.valueOf(SpectrumSamples.RAIL_MAX_NM), x,
-                    h - pad + dp(2), paint);
-            paint.clearShadowLayer();
-        }
-    }
-
-    private void buildUi() {
+           private void buildUi() {
         if (tfBody == null) loadUiFonts();
         applyWindowPalette();
         applySystemBars();
@@ -5019,46 +4928,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** A drawn tool glyph: no font fallback tofu at 19 dp. */
-    private static class ToolGlyph extends View {
-        static final int COMPARE = 0, CAMERA = 1;
-        private final int kind;
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final float stroke;
-
-        ToolGlyph(android.content.Context context, int kind, int color) {
-            super(context);
-            this.kind = kind;
-            stroke = Math.max(1f, getResources().getDisplayMetrics().density);
-            paint.setStyle(android.graphics.Paint.Style.STROKE);
-            paint.setStrokeWidth(stroke);
-            paint.setColor(color);
-        }
-
-        void setColor(int color) {
-            paint.setColor(color);
-            invalidate();
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            final float w = getWidth(), h = getHeight(), p = stroke;
-            if (kind == COMPARE) {
-                canvas.drawRect(p, h * 0.20f, w - p, h * 0.82f, paint);
-                canvas.drawLine(w * 0.5f, h * 0.20f, w * 0.5f, h * 0.82f, paint);
-                canvas.drawLine(p, h * 0.68f, w * 0.42f, h * 0.38f, paint);
-                canvas.drawLine(w - p, h * 0.68f, w * 0.58f, h * 0.38f, paint);
-            } else {
-                canvas.drawRect(p, h * 0.28f, w - p, h * 0.82f, paint);
-                canvas.drawLine(w * 0.27f, h * 0.28f, w * 0.36f, h * 0.16f, paint);
-                canvas.drawLine(w * 0.36f, h * 0.16f, w * 0.64f, h * 0.16f, paint);
-                canvas.drawLine(w * 0.64f, h * 0.16f, w * 0.73f, h * 0.28f, paint);
-                canvas.drawCircle(w * 0.5f, h * 0.55f, h * 0.16f, paint);
-            }
-        }
-    }
-
-    /** Only the Gates whose shape this Frame is: the engine's own 5 % rule. */
+        /** Only the Gates whose shape this Frame is: the engine's own 5 % rule. */
     private void refreshEdgeFormats() {
         edgeLabels.clear();
         edgeIds.clear();
@@ -5510,29 +5380,6 @@ public class MainActivity extends AppCompatActivity {
 
     /** Reset from the old single control strip: delegate to the film page. */
     private void resetLook() { resetFilmPanel(); }
-
-    private static class ArrowView extends View {
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final float stroke;
-
-        ArrowView(android.content.Context context, int color) {
-            super(context);
-            paint.setColor(color);
-            paint.setStyle(android.graphics.Paint.Style.STROKE);
-            stroke = Math.max(1f, getResources().getDisplayMetrics().density * 1.1f);
-            paint.setStrokeWidth(stroke);
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            final float w = getWidth(), h = getHeight();
-            final float pad = stroke;
-            canvas.drawLine(pad, h - pad, w - pad, pad, paint);
-            canvas.drawLine(w - pad, pad, w - pad * 2f - w * 0.34f, pad, paint);
-            canvas.drawLine(w - pad, pad, w - pad, pad * 2f + h * 0.34f, paint);
-        }
-    }
-
     /**
      * The stage's picture, and the two ways to see what the film did: hold it
      * to see the frame before, or drag the middle line to keep both in view.
@@ -6083,44 +5930,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** .frame-guides: a 9 % inset rule, a centre cross, four corner marks. */
-    private static class GuideView extends View {
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final int mark;
-        private final Palette palette;
-
-        GuideView(android.content.Context context, int markLength, Palette palette) {
-            super(context);
-            mark = markLength;
-            this.palette = palette;
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            final int w = getWidth(), h = getHeight();
-            if (w <= 0 || h <= 0) return;
-            final float dx = w * 0.09f, dy = h * 0.09f;
-            paint.setStyle(android.graphics.Paint.Style.STROKE);
-            paint.setStrokeWidth(1f);
-            paint.setColor(palette.color(Palette.Role.GUIDE_LINE));
-            canvas.drawRect(dx, dy, w - dx, h - dy, paint);
-            paint.setColor(palette.color(Palette.Role.GUIDE_CENTER));
-            canvas.drawLine(w / 2f, dy, w / 2f, h - dy, paint);
-            canvas.drawLine(dx, h / 2f, w - dx, h / 2f, paint);
-            paint.setColor(palette.color(Palette.Role.GUIDE_CORNER));
-            final float L = mark;
-            canvas.drawLine(dx, dy, dx + L, dy, paint);
-            canvas.drawLine(dx, dy, dx, dy + L, paint);
-            canvas.drawLine(w - dx, dy, w - dx - L, dy, paint);
-            canvas.drawLine(w - dx, dy, w - dx, dy + L, paint);
-            canvas.drawLine(dx, h - dy, dx + L, h - dy, paint);
-            canvas.drawLine(dx, h - dy, dx, h - dy - L, paint);
-            canvas.drawLine(w - dx, h - dy, w - dx - L, h - dy, paint);
-            canvas.drawLine(w - dx, h - dy, w - dx, h - dy - L, paint);
-        }
-    }
-
-    /**
+        /**
      * A frame this device cannot take at its own size: **asked about, not
      * quietly shrunk**.
      *
