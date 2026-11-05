@@ -1,5 +1,7 @@
 package app.spektralab;
 
+import app.spektralab.core.ReleaseUrl;
+
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
