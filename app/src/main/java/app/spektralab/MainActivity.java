@@ -23,6 +23,7 @@ import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.core.view.ViewCompat;
 import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
+import app.spektralab.core.ImageFormat;
 import app.spektralab.core.ImportBudget;
 import app.spektralab.model.FilmStock;
 import app.spektralab.ui.UiState;
@@ -5793,23 +5794,12 @@ public class MainActivity extends AppCompatActivity {
         try {
             // Check if this is a RAW file by extension
             String fileName = getFileName(uri);
-            final String lower = fileName == null ? "" : fileName.toLowerCase();
-            isRawFile = lower.endsWith(".rw2") || lower.endsWith(".raw")
-                    || lower.endsWith(".dng") || lower.endsWith(".arw")
-                    || lower.endsWith(".nef") || lower.endsWith(".cr2")
-                    || lower.endsWith(".cr3") || lower.endsWith(".orf")
-                    || lower.endsWith(".raf") || lower.endsWith(".pef")
-                    || lower.endsWith(".srw") || lower.endsWith(".x3f")
-                    || lower.endsWith(".rwl") || lower.endsWith(".3fr")
-                    || lower.endsWith(".mrw") || lower.endsWith(".erf");
-            // A RAW container we know of but cannot open still beats decoding
-            // its bytes as a JPEG and reporting a mystery.
-            final String[] knownButUnsupported = {".heic.raw", ".iiq", ".mos"};
-            for (String ext : knownButUnsupported) {
-                if (lower.endsWith(ext)) {
-                    showSnackbar("[E-1107] 暂不支持 " + ext + " 格式");
-                    return;
-                }
+            final String lower = fileName == null ? "" : fileName.toLowerCase(java.util.Locale.US);
+            isRawFile = ImageFormat.isRaw(lower);
+            final String unsupported = ImageFormat.unsupportedRawExtension(lower);
+            if (unsupported != null) {
+                showSnackbar("[E-1107] 暂不支持 " + unsupported + " 格式");
+                return;
             }
             
             if (isRawFile) {
