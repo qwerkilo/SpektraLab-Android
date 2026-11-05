@@ -24,6 +24,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
 import app.spektralab.core.ImageFormat;
+import app.spektralab.core.StockNames;
 import app.spektralab.core.ImportBudget;
 import app.spektralab.model.FilmStock;
 import app.spektralab.ui.UiState;

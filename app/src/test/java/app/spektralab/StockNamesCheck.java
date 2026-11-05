@@ -1,5 +1,7 @@
 package app.spektralab;
 
+import app.spektralab.core.StockNames;
+
 /**
  * The Readout strip and the picker sheet must describe one catalogue record.
  * The full label is the record; the short label is a lossless-for-recognition
