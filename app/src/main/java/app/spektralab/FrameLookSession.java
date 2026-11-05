@@ -8,41 +8,41 @@ package app.spektralab;
  * records the settled state. A direct mutation followed by {@link #record()}
  * is allowed for a slider drag that must repaint before it commits.
  */
-final class FrameLookSession {
+public final class FrameLookSession {
     private Look look;
     private final LookHistory history = new LookHistory();
 
-    FrameLookSession(Look initial) {
+    public FrameLookSession(Look initial) {
         look = initial == null ? new Look() : initial.copy();
         history.reset(look);
     }
 
     /** The current live Look. Treat as read-only; mutate through edit/record. */
-    Look look() {
+    public Look look() {
         return look;
     }
 
     /** Apply one settled edit and record the resulting state. */
-    void edit(java.util.function.Consumer<Look> change) {
+    public void edit(java.util.function.Consumer<Look> change) {
         change.accept(look);
         history.record(look);
     }
 
     /** Record a state already mutated by a live drag. Identical states are free. */
-    void record() {
+    public void record() {
         history.record(look);
     }
 
-    boolean canUndo() {
+    public boolean canUndo() {
         return history.canUndo();
     }
 
-    int size() {
+    public int size() {
         return history.size();
     }
 
     /** Restore the previous state, or null when there is nothing to undo. */
-    Look undo() {
+    public Look undo() {
         final Look previous = history.undo();
         if (previous == null) return null;
         look = previous;
@@ -50,7 +50,7 @@ final class FrameLookSession {
     }
 
     /** Start this Frame over from a supplied Look and clear its history. */
-    void reset(Look next) {
+    public void reset(Look next) {
         look = next == null ? new Look() : next.copy();
         history.reset(look);
     }

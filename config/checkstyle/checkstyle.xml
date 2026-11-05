@@ -34,5 +34,8 @@
         <module name="ConstantName"/>
         <module name="LocalVariableName"/>
         <module name="ParameterName"/>
+        <module name="VisibilityModifier">
+            <property name="allowPublicFinalFields" value="true"/>
+        </module>
     </module>
 </module>

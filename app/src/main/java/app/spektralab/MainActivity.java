@@ -24,6 +24,8 @@ import androidx.core.view.ViewCompat;
 import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
 import app.spektralab.model.FilmStock;
+import app.spektralab.ui.UiState;
+import app.spektralab.model.Frame;
 import app.spektralab.ui.widget.ArrowView;
 import app.spektralab.ui.widget.CompareView;
 import app.spektralab.ui.widget.EdgeBackdrop;
@@ -360,29 +362,7 @@ public class MainActivity extends AppCompatActivity {
         }
         return bestId;
     }
-    /**
-     * One photograph this session has opened, kept so the strip under the
-     * canvas can bring it back without a trip through the picker.
-     *
-     * <p>`thumb` is its own small bitmap, not a reference to `beforeBitmap`:
-     * the live source is replaced on every import, and a list holding those
-     * would pin one 1024-px ARGB buffer per photograph.
-     */
-    private static final class Frame {
-        final Uri uri;
-        final boolean raw;
-        final String name;
-        Bitmap thumb;
-        FrameLookSession session;
-        /** Scan inspect belongs to the Frame it was moved on, not to the Look. */
-        float scanFraction = ScanSample.DEFAULT_FRACTION;
-        boolean scanVisible = false;
-        Frame(Uri uri, boolean raw, String name, Look initial) {
-            this.uri = uri; this.raw = raw; this.name = name;
-            this.session = new FrameLookSession(initial);
-        }
-    }
-        private final java.util.List<Frame> frames = new java.util.ArrayList<>();
+            private final java.util.List<Frame> frames = new java.util.ArrayList<>();
     private LinearLayout sourceBar, sourceRow, thumbStrip;
     /** The folded strip: a short stack of prints in the canvas's lower-left. */
     private View shelfHandle;
@@ -660,65 +640,54 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** Presentation that the rebuild has to put back by hand. */
-    private static final class UiState {
-        int stageMode;
-        int activeTab;
-        boolean panelCollapsed, opticsUnlocked, showingOriginal;
-        boolean busy, progress, exportProgress, shareVisible;
-        String fileName, rawNameText, status;
-        float scanFraction;
-        boolean scanVisible;
-        int edgePageIndex = -1;
-    }
-
     private UiState captureUiState() {
         final UiState s = new UiState();
-        s.stageMode = stageMode;
-        s.activeTab = activeTabIndex;
-        s.panelCollapsed = panelCollapsed;
-        s.opticsUnlocked = opticsUnlocked;
-        s.showingOriginal = showingOriginal;
-        s.busy = busyLabel != null && busyLabel.getVisibility() == View.VISIBLE;
-        s.progress = progressBar != null && progressBar.getVisibility() == View.VISIBLE;
-        s.exportProgress = exportProgressBar != null && exportProgressBar.getVisibility() == View.VISIBLE;
-        s.shareVisible = sharePill != null && sharePill.getVisibility() == View.VISIBLE;
-        s.fileName = fileLabel == null ? null : String.valueOf(fileLabel.getText());
-        s.rawNameText = rawName == null ? null : String.valueOf(rawName.getText());
-        s.status = statusText == null ? null : String.valueOf(statusText.getText());
-        s.scanFraction = scanFraction;
-        s.scanVisible = scanVisible;
-        s.edgePageIndex = edgePageIndex;
+        s.setStageMode(stageMode);
+        s.setActiveTab(activeTabIndex);
+        s.setPanelCollapsed(panelCollapsed);
+        s.setOpticsUnlocked(opticsUnlocked);
+        s.setShowingOriginal(showingOriginal);
+        s.setBusy(busyLabel != null && busyLabel.getVisibility() == View.VISIBLE);
+        s.setProgress(progressBar != null && progressBar.getVisibility() == View.VISIBLE);
+        s.setExportProgress(exportProgressBar != null && exportProgressBar.getVisibility() == View.VISIBLE);
+        s.setShareVisible(sharePill != null && sharePill.getVisibility() == View.VISIBLE);
+        s.setFileName(fileLabel == null ? null : String.valueOf(fileLabel.getText()));
+        s.setRawNameText(rawName == null ? null : String.valueOf(rawName.getText()));
+        s.setStatus(statusText == null ? null : String.valueOf(statusText.getText()));
+        s.setScanFraction(scanFraction);
+        s.setScanVisible(scanVisible);
+        s.setEdgePageIndex(edgePageIndex);
         return s;
     }
 
     private void restoreUiState(UiState s) {
         if (s == null) return;
-        setStage(s.stageMode, null);
+        setStage(s.stageMode(), null);
         if (compare != null) {
             compare.setBefore(beforeBitmap);
-            compare.setAfter(s.showingOriginal ? null : lastRenderedBitmap);
+            compare.setAfter(s.showingOriginal() ? null : lastRenderedBitmap);
         }
-        if (s.fileName != null && fileLabel != null) fileLabel.setText(s.fileName);
-        if (s.rawNameText != null && rawName != null) rawName.setText(s.rawNameText);
-        if (s.status != null && statusText != null) statusText.setText(s.status);
-        showingOriginal = s.showingOriginal;
+        if (s.fileName() != null && fileLabel != null) fileLabel.setText(s.fileName());
+        if (s.rawNameText() != null && rawName != null) rawName.setText(s.rawNameText());
+        if (s.status() != null && statusText != null) statusText.setText(s.status());
+        showingOriginal = s.showingOriginal();
         setOriginalVisual(showingOriginal);
-        if (busyLabel != null) busyLabel.setVisibility(s.busy ? View.VISIBLE : View.GONE);
-        if (progressBar != null) progressBar.setVisibility(s.progress ? View.VISIBLE : View.GONE);
+        if (busyLabel != null) busyLabel.setVisibility(s.busy() ? View.VISIBLE : View.GONE);
+        if (progressBar != null) progressBar.setVisibility(s.progress() ? View.VISIBLE : View.GONE);
         if (exportProgressBar != null) {
-            exportProgressBar.setVisibility(s.exportProgress ? View.VISIBLE : View.GONE);
+            exportProgressBar.setVisibility(s.exportProgress() ? View.VISIBLE : View.GONE);
         }
-        if (sharePill != null) sharePill.setVisibility(s.shareVisible ? View.VISIBLE : View.GONE);
+        if (sharePill != null) sharePill.setVisibility(s.shareVisible() ? View.VISIBLE : View.GONE);
         if (formatFootValue != null) {
             formatFootValue.setText(mmText(live().filmFormatMm) + " mm");
         }
-        setTab(s.activeTab);
-        setPanelCollapsed(s.panelCollapsed);
-        setOpticsUnlocked(s.opticsUnlocked);
-        edgePageIndex = s.edgePageIndex;
+        setTab(s.activeTab());
+        setPanelCollapsed(s.panelCollapsed());
+        setOpticsUnlocked(s.opticsUnlocked());
+        edgePageIndex = s.edgePageIndex();
         openEdgePage(edgePageIndex);
-        scanFraction = s.scanFraction;
-        scanVisible = s.scanVisible;
+        scanFraction = s.scanFraction();
+        scanVisible = s.scanVisible();
         refreshFilmPanel();
     }
 
@@ -1876,13 +1845,13 @@ public class MainActivity extends AppCompatActivity {
     private void saveScanStateIntoFrame() {
         if (currentFrame < 0 || currentFrame >= frames.size()) return;
         final Frame frame = frames.get(currentFrame);
-        frame.scanFraction = scanFraction;
-        frame.scanVisible = scanVisible;
+        frame.setScanFraction(scanFraction);
+        frame.setScanVisible(scanVisible);
     }
 
     private void restoreScanStateFromFrame(Frame frame) {
-        scanFraction = frame == null ? ScanSample.DEFAULT_FRACTION : frame.scanFraction;
-        scanVisible = frame != null && frame.scanVisible;
+        scanFraction = frame == null ? ScanSample.DEFAULT_FRACTION : frame.scanFraction();
+        scanVisible = frame != null && frame.scanVisible();
     }
 
     @Override
@@ -2083,7 +2052,7 @@ public class MainActivity extends AppCompatActivity {
     private void updateShelfHandle() {
         if (shelfHandleImage == null) return;
         Bitmap thumb = (currentFrame >= 0 && currentFrame < frames.size())
-                ? frames.get(currentFrame).thumb : null;
+                ? frames.get(currentFrame).thumb() : null;
         shelfHandleImage.setImageBitmap(thumb);
     }
 
@@ -2137,19 +2106,19 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         final Frame frame = new Frame(uri, isRawFile, name, captureLook());
-        frame.scanFraction = scanFraction;
-        frame.scanVisible = scanVisible;
+        frame.setScanFraction(scanFraction);
+        frame.setScanVisible(scanVisible);
         if (beforeBitmap != null) {
             try {
                 final int w = Math.max(1, dp(42));
                 final int h = Math.max(1, Math.round(
                         w * beforeBitmap.getHeight() / (float) beforeBitmap.getWidth()));
-                frame.thumb = Bitmap.createScaledBitmap(beforeBitmap, w, h, true);
+                frame.setThumb(Bitmap.createScaledBitmap(beforeBitmap, w, h, true));
             } catch (Throwable ignored) { }
         }
         frames.add(frame);
         currentFrame = frames.size() - 1;
-        attachSession(frame.session);
+        attachSession(frame.session());
         rebuildFrameChips();
     }
 
@@ -2170,12 +2139,12 @@ public class MainActivity extends AppCompatActivity {
             box.setPadding(dp(3), dp(3), dp(3), dp(3));
             ImageView img = new ImageView(this);
             img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            if (frame.thumb != null) img.setImageBitmap(frame.thumb);
+            if (frame.thumb() != null) img.setImageBitmap(frame.thumb());
             box.addView(img, new android.widget.FrameLayout.LayoutParams(-1, -1));
             box.setOnClickListener(v -> reopenFrame(index));
             box.setOnLongClickListener(v -> {
                 showActionSheet("删除这张照片？",
-                        (frame.name == null ? "照片" : frame.name) + "\n\n只从这条栏里移除，文件本身不动。",
+                        (frame.name() == null ? "照片" : frame.name()) + "\n\n只从这条栏里移除，文件本身不动。",
                         new String[]{"删除", "取消"}, which -> {
                             if (which == 0) removeFrame(index);
                         });
@@ -2184,7 +2153,7 @@ public class MainActivity extends AppCompatActivity {
             box.setFocusable(true);
             box.setSelected(active);
             box.setContentDescription((active ? "当前照片，" : "")
-                    + (frame.name == null ? "照片" : frame.name));
+                    + (frame.name() == null ? "照片" : frame.name()));
             box.setAccessibilityDelegate(new View.AccessibilityDelegate() {
                 @Override public void onInitializeAccessibilityNodeInfo(
                         View host, android.view.accessibility.AccessibilityNodeInfo info) {
@@ -2250,7 +2219,7 @@ public class MainActivity extends AppCompatActivity {
         reopeningFrame = true;
         suppressBudgetDialog = true;
         rebuildFrameChips();
-        loadImage(frame.uri);
+        loadImage(frame.uri());
     }
 
     private void setOriginalVisual(boolean on) {
@@ -5810,7 +5779,7 @@ public class MainActivity extends AppCompatActivity {
             final Frame target = (currentFrame >= 0 && currentFrame < frames.size())
                     ? frames.get(currentFrame) : null;
             restoreScanStateFromFrame(target);
-            attachSession(target == null ? new FrameLookSession(defaultLook()) : target.session);
+            attachSession(target == null ? new FrameLookSession(defaultLook()) : target.session());
             applyLook(optics);
         } else {
             saveScanStateIntoFrame();
