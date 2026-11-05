@@ -47,6 +47,7 @@ On Windows without Termux, `app/build/build-apk-windows.ps1` compiles, dexes wit
 - `model/FilmStock.java` — the immutable catalogue record read by the film panel; fields are private with accessors.
 - `model/Frame.java` — one opened photograph: URI, RAW flag, name, thumbnail, its Frame Look session, and its Scan state. The Activity keeps a list of these and no duplicate per-frame fields.
 - `ui/UiState.java` — the presentation snapshot used by a theme rebuild; it holds no Look, Frame or engine value.
+- `ui/ThemeMode.java` — the persisted light/dark choice and its Palette lookup.
 - `core/ImportBudget.java` — pure import-scale arithmetic shared by the budget dialog and the decoder.
 - `core/ImageFormat.java` — filename RAW/unsupported checks shared by the picker and decoder.
 - `core/StockNames.java` — full/shelf/readout stock labels, shared by the picker and readout strip.

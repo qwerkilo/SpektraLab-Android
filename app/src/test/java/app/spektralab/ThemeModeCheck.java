@@ -1,5 +1,7 @@
 package app.spektralab;
 
+import app.spektralab.ui.ThemeMode;
+
 /**
  * Pure JVM contract for the persisted Theme mode: stored strings round-trip,
  * unknown values fall back to light, and toggling is an involution.
