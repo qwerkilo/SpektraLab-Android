@@ -12,8 +12,8 @@ android {
         applicationId 'app.spektralab'
         minSdk 24
         targetSdk 36
-        versionCode 156
-        versionName '1.4.4-m3a'
+        versionCode 181
+        versionName '1.5.0e-m3'
     }
 
     // Local builds use the user's release key when the environment provides
