@@ -15,7 +15,10 @@ dependencies {
 // Enforce the Alibaba-style rules on the newly extracted packages first.
 // MainActivity is added to this source set once it is split.
 tasks.register('checkstyleGovernance', Checkstyle) {
-    source = fileTree('src/main/java/app/spektralab/ui')
+    source = fileTree('src/main/java/app/spektralab') {
+        include 'ui/**/*.java'
+        include 'model/**/*.java'
+    }
     configFile = rootProject.file('config/checkstyle/checkstyle.xml')
     configDirectory = rootProject.file('config/checkstyle')
     checkstyleClasspath = configurations.checkstyleTool

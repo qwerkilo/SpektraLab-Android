@@ -23,6 +23,7 @@ import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.core.view.ViewCompat;
 import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
+import app.spektralab.model.FilmStock;
 import app.spektralab.ui.widget.ArrowView;
 import app.spektralab.ui.widget.CompareView;
 import app.spektralab.ui.widget.EdgeBackdrop;
@@ -381,26 +382,7 @@ public class MainActivity extends AppCompatActivity {
             this.session = new FrameLookSession(initial);
         }
     }
-    /** One catalogue film record, in the form the panel reads. */
-    private static final class FilmStock {
-        final SpectrumSamples samples;
-        final SpectrumCurve curve;
-        /** "LOG SENSITIVITY", "DENSITY", or "" when nothing was shipped. */
-        final String seriesLabel;
-        final java.util.Map<String, String> info;
-        /** The paper this film declares it prints on; null when it declares none. */
-        final String targetPrint;
-
-        FilmStock(SpectrumSamples samples, SpectrumCurve curve, String seriesLabel,
-                  java.util.Map<String, String> info, String targetPrint) {
-            this.samples = samples;
-            this.curve = curve;
-            this.seriesLabel = seriesLabel;
-            this.info = info;
-            this.targetPrint = targetPrint;
-        }
-    }
-    private final java.util.List<Frame> frames = new java.util.ArrayList<>();
+        private final java.util.List<Frame> frames = new java.util.ArrayList<>();
     private LinearLayout sourceBar, sourceRow, thumbStrip;
     /** The folded strip: a short stack of prints in the canvas's lower-left. */
     private View shelfHandle;
@@ -1562,7 +1544,7 @@ public class MainActivity extends AppCompatActivity {
 
         final FilmStock stock = currentFilmStock();
         final SpectrumSamples spectrum = stock == null
-                ? SpectrumSamples.unavailable() : stock.samples;
+                ? SpectrumSamples.unavailable() : stock.samples();
         readoutSpectrumValue.setText(spectrum.valueText());
         readoutSpectrumUnit.setText(spectrum.unitText());
         readoutSpectrumDetail.setText(spectrum.detailText());
@@ -2453,13 +2435,13 @@ public class MainActivity extends AppCompatActivity {
 
         final FilmStock stock = currentFilmStock();
         final SpectrumCurve nextCurve =
-                stock == null ? SpectrumCurve.unavailable() : stock.curve;
+                stock == null ? SpectrumCurve.unavailable() : stock.curve();
         // A new curve reveals once. A render-state refresh re-sends the same
         // object, and a theme rebuild finds it already revealed, so neither
         // replays the plotter. Reduced motion shortens the reveal to zero.
         final boolean revealNow = nextCurve.available() && nextCurve != revealedCurve;
         filmCurve.setCurve(nextCurve,
-                stock == null ? "" : stock.seriesLabel,
+                stock == null ? "" : stock.seriesLabel(),
                 live().filmStock == null ? "NO FILM STOCK SELECTED" : SpectrumCurve.UNAVAILABLE_LABEL,
                 revealNow ? motionDuration(FILM_CURVE_REVEAL_MS) : 0);
         if (revealNow) revealedCurve = nextCurve;
@@ -2529,9 +2511,9 @@ public class MainActivity extends AppCompatActivity {
     /** The small line under a chip: the measured type and speed, or the stock's role. */
     private String chipSubtitle(int index, FilmStock stock) {
         if (stock != null) {
-            final String iso = stock.info.get("iso");
+            final String iso = stock.info().get("iso");
             if (iso != null) return "ISO " + iso;
-            final String type = stock.info.get("type");
+            final String type = stock.info().get("type");
             if (type != null) return type.toUpperCase(java.util.Locale.US);
         }
         if (index >= 0 && index < filmTypes.size()
@@ -2637,7 +2619,7 @@ public class MainActivity extends AppCompatActivity {
         // Film selection; a Frame restore keeps its stored Film/paper pair.
         final FilmStock chosen = filmStocks.get(id);
         live().printStock = PrintTarget.choose(live().printStock,
-                chosen == null ? null : chosen.targetPrint, printIds);
+                chosen == null ? null : chosen.targetPrint(), printIds);
         showingOriginal = false;
         refreshFilmPanel();
         refreshPaperLabel();
@@ -2683,7 +2665,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void addMetric(java.util.List<String[]> rows, FilmStock stock,
                            String key, String caption) {
-        final String value = stock.info.get(key);
+        final String value = stock.info().get(key);
         if (value == null || value.isEmpty()) return;
         rows.add(new String[]{caption, value.toUpperCase(java.util.Locale.US)});
     }
@@ -2711,7 +2693,7 @@ public class MainActivity extends AppCompatActivity {
         if (stock == null) {
             return "CATALOGUE RECORD MISSING FOR " + live().filmStock.toUpperCase(java.util.Locale.US);
         }
-        final String description = stock.info.get("description");
+        final String description = stock.info().get("description");
         if (isPositiveFilm(live().filmStock)) {
             final String scan = "REVERSAL · DIRECT SCAN · PAPER NOT USED";
             return description != null && !description.isEmpty()
@@ -2721,18 +2703,18 @@ public class MainActivity extends AppCompatActivity {
         final java.util.List<String> parts = new java.util.ArrayList<>();
         // The same declaration the Film choice applies, so the note cannot
         // claim a paper the Look would not move to.
-        final String target = stock.targetPrint;
+        final String target = stock.targetPrint();
         if (target != null && !target.isEmpty()) {
             parts.add("TARGET " + stockLabel(target, printIds, printLabels)
                     .toUpperCase(java.util.Locale.US));
         }
-        final String antihalation = stock.info.get("antihalation");
+        final String antihalation = stock.info().get("antihalation");
         if (antihalation != null && !antihalation.isEmpty()) {
             parts.add("ANTIHALATION " + antihalation.toUpperCase(java.util.Locale.US));
         }
         if (parts.isEmpty()) {
-            final String support = stock.info.get("support");
-            final String stage = stock.info.get("stage");
+            final String support = stock.info().get("support");
+            final String stage = stock.info().get("stage");
             if (support != null) parts.add(support.toUpperCase(java.util.Locale.US));
             if (stage != null) parts.add(stage.toUpperCase(java.util.Locale.US));
         }
@@ -2747,12 +2729,12 @@ public class MainActivity extends AppCompatActivity {
 
     private String curveDescription(FilmStock stock) {
         if (live().filmStock == null) return "光谱：未选择胶片";
-        if (stock == null || !stock.curve.available()) {
+        if (stock == null || !stock.curve().available()) {
             return "光谱：所选胶片没有随附采样，曲线不可用";
         }
-        return "光谱：" + stock.seriesLabel + "，" + stock.curve.sampleCount()
-                + " 个采样，" + Math.round(stock.curve.minNm()) + " 至 "
-                + Math.round(stock.curve.maxNm()) + " 纳米";
+        return "光谱：" + stock.seriesLabel() + "，" + stock.curve().sampleCount()
+                + " 个采样，" + Math.round(stock.curve().minNm()) + " 至 "
+                + Math.round(stock.curve().maxNm()) + " 纳米";
     }
 
     private void refreshPaperLabel() {
