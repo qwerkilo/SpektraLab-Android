@@ -6281,8 +6281,15 @@ public class MainActivity extends AppCompatActivity {
             final org.json.JSONObject root = new org.json.JSONObject(
                     new String(readFully(in), java.nio.charset.StandardCharsets.UTF_8));
             final org.json.JSONArray films = root.optJSONArray("films");
-            readStocks(films, filmIds, filmLabels, filmTypes);
-            readStocks(root.optJSONArray("prints"), printIds, printLabels, null);
+            for (StockCatalogue.Stock stock : StockCatalogue.read(films)) {
+                filmIds.add(stock.id);
+                filmLabels.add(stock.label);
+                filmTypes.add(stock.type);
+            }
+            for (StockCatalogue.Stock stock : StockCatalogue.read(root.optJSONArray("prints"))) {
+                printIds.add(stock.id);
+                printLabels.add(stock.label);
+            }
             readFilmStocks(films);
         } catch (Throwable t) {
             android.util.Log.w("SpektraLab", "stock catalog: " + t);
@@ -6394,27 +6401,6 @@ public class MainActivity extends AppCompatActivity {
             rows[i] = jsonDoubles(array.optJSONArray(i));
         }
         return rows;
-    }
-
-    private static void readStocks(org.json.JSONArray array, List<String> ids, List<String> labels,
-                                   List<String> types) {
-        if (array == null) return;
-        for (int i = 0; i < array.length(); i++) {
-            org.json.JSONObject o = array.optJSONObject(i);
-            if (o == null) continue;
-            String id = o.optString("id");
-            if (id.isEmpty()) continue;
-            String name = o.optString("name", id);
-            StringBuilder label = new StringBuilder(name);
-            String type = o.optString("type", "");
-            String use = o.optString("use", "");
-            if ("positive".equals(type)) label.append(" · 反转");
-            else if ("negative".equals(type)) label.append(" · 负片");
-            if ("cine".equals(use)) label.append(" · 电影");
-            ids.add(id);
-            labels.add(label.toString());
-            if (types != null) types.add(type);
-        }
     }
 
     private int getStatusBarHeight() {
