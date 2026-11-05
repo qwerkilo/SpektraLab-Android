@@ -1,4 +1,4 @@
-package app.spektralab;
+package app.spektralab.core;
 
 /**
  * A file name safe to append to a known directory.
@@ -12,10 +12,16 @@ public final class SafeFileName {
     private SafeFileName() { }
 
     public static String of(String candidate, String fallback) {
-        if (candidate == null) return fallback;
-        if (candidate.indexOf('\0') >= 0) return fallback;
+        if (candidate == null) {
+            return fallback;
+        }
+        if (candidate.indexOf('\0') >= 0) {
+            return fallback;
+        }
         final String name = new java.io.File(candidate).getName();
-        if (name.isEmpty() || ".".equals(name) || "..".equals(name)) return fallback;
+        if (name.isEmpty() || ".".equals(name) || "..".equals(name)) {
+            return fallback;
+        }
         return name;
     }
 }
