@@ -6897,44 +6897,12 @@ public class MainActivity extends AppCompatActivity {
                     DebugSink.bytes("preview", "p.jpg", bo.toByteArray(), "image/jpeg");
                     DebugSink.text("preview-timing", "jpeg_ms=" + (System.currentTimeMillis() - t0));
                 } catch (Throwable ignored) {}
-                runOnUiThread(() -> {
-                    showingOriginal = false;
-                    compare.setAfter(bmp);
-                    setStage(1, null);
-                    setStep(2);
-                    lastRenderedBitmap = bmp;
-                    setOpticsUnlocked(true);
-                    setOriginalVisual(false);
-                    refreshFilmPanel();
-                    final int[] bands = blackBands(bmp);
-                    statusText.setText("Preview ready " + fw + "×" + fh);
-                    showSnackbar("预览已更新 " + fw + "×" + fh, Snackbar.LENGTH_SHORT);
-                    try {
-                        DebugSink.text("bands", "render " + fw + "x" + fh
-                                + " black rows top=" + bands[0] + " bottom=" + bands[1]
-                                + " source=" + sourceWidth + "x" + sourceHeight);
-                    } catch (Throwable ignored) { }
-                    progressBar.setVisibility(View.GONE);
-                    busyLabel.setVisibility(View.GONE);
-                    rendering = false;
-                    if (pendingRender) { pendingRender = false; renderImage(); }
-                });
+                runOnUiThread(() -> applyPreviewResult(bmp, fw, fh));
             }
             } catch (Throwable e) {
                 try { session.renderEnd(); } catch (Throwable ignored) {}
                 final String msg = describe(e);
-                runOnUiThread(() -> {
-                    statusText.setText("渲染失败 " + SpkError.shortForm(msg));
-                    progressBar.setVisibility(View.GONE);
-                    busyLabel.setVisibility(View.GONE);
-                    rendering = false;
-                    // The foot is one 7 sp line: a failure has to be readable,
-                    // and it has to arrive with enough context to be reported.
-                    showErrorSnackbar("渲染失败", SpkError.format(msg)
-                            + "\n\n" + sourceWidth + "×" + sourceHeight
-                            + "\n" + probe.describe());
-                    if (pendingRender) { pendingRender = false; renderImage(); }
-                });
+                runOnUiThread(() -> applyRenderFailure(msg));
                 // E-1001 is "a plane is bigger than one binding may name", and
                 // the only cure is a smaller session. The import cap already
                 // answers for a normal import, so reaching here means the frame
@@ -6948,6 +6916,51 @@ public class MainActivity extends AppCompatActivity {
                 if (code == 1001 || code == 1009) offerSmallerImport();
             }
         }).start();
+    }
+
+    /** Show a finished preview and clear the busy state. */
+    private void applyPreviewResult(Bitmap bmp, int fw, int fh) {
+        showingOriginal = false;
+        compare.setAfter(bmp);
+        setStage(1, null);
+        setStep(2);
+        lastRenderedBitmap = bmp;
+        setOpticsUnlocked(true);
+        setOriginalVisual(false);
+        refreshFilmPanel();
+        final int[] bands = blackBands(bmp);
+        statusText.setText("Preview ready " + fw + "×" + fh);
+        showSnackbar("预览已更新 " + fw + "×" + fh, Snackbar.LENGTH_SHORT);
+        try {
+            DebugSink.text("bands", "render " + fw + "x" + fh
+                    + " black rows top=" + bands[0] + " bottom=" + bands[1]
+                    + " source=" + sourceWidth + "x" + sourceHeight);
+        } catch (Throwable ignored) {
+        }
+        progressBar.setVisibility(View.GONE);
+        busyLabel.setVisibility(View.GONE);
+        rendering = false;
+        if (pendingRender) {
+            pendingRender = false;
+            renderImage();
+        }
+    }
+
+    /** Show a failed render with the size and probe context needed to report it. */
+    private void applyRenderFailure(String msg) {
+        statusText.setText("渲染失败 " + SpkError.shortForm(msg));
+        progressBar.setVisibility(View.GONE);
+        busyLabel.setVisibility(View.GONE);
+        rendering = false;
+        // The foot is one 7 sp line: a failure has to be readable, and it has
+        // to arrive with enough context to be reported.
+        showErrorSnackbar("渲染失败", SpkError.format(msg)
+                + "\n\n" + sourceWidth + "×" + sourceHeight
+                + "\n" + probe.describe());
+        if (pendingRender) {
+            pendingRender = false;
+            renderImage();
+        }
     }
 
     /**
