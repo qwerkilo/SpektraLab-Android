@@ -7101,6 +7101,38 @@ public class MainActivity extends AppCompatActivity {
         } catch (Throwable ignored) { return ""; }
     }
 
+    /** Write a finished export into the gallery and return its URI. */
+    private Uri writeExportToGallery(java.io.File tmp, String mime, String ext) throws Exception {
+        final String fileName = "SpektraLab_" + System.currentTimeMillis() + ext;
+        final android.content.ContentValues values = new android.content.ContentValues();
+        values.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, fileName);
+        values.put(android.provider.MediaStore.Images.Media.MIME_TYPE, mime);
+        values.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH,
+                android.os.Environment.DIRECTORY_PICTURES + "/SpektraLab");
+        values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 1);
+        final android.content.ContentResolver resolver = getContentResolver();
+        final Uri outUri = resolver.insert(
+                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        if (outUri == null) {
+            throw new RuntimeException("无法创建媒体文件");
+        }
+        try (java.io.InputStream in = new java.io.FileInputStream(tmp);
+             java.io.OutputStream out = resolver.openOutputStream(outUri)) {
+            if (out == null) {
+                throw new RuntimeException("无法打开输出流");
+            }
+            final byte[] buf = new byte[262144];
+            int len;
+            while ((len = in.read(buf)) > 0) {
+                out.write(buf, 0, len);
+            }
+        }
+        values.clear();
+        values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0);
+        resolver.update(outUri, values, null, null);
+        return outUri;
+    }
+
     private void exportImage(String format, String tier) {
         final boolean tiff = "tiff".equals(format);
         final boolean dng = "dng".equals(format);
@@ -7220,27 +7252,7 @@ public class MainActivity extends AppCompatActivity {
 
                 final int fw = w, fh = h;
                 runOnUiThread(() -> statusText.setText("导出中：写入相册 " + fw + "x" + fh + "..."));
-                String fileName = "SpektraLab_" + System.currentTimeMillis() + ext;
-                android.content.ContentValues values = new android.content.ContentValues();
-                values.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, fileName);
-                values.put(android.provider.MediaStore.Images.Media.MIME_TYPE, mime);
-                values.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH,
-                    android.os.Environment.DIRECTORY_PICTURES + "/SpektraLab");
-                values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 1);
-                android.content.ContentResolver resolver = getContentResolver();
-                Uri outUri = resolver.insert(
-                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-                if (outUri == null) throw new RuntimeException("无法创建媒体文件");
-                try (java.io.InputStream in = new java.io.FileInputStream(tmp);
-                     java.io.OutputStream out = resolver.openOutputStream(outUri)) {
-                    if (out == null) throw new RuntimeException("无法打开输出流");
-                    byte[] buf = new byte[262144];
-                    int len;
-                    while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
-                }
-                values.clear();
-                values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0);
-                resolver.update(outUri, values, null, null);
+                final Uri outUri = writeExportToGallery(tmp, mime, ext);
 
                 try {
                     long len = tmp.length();
