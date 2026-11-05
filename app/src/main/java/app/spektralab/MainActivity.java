@@ -6069,6 +6069,38 @@ public class MainActivity extends AppCompatActivity {
         return maxImportPixels(live().overscanOn);
     }
 
+    /** Put a decoded RAW frame on the canvas before its first print. */
+    private void applyRawPreview(Bitmap preview, Uri uri) {
+        beforeBitmap = preview;
+        compare.setBefore(preview);
+        setStage(1, getFileName(uri));
+        rememberFrame(uri);
+        refreshFilmPanel();
+        setStep(1);
+        statusText.setText("Raw preview");
+    }
+
+    /** Mark the RAW import ready and develop it when its frame already has a film. */
+    private void finishRawImport(boolean reopening) {
+        if (session == null) {
+            return;
+        }
+        showingOriginal = true;
+        lastRenderedBitmap = null;
+        if (!reopening) {
+            brandFilter = FilmBrand.ALL;
+        }
+        setOriginalVisual(true);
+        refreshFilmPanel();
+        if (live().filmStock != null) {
+            showingOriginal = false;
+            refreshFilmPanel();
+            renderImage();
+        } else {
+            statusText.setText("未渲染 · 选择胶片开始");
+        }
+    }
+
     private void loadRawImage(Uri uri) {
         final boolean reopening = reopeningFrame;
         // The Look the RAW session must carry, snapshotted here on the UI
@@ -6197,15 +6229,7 @@ public class MainActivity extends AppCompatActivity {
                         runOnUiThread(() -> statusText.setText("RAW 已载入，原图预览未生成"));
                     }
                     if (hasPreview) {
-                        runOnUiThread(() -> {
-                            beforeBitmap = preview;
-                            compare.setBefore(preview);
-                            setStage(1, getFileName(uri));
-                            rememberFrame(uri);
-                            refreshFilmPanel();
-                            setStep(1);
-                            statusText.setText("Raw preview");
-                        });
+                        runOnUiThread(() -> applyRawPreview(preview, uri));
                     }
 
                     // "Process" (配光): without a solved print exposure and
@@ -6218,21 +6242,7 @@ public class MainActivity extends AppCompatActivity {
                     } catch (Throwable se) {
                         DebugSink.text("solve-failed", String.valueOf(se));
                     }
-                    runOnUiThread(() -> {
-                        if (session == null) return;
-                        showingOriginal = true;
-                        lastRenderedBitmap = null;
-                        if (!reopening) brandFilter = FilmBrand.ALL;
-                        setOriginalVisual(true);
-                        refreshFilmPanel();
-                        if (live().filmStock != null) {
-                            showingOriginal = false;
-                            refreshFilmPanel();
-                            renderImage();
-                        } else {
-                            statusText.setText("未渲染 · 选择胶片开始");
-                        }
-                    });
+                    runOnUiThread(() -> finishRawImport(reopening));
 
                     // Get dimensions from session
                     int[] dims = session.getDimensions();
