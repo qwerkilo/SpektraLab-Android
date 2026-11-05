@@ -116,6 +116,10 @@ Five canonical roles, default label strings. See `docs/agents/triage-labels.md`.
 
 Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+### Code style
+
+Alibaba-style rules, package layering and comments: `docs/agents/code-style.md`.
+
 ## Pre-commit hook
 
 Enable once per clone: `git config core.hooksPath .githooks`.

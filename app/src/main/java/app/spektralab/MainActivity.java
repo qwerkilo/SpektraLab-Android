@@ -59,6 +59,18 @@ import java.util.List;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
+/**
+ * The Console's composition root.
+ *
+ * <p>It owns the engine, the opened Frames and the programmatic view tree. A
+ * Frame's Look lives in its {@link FrameLookSession}; this class holds only
+ * the current session and never a second copy of a Look value. Preview and
+ * export both start from a {@link RenderSnapshot}, and all engine renders are
+ * serialized by {@code renderMutex}.
+ *
+ * <p>A theme rebuild replaces the view tree without loading a Frame or starting
+ * a render; the restored state comes from {@link app.spektralab.ui.UiState}.
+ */
 public class MainActivity extends AppCompatActivity {
     private SpektraLabEngine engine;
     /** This GPU's limits, read once per engine. Drives the import cap and the export tiers. */
