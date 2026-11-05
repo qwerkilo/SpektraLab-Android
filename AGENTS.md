@@ -47,6 +47,7 @@ On Windows without Termux, `app/build/build-apk-windows.ps1` compiles, dexes wit
 - `model/FilmStock.java` — the immutable catalogue record read by the film panel; fields are private with accessors.
 - `model/Frame.java` — one opened photograph: URI, RAW flag, name, thumbnail, its Frame Look session, and its Scan state. The Activity keeps a list of these and no duplicate per-frame fields.
 - `ui/UiState.java` — the presentation snapshot used by a theme rebuild; it holds no Look, Frame or engine value.
+- `core/ImportBudget.java` — pure import-scale arithmetic shared by the budget dialog and the decoder.
 - `StockCatalogue.java` — the one store for the film/print catalogue entries (id, label, type, use). The Activity exposes read-only id/label/type views over those lists; do not add a parallel list.
 - `SpektraLabEngine.java` — JNI facade. `prepare(libDir)` loads bundled `.so` by absolute path before the engine; there is intentionally no `static {}` loader, so a load failure keeps its cause. One native result buffer, serialized by `RENDER_LOCK`.
 - `spektralab_jni.cpp` — session, render, JPEG/TIFF/DNG export. `spektralab_raw_jni.cpp` — LibRaw decode.

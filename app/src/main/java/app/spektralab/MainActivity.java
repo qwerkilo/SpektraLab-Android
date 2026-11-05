@@ -23,6 +23,7 @@ import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.core.view.ViewCompat;
 import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
+import app.spektralab.core.ImportBudget;
 import app.spektralab.model.FilmStock;
 import app.spektralab.ui.UiState;
 import app.spektralab.model.Frame;
@@ -5369,18 +5370,7 @@ public class MainActivity extends AppCompatActivity {
      * `loadImage` below.
      */
     private double importScale(int w, int h, int capPixels) {
-        final long area = (long) w * (long) h;
-        double k = 1.0;
-        if (area > capPixels) k = Math.sqrt((double) capPixels / (double) area);
-        final int longEdge = Math.max(w, h);
-        if (longEdge > IMPORT_LONG_EDGE) k = Math.min(k, (double) IMPORT_LONG_EDGE / longEdge);
-        final long availBytes = availableMemoryBytes();
-        if (availBytes > 0) {
-            final long budget = Math.max(1L << 20, availBytes - (128L << 20));
-            final double wantBytes = (double) area * 12.0;
-            if (wantBytes > budget) k = Math.min(k, Math.sqrt((double) budget / wantBytes));
-        }
-        return Math.min(k, 1.0);
+        return ImportBudget.scale(w, h, capPixels, IMPORT_LONG_EDGE, availableMemoryBytes());
     }
 
     private static String megapixels(int w, int h) {
