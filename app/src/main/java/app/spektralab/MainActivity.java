@@ -23,6 +23,7 @@ import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.core.view.ViewCompat;
 import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
+import app.spektralab.core.FilmBrand;
 import app.spektralab.core.ImageFormat;
 import app.spektralab.core.SafeFileName;
 import app.spektralab.core.StockNames;

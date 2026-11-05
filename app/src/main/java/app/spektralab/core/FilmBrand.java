@@ -1,4 +1,4 @@
-package app.spektralab;
+package app.spektralab.core;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,7 +34,9 @@ public final class FilmBrand {
     public static String of(String id) {
         if (id != null) {
             for (int i = 1; i < IDS.length - 1; ++i) {
-                if (id.startsWith(PREFIXES[i])) return IDS[i];
+                if (id.startsWith(PREFIXES[i])) {
+                    return IDS[i];
+                }
             }
         }
         return OTHER;
@@ -48,16 +50,24 @@ public final class FilmBrand {
     /** The filter's own label; the count is appended by the row. */
     public static String label(String brand) {
         for (int i = 0; i < IDS.length; ++i) {
-            if (IDS[i].equals(brand)) return LABELS[i];
+            if (IDS[i].equals(brand)) {
+                return LABELS[i];
+            }
         }
         return LABELS[LABELS.length - 1];
     }
 
     /** How many stocks this filter would show. */
     public static int count(List<String> ids, String brand) {
-        if (ids == null) return 0;
+        if (ids == null) {
+            return 0;
+        }
         int n = 0;
-        for (String id : ids) if (matches(id, brand)) n++;
+        for (String id : ids) {
+            if (matches(id, brand)) {
+                n++;
+            }
+        }
         return n;
     }
 
@@ -73,13 +83,19 @@ public final class FilmBrand {
      * what 重置当前页 restores: the whole catalogue from its first stock.
      */
     public static List<String> shelf(List<String> ids, String brand, String activeId) {
-        if (ids == null || ids.isEmpty()) return Collections.emptyList();
+        if (ids == null || ids.isEmpty()) {
+            return Collections.emptyList();
+        }
         final boolean pin = activeId != null && ids.contains(activeId)
                 && !matches(activeId, brand);
         final List<String> shelf = new ArrayList<>(ids.size() + (pin ? 1 : 0));
-        if (pin) shelf.add(activeId);
+        if (pin) {
+            shelf.add(activeId);
+        }
         for (String id : ids) {
-            if (matches(id, brand)) shelf.add(id);
+            if (matches(id, brand)) {
+                shelf.add(id);
+            }
         }
         return Collections.unmodifiableList(shelf);
     }
