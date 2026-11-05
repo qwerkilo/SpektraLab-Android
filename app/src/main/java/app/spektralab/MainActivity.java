@@ -24,6 +24,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
 import app.spektralab.model.FilmStock;
+import app.spektralab.ui.UiState;
 import app.spektralab.model.Frame;
 import app.spektralab.ui.widget.ArrowView;
 import app.spektralab.ui.widget.CompareView;
@@ -639,65 +640,54 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** Presentation that the rebuild has to put back by hand. */
-    private static final class UiState {
-        int stageMode;
-        int activeTab;
-        boolean panelCollapsed, opticsUnlocked, showingOriginal;
-        boolean busy, progress, exportProgress, shareVisible;
-        String fileName, rawNameText, status;
-        float scanFraction;
-        boolean scanVisible;
-        int edgePageIndex = -1;
-    }
-
     private UiState captureUiState() {
         final UiState s = new UiState();
-        s.stageMode = stageMode;
-        s.activeTab = activeTabIndex;
-        s.panelCollapsed = panelCollapsed;
-        s.opticsUnlocked = opticsUnlocked;
-        s.showingOriginal = showingOriginal;
-        s.busy = busyLabel != null && busyLabel.getVisibility() == View.VISIBLE;
-        s.progress = progressBar != null && progressBar.getVisibility() == View.VISIBLE;
-        s.exportProgress = exportProgressBar != null && exportProgressBar.getVisibility() == View.VISIBLE;
-        s.shareVisible = sharePill != null && sharePill.getVisibility() == View.VISIBLE;
-        s.fileName = fileLabel == null ? null : String.valueOf(fileLabel.getText());
-        s.rawNameText = rawName == null ? null : String.valueOf(rawName.getText());
-        s.status = statusText == null ? null : String.valueOf(statusText.getText());
-        s.scanFraction = scanFraction;
-        s.scanVisible = scanVisible;
-        s.edgePageIndex = edgePageIndex;
+        s.setStageMode(stageMode);
+        s.setActiveTab(activeTabIndex);
+        s.setPanelCollapsed(panelCollapsed);
+        s.setOpticsUnlocked(opticsUnlocked);
+        s.setShowingOriginal(showingOriginal);
+        s.setBusy(busyLabel != null && busyLabel.getVisibility() == View.VISIBLE);
+        s.setProgress(progressBar != null && progressBar.getVisibility() == View.VISIBLE);
+        s.setExportProgress(exportProgressBar != null && exportProgressBar.getVisibility() == View.VISIBLE);
+        s.setShareVisible(sharePill != null && sharePill.getVisibility() == View.VISIBLE);
+        s.setFileName(fileLabel == null ? null : String.valueOf(fileLabel.getText()));
+        s.setRawNameText(rawName == null ? null : String.valueOf(rawName.getText()));
+        s.setStatus(statusText == null ? null : String.valueOf(statusText.getText()));
+        s.setScanFraction(scanFraction);
+        s.setScanVisible(scanVisible);
+        s.setEdgePageIndex(edgePageIndex);
         return s;
     }
 
     private void restoreUiState(UiState s) {
         if (s == null) return;
-        setStage(s.stageMode, null);
+        setStage(s.stageMode(), null);
         if (compare != null) {
             compare.setBefore(beforeBitmap);
-            compare.setAfter(s.showingOriginal ? null : lastRenderedBitmap);
+            compare.setAfter(s.showingOriginal() ? null : lastRenderedBitmap);
         }
-        if (s.fileName != null && fileLabel != null) fileLabel.setText(s.fileName);
-        if (s.rawNameText != null && rawName != null) rawName.setText(s.rawNameText);
-        if (s.status != null && statusText != null) statusText.setText(s.status);
-        showingOriginal = s.showingOriginal;
+        if (s.fileName() != null && fileLabel != null) fileLabel.setText(s.fileName());
+        if (s.rawNameText() != null && rawName != null) rawName.setText(s.rawNameText());
+        if (s.status() != null && statusText != null) statusText.setText(s.status());
+        showingOriginal = s.showingOriginal();
         setOriginalVisual(showingOriginal);
-        if (busyLabel != null) busyLabel.setVisibility(s.busy ? View.VISIBLE : View.GONE);
-        if (progressBar != null) progressBar.setVisibility(s.progress ? View.VISIBLE : View.GONE);
+        if (busyLabel != null) busyLabel.setVisibility(s.busy() ? View.VISIBLE : View.GONE);
+        if (progressBar != null) progressBar.setVisibility(s.progress() ? View.VISIBLE : View.GONE);
         if (exportProgressBar != null) {
-            exportProgressBar.setVisibility(s.exportProgress ? View.VISIBLE : View.GONE);
+            exportProgressBar.setVisibility(s.exportProgress() ? View.VISIBLE : View.GONE);
         }
-        if (sharePill != null) sharePill.setVisibility(s.shareVisible ? View.VISIBLE : View.GONE);
+        if (sharePill != null) sharePill.setVisibility(s.shareVisible() ? View.VISIBLE : View.GONE);
         if (formatFootValue != null) {
             formatFootValue.setText(mmText(live().filmFormatMm) + " mm");
         }
-        setTab(s.activeTab);
-        setPanelCollapsed(s.panelCollapsed);
-        setOpticsUnlocked(s.opticsUnlocked);
-        edgePageIndex = s.edgePageIndex;
+        setTab(s.activeTab());
+        setPanelCollapsed(s.panelCollapsed());
+        setOpticsUnlocked(s.opticsUnlocked());
+        edgePageIndex = s.edgePageIndex();
         openEdgePage(edgePageIndex);
-        scanFraction = s.scanFraction;
-        scanVisible = s.scanVisible;
+        scanFraction = s.scanFraction();
+        scanVisible = s.scanVisible();
         refreshFilmPanel();
     }
 
