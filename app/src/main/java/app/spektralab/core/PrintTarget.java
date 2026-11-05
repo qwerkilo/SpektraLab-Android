@@ -1,4 +1,4 @@
-package app.spektralab;
+package app.spektralab.core;
 
 import java.util.Collection;
 
@@ -32,13 +32,19 @@ public final class PrintTarget {
      */
     public static String choose(String currentPrint, String declared,
                                 Collection<String> printIds) {
-        if (declared == null || declared.isEmpty()) return currentPrint;
-        if (printIds == null || !printIds.contains(declared)) return currentPrint;
+        if (declared == null || declared.isEmpty()) {
+            return currentPrint;
+        }
+        if (printIds == null || !printIds.contains(declared)) {
+            return currentPrint;
+        }
         return declared;
     }
 
     private static String trimmed(String value) {
-        if (value == null) return null;
+        if (value == null) {
+            return null;
+        }
         final String text = value.trim();
         return text.isEmpty() ? null : text;
     }
