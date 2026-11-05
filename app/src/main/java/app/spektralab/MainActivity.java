@@ -6867,7 +6867,8 @@ public class MainActivity extends AppCompatActivity {
         // thread: `solve` below meters with it, and the worker never reads a
         // control.
         final String importParams = live().filmStock == null
-                ? null : snapshotRestatement(live().filmStock, PREVIEW_LONG_EDGE);
+                ? null
+                : snapshotFor(live(), live().filmStock, PREVIEW_LONG_EDGE).params;
         try {
             String filePath = getFilePathFromUri(uri);
             rawFilePath = filePath;
@@ -7540,10 +7541,6 @@ public class MainActivity extends AppCompatActivity {
                         isPositiveFilm(stock),
                         edgeTextFor(stock),
                         look.dateOn ? defaultImprintDate() : ""));
-    }
-
-    private String snapshotRestatement(String stock, int longEdge) {
-        return snapshotFor(captureLook(), stock, longEdge).params;
     }
 
     /*
