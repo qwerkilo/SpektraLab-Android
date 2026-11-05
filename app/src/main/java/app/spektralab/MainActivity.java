@@ -23,6 +23,15 @@ import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.core.view.ViewCompat;
 import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
+import app.spektralab.model.FilmStock;
+import app.spektralab.ui.widget.ArrowView;
+import app.spektralab.ui.widget.CompareView;
+import app.spektralab.ui.widget.EdgeBackdrop;
+import app.spektralab.ui.widget.GuideView;
+import app.spektralab.ui.widget.ScanOverlayView;
+import app.spektralab.ui.widget.SnackbarHost;
+import app.spektralab.ui.widget.SpectralRail;
+import app.spektralab.ui.widget.ToolGlyph;
 import com.google.android.material.appbar.AppBarLayout;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
@@ -373,26 +382,7 @@ public class MainActivity extends AppCompatActivity {
             this.session = new FrameLookSession(initial);
         }
     }
-    /** One catalogue film record, in the form the panel reads. */
-    private static final class FilmStock {
-        final SpectrumSamples samples;
-        final SpectrumCurve curve;
-        /** "LOG SENSITIVITY", "DENSITY", or "" when nothing was shipped. */
-        final String seriesLabel;
-        final java.util.Map<String, String> info;
-        /** The paper this film declares it prints on; null when it declares none. */
-        final String targetPrint;
-
-        FilmStock(SpectrumSamples samples, SpectrumCurve curve, String seriesLabel,
-                  java.util.Map<String, String> info, String targetPrint) {
-            this.samples = samples;
-            this.curve = curve;
-            this.seriesLabel = seriesLabel;
-            this.info = info;
-            this.targetPrint = targetPrint;
-        }
-    }
-    private final java.util.List<Frame> frames = new java.util.ArrayList<>();
+        private final java.util.List<Frame> frames = new java.util.ArrayList<>();
     private LinearLayout sourceBar, sourceRow, thumbStrip;
     /** The folded strip: a short stack of prints in the canvas's lower-left. */
     private View shelfHandle;
@@ -977,104 +967,7 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /**
-     * The M3 snackbar's parent. A CoordinatorLayout is what Snackbar expects
-     * for anchoring and swipe behaviour; the width cap is the M3 600 dp
-     * maximum, so a tablet gets a readable bar rather than a full-window strip.
-     */
-    private static final class SnackbarHost extends CoordinatorLayout {
-        private final int maxWidthPx;
-
-        SnackbarHost(android.content.Context context) {
-            super(context);
-            maxWidthPx = Math.round(600f * context.getResources().getDisplayMetrics().density);
-        }
-
-        @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-            final int mode = MeasureSpec.getMode(widthMeasureSpec);
-            if (mode != MeasureSpec.UNSPECIFIED) {
-                final int width = Math.min(MeasureSpec.getSize(widthMeasureSpec), maxWidthPx);
-                widthMeasureSpec = MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY);
-            }
-            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-        }
-    }
-
-    private static class EdgeBackdrop extends android.graphics.drawable.Drawable {
-        private final int background;
-        private final android.graphics.Paint paint = new android.graphics.Paint();
-        EdgeBackdrop(int background) {
-            this.background = background;
-        }
-        @Override public void draw(android.graphics.Canvas canvas) {
-            paint.setColor(background);
-            canvas.drawRect(getBounds(), paint);
-        }
-        @Override public void setAlpha(int alpha) { }
-        @Override public void setColorFilter(android.graphics.ColorFilter cf) { }
-        @Override public int getOpacity() { return android.graphics.PixelFormat.OPAQUE; }
-    }
-
-    /**
-     * The Spectrum's spatial reference: 380–780 nm along the preview's right
-     * edge. It is a scale, not a measurement -- no sample, look, or render is
-     * read here.
-     */
-    private static class SpectralRail extends View {
-        private static final int TICKS = 40;   // one per 10 nm
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final int lineColor, majorColor, textColor, shadowColor;
-        private final float density;
-
-        SpectralRail(android.content.Context context, Palette palette) {
-            super(context);
-            density = getResources().getDisplayMetrics().density;
-            lineColor = palette.color(Palette.Role.GUIDE_LINE);
-            majorColor = palette.color(Palette.Role.GUIDE_CORNER);
-            textColor = palette.color(Palette.Role.STAGE_INK);
-            shadowColor = palette.color(Palette.Role.STAGE_SHADOW);
-            setContentDescription("光谱参考刻度，380 至 780 纳米，不是测量值");
-        }
-
-        private float dp(float v) {
-            return v * density;
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            final float h = getHeight();
-            final float pad = dp(14);
-            paint.setStrokeWidth(Math.max(1f, density));
-            paint.setStyle(android.graphics.Paint.Style.STROKE);
-
-            paint.setColor(lineColor);
-            canvas.drawLine(0.5f, 0, 0.5f, h, paint);
-
-            for (int i = 0; i <= TICKS; ++i) {
-                final int nm = SpectrumSamples.RAIL_MIN_NM + i * 10;
-                final boolean major = nm % 50 == 0;
-                final float y = pad + (h - 2f * pad) * i / (float) TICKS;
-                paint.setColor(major ? majorColor : lineColor);
-                canvas.drawLine(0.5f, y, dp(major ? 7 : 3), y, paint);
-            }
-
-            paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setColor(textColor);
-            paint.setShadowLayer(dp(2), 0, dp(1), shadowColor);
-            paint.setTextSize(dp(5.5f));
-            paint.setTypeface(android.graphics.Typeface.create("sans-serif", Typeface.NORMAL));
-            final float x = dp(8);
-            canvas.drawText(String.valueOf(SpectrumSamples.RAIL_MIN_NM), x,
-                    pad + dp(2), paint);
-            canvas.drawText(String.valueOf(SpectrumSamples.RAIL_MID_NM), x,
-                    h * 0.5f + dp(2), paint);
-            canvas.drawText(String.valueOf(SpectrumSamples.RAIL_MAX_NM), x,
-                    h - pad + dp(2), paint);
-            paint.clearShadowLayer();
-        }
-    }
-
-    private void buildUi() {
+           private void buildUi() {
         if (tfBody == null) loadUiFonts();
         applyWindowPalette();
         applySystemBars();
@@ -1651,7 +1544,7 @@ public class MainActivity extends AppCompatActivity {
 
         final FilmStock stock = currentFilmStock();
         final SpectrumSamples spectrum = stock == null
-                ? SpectrumSamples.unavailable() : stock.samples;
+                ? SpectrumSamples.unavailable() : stock.samples();
         readoutSpectrumValue.setText(spectrum.valueText());
         readoutSpectrumUnit.setText(spectrum.unitText());
         readoutSpectrumDetail.setText(spectrum.detailText());
@@ -2542,13 +2435,13 @@ public class MainActivity extends AppCompatActivity {
 
         final FilmStock stock = currentFilmStock();
         final SpectrumCurve nextCurve =
-                stock == null ? SpectrumCurve.unavailable() : stock.curve;
+                stock == null ? SpectrumCurve.unavailable() : stock.curve();
         // A new curve reveals once. A render-state refresh re-sends the same
         // object, and a theme rebuild finds it already revealed, so neither
         // replays the plotter. Reduced motion shortens the reveal to zero.
         final boolean revealNow = nextCurve.available() && nextCurve != revealedCurve;
         filmCurve.setCurve(nextCurve,
-                stock == null ? "" : stock.seriesLabel,
+                stock == null ? "" : stock.seriesLabel(),
                 live().filmStock == null ? "NO FILM STOCK SELECTED" : SpectrumCurve.UNAVAILABLE_LABEL,
                 revealNow ? motionDuration(FILM_CURVE_REVEAL_MS) : 0);
         if (revealNow) revealedCurve = nextCurve;
@@ -2618,9 +2511,9 @@ public class MainActivity extends AppCompatActivity {
     /** The small line under a chip: the measured type and speed, or the stock's role. */
     private String chipSubtitle(int index, FilmStock stock) {
         if (stock != null) {
-            final String iso = stock.info.get("iso");
+            final String iso = stock.info().get("iso");
             if (iso != null) return "ISO " + iso;
-            final String type = stock.info.get("type");
+            final String type = stock.info().get("type");
             if (type != null) return type.toUpperCase(java.util.Locale.US);
         }
         if (index >= 0 && index < filmTypes.size()
@@ -2726,7 +2619,7 @@ public class MainActivity extends AppCompatActivity {
         // Film selection; a Frame restore keeps its stored Film/paper pair.
         final FilmStock chosen = filmStocks.get(id);
         live().printStock = PrintTarget.choose(live().printStock,
-                chosen == null ? null : chosen.targetPrint, printIds);
+                chosen == null ? null : chosen.targetPrint(), printIds);
         showingOriginal = false;
         refreshFilmPanel();
         refreshPaperLabel();
@@ -2772,7 +2665,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void addMetric(java.util.List<String[]> rows, FilmStock stock,
                            String key, String caption) {
-        final String value = stock.info.get(key);
+        final String value = stock.info().get(key);
         if (value == null || value.isEmpty()) return;
         rows.add(new String[]{caption, value.toUpperCase(java.util.Locale.US)});
     }
@@ -2800,7 +2693,7 @@ public class MainActivity extends AppCompatActivity {
         if (stock == null) {
             return "CATALOGUE RECORD MISSING FOR " + live().filmStock.toUpperCase(java.util.Locale.US);
         }
-        final String description = stock.info.get("description");
+        final String description = stock.info().get("description");
         if (isPositiveFilm(live().filmStock)) {
             final String scan = "REVERSAL · DIRECT SCAN · PAPER NOT USED";
             return description != null && !description.isEmpty()
@@ -2810,18 +2703,18 @@ public class MainActivity extends AppCompatActivity {
         final java.util.List<String> parts = new java.util.ArrayList<>();
         // The same declaration the Film choice applies, so the note cannot
         // claim a paper the Look would not move to.
-        final String target = stock.targetPrint;
+        final String target = stock.targetPrint();
         if (target != null && !target.isEmpty()) {
             parts.add("TARGET " + stockLabel(target, printIds, printLabels)
                     .toUpperCase(java.util.Locale.US));
         }
-        final String antihalation = stock.info.get("antihalation");
+        final String antihalation = stock.info().get("antihalation");
         if (antihalation != null && !antihalation.isEmpty()) {
             parts.add("ANTIHALATION " + antihalation.toUpperCase(java.util.Locale.US));
         }
         if (parts.isEmpty()) {
-            final String support = stock.info.get("support");
-            final String stage = stock.info.get("stage");
+            final String support = stock.info().get("support");
+            final String stage = stock.info().get("stage");
             if (support != null) parts.add(support.toUpperCase(java.util.Locale.US));
             if (stage != null) parts.add(stage.toUpperCase(java.util.Locale.US));
         }
@@ -2836,12 +2729,12 @@ public class MainActivity extends AppCompatActivity {
 
     private String curveDescription(FilmStock stock) {
         if (live().filmStock == null) return "光谱：未选择胶片";
-        if (stock == null || !stock.curve.available()) {
+        if (stock == null || !stock.curve().available()) {
             return "光谱：所选胶片没有随附采样，曲线不可用";
         }
-        return "光谱：" + stock.seriesLabel + "，" + stock.curve.sampleCount()
-                + " 个采样，" + Math.round(stock.curve.minNm()) + " 至 "
-                + Math.round(stock.curve.maxNm()) + " 纳米";
+        return "光谱：" + stock.seriesLabel() + "，" + stock.curve().sampleCount()
+                + " 个采样，" + Math.round(stock.curve().minNm()) + " 至 "
+                + Math.round(stock.curve().maxNm()) + " 纳米";
     }
 
     private void refreshPaperLabel() {
@@ -5019,46 +4912,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** A drawn tool glyph: no font fallback tofu at 19 dp. */
-    private static class ToolGlyph extends View {
-        static final int COMPARE = 0, CAMERA = 1;
-        private final int kind;
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final float stroke;
-
-        ToolGlyph(android.content.Context context, int kind, int color) {
-            super(context);
-            this.kind = kind;
-            stroke = Math.max(1f, getResources().getDisplayMetrics().density);
-            paint.setStyle(android.graphics.Paint.Style.STROKE);
-            paint.setStrokeWidth(stroke);
-            paint.setColor(color);
-        }
-
-        void setColor(int color) {
-            paint.setColor(color);
-            invalidate();
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            final float w = getWidth(), h = getHeight(), p = stroke;
-            if (kind == COMPARE) {
-                canvas.drawRect(p, h * 0.20f, w - p, h * 0.82f, paint);
-                canvas.drawLine(w * 0.5f, h * 0.20f, w * 0.5f, h * 0.82f, paint);
-                canvas.drawLine(p, h * 0.68f, w * 0.42f, h * 0.38f, paint);
-                canvas.drawLine(w - p, h * 0.68f, w * 0.58f, h * 0.38f, paint);
-            } else {
-                canvas.drawRect(p, h * 0.28f, w - p, h * 0.82f, paint);
-                canvas.drawLine(w * 0.27f, h * 0.28f, w * 0.36f, h * 0.16f, paint);
-                canvas.drawLine(w * 0.36f, h * 0.16f, w * 0.64f, h * 0.16f, paint);
-                canvas.drawLine(w * 0.64f, h * 0.16f, w * 0.73f, h * 0.28f, paint);
-                canvas.drawCircle(w * 0.5f, h * 0.55f, h * 0.16f, paint);
-            }
-        }
-    }
-
-    /** Only the Gates whose shape this Frame is: the engine's own 5 % rule. */
+        /** Only the Gates whose shape this Frame is: the engine's own 5 % rule. */
     private void refreshEdgeFormats() {
         edgeLabels.clear();
         edgeIds.clear();
@@ -5510,617 +5364,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** Reset from the old single control strip: delegate to the film page. */
     private void resetLook() { resetFilmPanel(); }
-
-    private static class ArrowView extends View {
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final float stroke;
-
-        ArrowView(android.content.Context context, int color) {
-            super(context);
-            paint.setColor(color);
-            paint.setStyle(android.graphics.Paint.Style.STROKE);
-            stroke = Math.max(1f, getResources().getDisplayMetrics().density * 1.1f);
-            paint.setStrokeWidth(stroke);
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            final float w = getWidth(), h = getHeight();
-            final float pad = stroke;
-            canvas.drawLine(pad, h - pad, w - pad, pad, paint);
-            canvas.drawLine(w - pad, pad, w - pad * 2f - w * 0.34f, pad, paint);
-            canvas.drawLine(w - pad, pad, w - pad, pad * 2f + h * 0.34f, paint);
-        }
-    }
-
-    /**
-     * The stage's picture, and the two ways to see what the film did: hold it
-     * to see the frame before, or drag the middle line to keep both in view.
-     *
-     * Each side is drawn fit-inside, in its own frame: a rebate makes the
-     * "after" a different shape from the raw, and cropping one to match the
-     * other would misrepresent what is being compared.
-     */
-    private static class CompareView extends View {
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
-        private final android.graphics.RectF dst = new android.graphics.RectF();
-        private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
-        private final float slop;
-        private final float density;
-        private final int dividerColor, handleColor, accentColor;
-        private Bitmap before, after;
-        private boolean holding, dragging;
-        private float split, downX, downY;
-        private boolean pinching;
-        private float zoom = 1f, panX = 0f, panY = 0f;
-        private float pinchStartSpan, pinchStartZoom, pinchStartPanX, pinchStartPanY;
-        private float pinchStartCx, pinchStartCy;
-
-        private final Runnable press = new Runnable() {
-            @Override public void run() {
-                if (dragging || after == null || before == null) return;
-                holding = true;
-                invalidate();
-            }
-        };
-
-        CompareView(android.content.Context context, int dividerColor,
-                    int handleColor, int accentColor) {
-            super(context);
-            this.dividerColor = dividerColor;
-            this.handleColor = handleColor;
-            this.accentColor = accentColor;
-            density = getResources().getDisplayMetrics().density;
-            slop = android.view.ViewConfiguration.get(context).getScaledTouchSlop();
-        }
-
-        void setBefore(Bitmap b) { before = b; invalidate(); }
-        void setAfter(Bitmap b) { after = b; invalidate(); }
-
-        void clear() {
-            before = null;
-            after = null;
-            holding = false;
-            dragging = false;
-            split = 0f;
-            pinching = false;
-            zoom = 1f;
-            panX = 0f;
-            panY = 0f;
-            invalidate();
-        }
-
-        /** True when both sides exist, so the divider and hold are meaningful. */
-        boolean canCompare() {
-            return before != null && after != null;
-        }
-
-        /** A touch within 24 dp of an established divider belongs to CompareView. */
-        boolean dividerHit(float x) {
-            return canCompare() && split > 0f
-                    && Math.abs(x - split * getWidth()) <= 24f * density;
-        }
-
-        /** Hand one gesture to the divider while Scan inspect is on top. */
-        boolean forwardTouch(android.view.MotionEvent event) {
-            return onTouchEvent(event);
-        }
-
-        /** Scan inspect's long-press keeps the Original hold available. */
-        void beginHold() {
-            if (!canCompare()) return;
-            holding = true;
-            invalidate();
-        }
-
-        void endHold() {
-            if (!holding) return;
-            holding = false;
-            invalidate();
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            final Bitmap base = after != null ? after : before;
-            if (base == null) return;
-            drawFit(canvas, base);
-            if (before == null || after == null) return;
-            if (holding) {
-                drawFit(canvas, before);
-            } else if (split > 0f) {
-                final float x = split * getWidth();
-                canvas.save();
-                canvas.clipRect(0f, 0f, x, getHeight());
-                drawFit(canvas, before);
-                canvas.restore();
-                drawDivider(canvas, x);
-            }
-        }
-
-        private void drawFit(android.graphics.Canvas canvas, Bitmap bmp) {
-            final float vw = getWidth(), vh = getHeight();
-            if (vw <= 0 || vh <= 0 || bmp.getWidth() == 0) return;
-            final float scale = Math.min(vw / bmp.getWidth(), vh / bmp.getHeight()) * zoom;
-            final float w = bmp.getWidth() * scale, h = bmp.getHeight() * scale;
-            final float left = (vw - w) / 2f + panX, top = (vh - h) / 2f + panY;
-            dst.set(left, top, left + w, top + h);
-            canvas.drawBitmap(bmp, null, dst, paint);
-        }
-
-        /** Current scale, for the stage readout; never triggers a render. */
-        float zoomLevel() {
-            return zoom;
-        }
-
-        private static float spanOf(android.view.MotionEvent e) {
-            if (e.getPointerCount() < 2) return 0f;
-            return (float) Math.hypot(e.getX(0) - e.getX(1), e.getY(0) - e.getY(1));
-        }
-
-        private static float midXOf(android.view.MotionEvent e) {
-            return (e.getX(0) + e.getX(1)) / 2f;
-        }
-
-        private static float midYOf(android.view.MotionEvent e) {
-            return (e.getY(0) + e.getY(1)) / 2f;
-        }
-
-        private void drawDivider(android.graphics.Canvas canvas, float x) {
-            final float r = 6f * density, cy = getHeight() / 2f;
-            paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setColor(dividerColor);
-            canvas.drawRect(x - 0.5f, 0f, x + 0.5f, getHeight(), paint);
-            paint.setColor(handleColor);
-            canvas.drawRect(x - r, cy - r, x + r, cy + r, paint);
-            paint.setStyle(android.graphics.Paint.Style.STROKE);
-            paint.setStrokeWidth(Math.max(1f, density));
-            paint.setColor(accentColor);
-            canvas.drawRect(x - r, cy - r, x + r, cy + r, paint);
-            // The divider is chrome, not measured content: its drag/hold state
-            // uses the M3 state-layer opacities over the control colour.
-            final float state = dragging ? M3Tokens.StateLayer.DRAGGED.opacity
-                    : holding ? M3Tokens.StateLayer.PRESSED.opacity : 0f;
-            if (state > 0f) {
-                paint.setStyle(android.graphics.Paint.Style.FILL);
-                paint.setColor(withOpacity(accentColor, state));
-                canvas.drawRect(x - r, cy - r, x + r, cy + r, paint);
-            }
-            paint.setStyle(android.graphics.Paint.Style.FILL);
-        }
-
-        @Override public boolean onTouchEvent(android.view.MotionEvent e) {
-            if (after == null || before == null) return false;
-            switch (e.getActionMasked()) {
-                case android.view.MotionEvent.ACTION_DOWN:
-                    downX = e.getX();
-                    downY = e.getY();
-                    dragging = false;
-                    holding = false;
-                    pinching = false;
-                    handler.postDelayed(press, android.view.ViewConfiguration.getLongPressTimeout());
-                    return true;
-                case android.view.MotionEvent.ACTION_POINTER_DOWN:
-                    if (e.getPointerCount() >= 2) {
-                        handler.removeCallbacks(press);
-                        dragging = false;
-                        holding = false;
-                        pinching = true;
-                        pinchStartSpan = Math.max(1f, spanOf(e));
-                        pinchStartZoom = zoom;
-                        pinchStartPanX = panX;
-                        pinchStartPanY = panY;
-                        pinchStartCx = midXOf(e);
-                        pinchStartCy = midYOf(e);
-                        return true;
-                    }
-                    return super.onTouchEvent(e);
-                case android.view.MotionEvent.ACTION_MOVE:
-                    if (pinching) {
-                        if (e.getPointerCount() < 2) return true;
-                        final float span = Math.max(1f, spanOf(e));
-                        final float want = Math.max(0.2f, Math.min(8f,
-                                pinchStartZoom * span / pinchStartSpan));
-                        zoom = want;
-                        panX = pinchStartPanX + (midXOf(e) - pinchStartCx);
-                        panY = pinchStartPanY + (midYOf(e) - pinchStartCy);
-                        invalidate();
-                        return true;
-                    }
-                    if (holding) return true;
-                    if (!dragging) {
-                        if (Math.abs(e.getX() - downX) < slop && Math.abs(e.getY() - downY) < slop) return true;
-                        dragging = true;
-                        handler.removeCallbacks(press);
-                    }
-                    split = Math.max(0.02f, Math.min(0.98f, e.getX() / Math.max(1, getWidth())));
-                    invalidate();
-                    return true;
-                case android.view.MotionEvent.ACTION_POINTER_UP:
-                    if (pinching) return true;
-                    return super.onTouchEvent(e);
-                case android.view.MotionEvent.ACTION_UP:
-                    handler.removeCallbacks(press);
-                    pinching = false;
-                    if (holding) {
-                        holding = false;
-                        invalidate();
-                    } else if (!dragging && split > 0f) {
-                        // A tap closes it: the divider is a gesture, not a mode.
-                        split = 0f;
-                        invalidate();
-                    }
-                    dragging = false;
-                    return true;
-                case android.view.MotionEvent.ACTION_CANCEL:
-                    handler.removeCallbacks(press);
-                    pinching = false;
-                    holding = false;
-                    dragging = false;
-                    invalidate();
-                    return true;
-                default:
-                    return super.onTouchEvent(e);
-            }
-        }
-    }
-
-    /**
-     * Scan inspect's draggable line and its touch/keyboard surface.
-     *
-     * <p>It sits over CompareView only while the mode is on. A touch that
-     * starts on an established compare divider is forwarded, and a long press
-     * still asks CompareView for the Original hold, so the overlay never makes
-     * the core review gesture unreachable. The fraction is reported to
-     * accessibility as a 0–100 range with scroll and set-progress actions.
-     */
-    private static class ScanOverlayView extends View {
-        interface Listener {
-            void onScanSample(ScanSample sample, float fraction);
-        }
-
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final android.graphics.Path triangle = new android.graphics.Path();
-        private final android.graphics.RectF image = new android.graphics.RectF();
-        private final android.os.Handler handler =
-                new android.os.Handler(android.os.Looper.getMainLooper());
-        private final float density;
-        private final float slop;
-        private final CompareView compare;
-        private final Listener listener;
-        private final int accentColor, shadowColor;
-        private Bitmap preview;
-        private int[] row;
-        private int rowWidth;
-        private float fraction = ScanSample.DEFAULT_FRACTION;
-        private float downX, downY;
-        private boolean dragging, holding, forwarding;
-
-        private final Runnable hold = new Runnable() {
-            @Override public void run() {
-                if (dragging || compare == null || !compare.canCompare()) return;
-                holding = true;
-                compare.beginHold();
-                performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
-            }
-        };
-
-        ScanOverlayView(android.content.Context context, Palette palette,
-                        CompareView compare, Listener listener) {
-            super(context);
-            this.compare = compare;
-            this.listener = listener;
-            density = getResources().getDisplayMetrics().density;
-            slop = android.view.ViewConfiguration.get(context).getScaledTouchSlop();
-            accentColor = palette.color(Palette.Role.ACCENT);
-            shadowColor = palette.color(Palette.Role.STAGE_SHADOW);
-            setFocusable(true);
-            setFocusableInTouchMode(true);
-            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
-            setContentDescription("扫描线，位置 50%");
-        }
-
-        private float dp(float v) {
-            return v * density;
-        }
-
-        /** Cache the centre row once per bitmap; every move samples it. */
-        void setPreviewBitmap(Bitmap bitmap) {
-            if (bitmap == preview) {
-                if (bitmap != null) notifySample();
-                return;
-            }
-            preview = bitmap;
-            if (bitmap == null) {
-                row = null;
-                rowWidth = 0;
-            } else {
-                rowWidth = bitmap.getWidth();
-                row = new int[rowWidth];
-                bitmap.getPixels(row, 0, rowWidth, 0, bitmap.getHeight() / 2, rowWidth, 1);
-            }
-            invalidate();
-            notifySample();
-        }
-
-        void setScanVisible(boolean visible) {
-            setVisibility(visible ? VISIBLE : GONE);
-            if (!visible) {
-                handler.removeCallbacks(hold);
-                if (holding) {
-                    holding = false;
-                    if (compare != null) compare.endHold();
-                }
-                dragging = false;
-                forwarding = false;
-            }
-            invalidate();
-        }
-
-        void setFraction(float value) {
-            float next = Float.isNaN(value) ? ScanSample.DEFAULT_FRACTION : value;
-            next = Math.max(0f, Math.min(1f, next));
-            if (Math.abs(next - fraction) < 1e-5f) {
-                notifySample();
-                return;
-            }
-            fraction = next;
-            invalidate();
-            notifySample();
-        }
-
-        private void notifySample() {
-            if (listener == null) return;
-            listener.onScanSample(ScanSample.at(row, rowWidth, fraction), fraction);
-        }
-
-        private boolean imageRect() {
-            final int vw = getWidth(), vh = getHeight();
-            if (preview == null || vw <= 0 || vh <= 0) return false;
-            final int bw = preview.getWidth(), bh = preview.getHeight();
-            if (bw <= 0 || bh <= 0) return false;
-            final float scale = Math.min(vw / (float) bw, vh / (float) bh);
-            final float w = bw * scale, h = bh * scale;
-            final float left = (vw - w) * 0.5f, top = (vh - h) * 0.5f;
-            image.set(left, top, left + w, top + h);
-            return true;
-        }
-
-        private float fractionAt(float x) {
-            if (!imageRect() || image.width() <= 0f) return fraction;
-            return (x - image.left) / image.width();
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            if (preview == null || !imageRect()) return;
-            final float x = image.left + fraction * image.width();
-
-            // A dark halo under the accent keeps the line readable on both a
-            // bright print and a night scene, in either Theme mode.
-            paint.setStyle(android.graphics.Paint.Style.STROKE);
-            paint.setStrokeWidth(dp(3));
-            paint.setColor(shadowColor);
-            paint.setAlpha(170);
-            canvas.drawLine(x, image.top, x, image.bottom, paint);
-
-            paint.setStrokeWidth(Math.max(1f, density));
-            paint.setColor(accentColor);
-            paint.setAlpha(255);
-            canvas.drawLine(x, image.top, x, image.bottom, paint);
-
-            paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setColor(shadowColor);
-            triangle.reset();
-            triangle.moveTo(x, image.top);
-            triangle.lineTo(x - dp(5), image.top + dp(9));
-            triangle.lineTo(x + dp(5), image.top + dp(9));
-            triangle.close();
-            canvas.drawPath(triangle, paint);
-
-            paint.setColor(accentColor);
-            triangle.reset();
-            triangle.moveTo(x, image.top);
-            triangle.lineTo(x - dp(3), image.top + dp(6));
-            triangle.lineTo(x + dp(3), image.top + dp(6));
-            triangle.close();
-            canvas.drawPath(triangle, paint);
-
-            paint.setColor(shadowColor);
-            triangle.reset();
-            triangle.moveTo(x, image.bottom);
-            triangle.lineTo(x - dp(5), image.bottom - dp(9));
-            triangle.lineTo(x + dp(5), image.bottom - dp(9));
-            triangle.close();
-            canvas.drawPath(triangle, paint);
-
-            paint.setColor(accentColor);
-            triangle.reset();
-            triangle.moveTo(x, image.bottom);
-            triangle.lineTo(x - dp(3), image.bottom - dp(6));
-            triangle.lineTo(x + dp(3), image.bottom - dp(6));
-            triangle.close();
-            canvas.drawPath(triangle, paint);
-            paint.setAlpha(255);
-        }
-
-        @Override public boolean onTouchEvent(android.view.MotionEvent event) {
-            if (getVisibility() != VISIBLE || preview == null) return false;
-            switch (event.getActionMasked()) {
-                case android.view.MotionEvent.ACTION_DOWN:
-                    requestFocus();
-                    downX = event.getX();
-                    downY = event.getY();
-                    dragging = false;
-                    holding = false;
-                    // Keep the compare divider draggable while Scan is on.
-                    if (compare != null && compare.dividerHit(downX)) {
-                        forwarding = true;
-                        return compare.forwardTouch(event);
-                    }
-                    forwarding = false;
-                    handler.postDelayed(hold, android.view.ViewConfiguration.getLongPressTimeout());
-                    return true;
-                case android.view.MotionEvent.ACTION_MOVE:
-                    if (forwarding) return compare.forwardTouch(event);
-                    if (holding) return true;
-                    if (!dragging) {
-                        if (Math.abs(event.getX() - downX) < slop
-                                && Math.abs(event.getY() - downY) < slop) return true;
-                        dragging = true;
-                        handler.removeCallbacks(hold);
-                    }
-                    setFraction(fractionAt(event.getX()));
-                    return true;
-                case android.view.MotionEvent.ACTION_UP:
-                    if (forwarding) {
-                        forwarding = false;
-                        return compare.forwardTouch(event);
-                    }
-                    handler.removeCallbacks(hold);
-                    if (holding) {
-                        holding = false;
-                        if (compare != null) compare.endHold();
-                    } else if (!dragging) {
-                        setFraction(fractionAt(event.getX()));
-                    }
-                    dragging = false;
-                    return true;
-                case android.view.MotionEvent.ACTION_CANCEL:
-                    if (forwarding) {
-                        forwarding = false;
-                        compare.forwardTouch(event);
-                        return true;
-                    }
-                    handler.removeCallbacks(hold);
-                    if (holding) {
-                        holding = false;
-                        if (compare != null) compare.endHold();
-                    }
-                    dragging = false;
-                    return true;
-                default:
-                    return true;
-            }
-        }
-
-        /** Arrow, Home, and End handling shared by the view and the Activity. */
-        boolean handleKey(int keyCode, boolean shift) {
-            if (getVisibility() != VISIBLE || preview == null) return false;
-            final float step = shift ? 0.05f : 0.01f;
-            switch (keyCode) {
-                case android.view.KeyEvent.KEYCODE_DPAD_LEFT:
-                    setFraction(fraction - step);
-                    return true;
-                case android.view.KeyEvent.KEYCODE_DPAD_RIGHT:
-                    setFraction(fraction + step);
-                    return true;
-                case android.view.KeyEvent.KEYCODE_MOVE_HOME:
-                    setFraction(0f);
-                    return true;
-                case android.view.KeyEvent.KEYCODE_MOVE_END:
-                    setFraction(1f);
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        @Override public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
-            return handleKey(keyCode, event.isShiftPressed()) || super.onKeyDown(keyCode, event);
-        }
-
-        @Override public CharSequence getAccessibilityClassName() {
-            return android.widget.SeekBar.class.getName();
-        }
-
-        @Override public void onInitializeAccessibilityNodeInfo(
-                android.view.accessibility.AccessibilityNodeInfo info) {
-            super.onInitializeAccessibilityNodeInfo(info);
-            info.setClassName(android.widget.SeekBar.class.getName());
-            info.setRangeInfo(android.view.accessibility.AccessibilityNodeInfo.RangeInfo.obtain(
-                    android.view.accessibility.AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT,
-                    0f, 100f, fraction * 100f));
-            info.setContentDescription("扫描线，位置 " + Math.round(fraction * 100f)
-                    + "%，左右方向键移动");
-            if (getVisibility() == VISIBLE && preview != null) {
-                info.addAction(android.view.accessibility.AccessibilityNodeInfo
-                        .AccessibilityAction.ACTION_SCROLL_FORWARD);
-                info.addAction(android.view.accessibility.AccessibilityNodeInfo
-                        .AccessibilityAction.ACTION_SCROLL_BACKWARD);
-                info.addAction(android.view.accessibility.AccessibilityNodeInfo
-                        .AccessibilityAction.ACTION_SET_PROGRESS);
-            }
-        }
-
-        @Override public boolean performAccessibilityAction(int action, android.os.Bundle args) {
-            if (getVisibility() == VISIBLE && preview != null) {
-                if (action == android.view.accessibility.AccessibilityNodeInfo
-                        .ACTION_SCROLL_FORWARD) {
-                    setFraction(fraction + 0.01f);
-                    return true;
-                }
-                if (action == android.view.accessibility.AccessibilityNodeInfo
-                        .ACTION_SCROLL_BACKWARD) {
-                    setFraction(fraction - 0.01f);
-                    return true;
-                }
-                if (action == android.view.accessibility.AccessibilityNodeInfo
-                        .AccessibilityAction.ACTION_SET_PROGRESS.getId()) {
-                    final float target = args == null
-                            ? fraction * 100f
-                            : args.getFloat(android.view.accessibility.AccessibilityNodeInfo
-                                    .ACTION_ARGUMENT_PROGRESS_VALUE, fraction * 100f);
-                    setFraction(target / 100f);
-                    return true;
-                }
-            }
-            return super.performAccessibilityAction(action, args);
-        }
-
-        @Override protected void onDetachedFromWindow() {
-            handler.removeCallbacks(hold);
-            super.onDetachedFromWindow();
-        }
-    }
-
-    /** .frame-guides: a 9 % inset rule, a centre cross, four corner marks. */
-    private static class GuideView extends View {
-        private final android.graphics.Paint paint =
-                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final int mark;
-        private final Palette palette;
-
-        GuideView(android.content.Context context, int markLength, Palette palette) {
-            super(context);
-            mark = markLength;
-            this.palette = palette;
-        }
-
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
-            final int w = getWidth(), h = getHeight();
-            if (w <= 0 || h <= 0) return;
-            final float dx = w * 0.09f, dy = h * 0.09f;
-            paint.setStyle(android.graphics.Paint.Style.STROKE);
-            paint.setStrokeWidth(1f);
-            paint.setColor(palette.color(Palette.Role.GUIDE_LINE));
-            canvas.drawRect(dx, dy, w - dx, h - dy, paint);
-            paint.setColor(palette.color(Palette.Role.GUIDE_CENTER));
-            canvas.drawLine(w / 2f, dy, w / 2f, h - dy, paint);
-            canvas.drawLine(dx, h / 2f, w - dx, h / 2f, paint);
-            paint.setColor(palette.color(Palette.Role.GUIDE_CORNER));
-            final float L = mark;
-            canvas.drawLine(dx, dy, dx + L, dy, paint);
-            canvas.drawLine(dx, dy, dx, dy + L, paint);
-            canvas.drawLine(w - dx, dy, w - dx - L, dy, paint);
-            canvas.drawLine(w - dx, dy, w - dx, dy + L, paint);
-            canvas.drawLine(dx, h - dy, dx + L, h - dy, paint);
-            canvas.drawLine(dx, h - dy, dx, h - dy - L, paint);
-            canvas.drawLine(w - dx, h - dy, w - dx - L, h - dy, paint);
-            canvas.drawLine(w - dx, h - dy, w - dx, h - dy - L, paint);
-        }
-    }
-
-    /**
+                /**
      * A frame this device cannot take at its own size: **asked about, not
      * quietly shrunk**.
      *
