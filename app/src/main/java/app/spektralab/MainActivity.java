@@ -6623,11 +6623,7 @@ public class MainActivity extends AppCompatActivity {
                     (decoder, info, source) -> {
                         final android.util.Size size = info.getSize();
                         final int w = size.getWidth(), h = size.getHeight();
-                        double k = 1.0;
-                        final long area = (long) w * (long) h;
-                        if (area > capPixels) k = Math.min(k, Math.sqrt((double) capPixels / area));
-                        final int longEdge = Math.max(w, h);
-                        if (longEdge > edgeCap) k = Math.min(k, (double) edgeCap / longEdge);
+                        final double k = ImportBudget.scale(w, h, capPixels, edgeCap, 0);
                         if (k < 1.0) {
                             decoder.setTargetSize(Math.max(1, (int) Math.round(w * k)),
                                                   Math.max(1, (int) Math.round(h * k)));
