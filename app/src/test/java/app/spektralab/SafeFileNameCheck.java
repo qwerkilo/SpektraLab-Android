@@ -1,5 +1,7 @@
 package app.spektralab;
 
+import app.spektralab.core.SafeFileName;
+
 /** A provider-supplied display name must never select the cache directory. */
 public final class SafeFileNameCheck {
     private static int checks;
