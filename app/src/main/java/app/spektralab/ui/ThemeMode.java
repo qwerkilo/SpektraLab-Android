@@ -1,4 +1,6 @@
-package app.spektralab;
+package app.spektralab.ui;
+
+import app.spektralab.Palette;
 
 /**
  * The persisted presentation setting. Light and dark are separate Palette
