@@ -13,8 +13,7 @@ dependencies {
 }
 
 // Enforce the Alibaba-style rules on the extracted packages and the composition
-// root. MainActivity MethodLength is temporarily suppressed in the checkstyle
-// config while its panel builders are split.
+// root, including MainActivity's method length.
 tasks.register('checkstyleGovernance', Checkstyle) {
     source = fileTree('src/main/java/app/spektralab') {
         include 'ui/**/*.java'

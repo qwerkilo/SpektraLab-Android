@@ -12,8 +12,7 @@ an Android app. `config/checkstyle/checkstyle.xml` is the executable subset;
 - Every `if`, `else`, `for`, `while` and `do` uses braces.
 - No empty blocks.
 - Lines are at most 120 characters; methods at most 80 lines; nesting at most
-  three levels. `MainActivity`'s MethodLength is suppressed in the config while
-  its 14 panel builders are split; remove the suppression when they are done.
+  three levels.
 - Fields in governed packages are private. Constants may be `static final`.
 - Public classes carry class-level Javadoc.
 
