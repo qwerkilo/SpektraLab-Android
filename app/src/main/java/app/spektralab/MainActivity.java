@@ -2477,13 +2477,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         return head;
     }
 
-    private View buildFilmPanel() {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(sectionHead("FILM STOCK / 胶片",
-                        "全部胶片", this::showFilmPicker, this::resetFilmPanel),
-                new LinearLayout.LayoutParams(-1, -2));
-
+    /** The brand facet row above the film shelf. */
+    private void buildFilmBrandRow(LinearLayout panel) {
         HorizontalScrollView brandScroll = new HorizontalScrollView(this);
         brandScroll.setHorizontalScrollBarEnabled(false);
         brandScroll.setClipToPadding(false);
@@ -2497,6 +2492,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         brandScroll.addView(brandRow, new android.widget.FrameLayout.LayoutParams(-2, -2));
         panel.addView(brandScroll, new LinearLayout.LayoutParams(-1, dp(MIN_TOUCH_DP)));
 
+    }
+
+    /** The horizontal film chip shelf. */
+    private void buildFilmChipScroll(LinearLayout panel) {
         filmChipScroll = new HorizontalScrollView(this);
         filmChipScroll.setHorizontalScrollBarEnabled(false);
         filmChipScroll.setClipToPadding(false);
@@ -2507,6 +2506,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         filmChipScroll.addView(filmChipRow, new android.widget.FrameLayout.LayoutParams(-2, -1));
         panel.addView(filmChipScroll, new LinearLayout.LayoutParams(-1, dp(FILM_CARD_HEIGHT_DP)));
 
+    }
+
+    /** The spectral curve card. */
+    private void buildFilmCurveCard(LinearLayout panel) {
         // The plot is a custom view inside a real M3 card: the surface, radius,
         // and outline are Material's; ticket 08 owns the plot's geometry.
         filmCurveCard = new MaterialCardView(this);
@@ -2523,6 +2526,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         filmCurveCard.addView(filmCurve, new android.widget.FrameLayout.LayoutParams(-1, -1));
         panel.addView(filmCurveCard, new LinearLayout.LayoutParams(-1, dp(FILM_CURVE_HEIGHT_DP)));
 
+    }
+
+    /** The measured-value row and the film note. */
+    private void buildFilmMetrics(LinearLayout panel) {
         filmMetricsRow = new LinearLayout(this);
         filmMetricsRow.setOrientation(LinearLayout.HORIZONTAL);
         filmMetricsRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -2537,6 +2544,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         filmNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
         panel.addView(filmNote, new LinearLayout.LayoutParams(-1, -2));
 
+    }
+
+    /** The paper choice row. */
+    private void buildPaperRow(LinearLayout panel) {
         LinearLayout paperRow = new LinearLayout(this);
         paperRow.setOrientation(LinearLayout.HORIZONTAL);
         paperRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -2578,6 +2589,20 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         panel.addView(paperRow,
                 new LinearLayout.LayoutParams(-1, -2));
         paperRow.setMinimumHeight(dp(PAPER_ROW_HEIGHT_DP));
+    }
+
+    private View buildFilmPanel() {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.addView(sectionHead("FILM STOCK / 胶片",
+                        "全部胶片", this::showFilmPicker, this::resetFilmPanel),
+                new LinearLayout.LayoutParams(-1, -2));
+
+        buildFilmBrandRow(panel);
+        buildFilmChipScroll(panel);
+        buildFilmCurveCard(panel);
+        buildFilmMetrics(panel);
+        buildPaperRow(panel);
         return panel;
     }
 
