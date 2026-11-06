@@ -340,7 +340,9 @@ public class MainActivity extends AppCompatActivity {
      */
     private void selectGate(String id) {
         final GateScale.Gate gate = GateScale.byId(id);
-        if (gate == null) return;
+        if (gate == null) {
+            return;
+        }
         live().overscanFormat = gate.id;
         live().filmFormatMm = gate.longEdgeMm;
         updateEdgeValue();
@@ -359,7 +361,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** The Gate the Scale/Edge readout is showing, or the honest empty state. */
     private void updateEdgeValue() {
-        if (edgeValue == null) return;
+        if (edgeValue == null) {
+            return;
+        }
         final int selected = edgeIds.indexOf(live().overscanFormat);
         if (selected >= 0) {
             edgeValue.setText(edgeLabels.get(selected));
@@ -370,7 +374,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** The Gate a reset lands on: 135 when this Frame fits it, else its closest fit. */
     private String defaultGateId() {
-        if (edgeIds.isEmpty() || edgeIds.contains("135")) return "135";
+        if (edgeIds.isEmpty() || edgeIds.contains("135")) {
+            return "135";
+        }
         final double aspect = (sourceWidth > 0 && sourceHeight > 0)
                 ? (double) Math.max(sourceWidth, sourceHeight) / Math.min(sourceWidth, sourceHeight)
                 : 0.0;
@@ -378,7 +384,9 @@ public class MainActivity extends AppCompatActivity {
         double bestError = Double.MAX_VALUE;
         for (String id : edgeIds) {
             final GateScale.Gate gate = GateScale.byId(id);
-            if (gate == null) continue;
+            if (gate == null) {
+                continue;
+            }
             final double error = Math.abs(aspect / gate.aspect - 1.0);
             if (error < bestError) { bestError = error; bestId = id; }
         }
@@ -645,7 +653,9 @@ public class MainActivity extends AppCompatActivity {
      * This path must never call a render.
      */
     private void rebuildForTheme() {
-        if (isFinishing()) return;
+        if (isFinishing()) {
+            return;
+        }
         final UiState state = captureUiState();
         dismissOpenSheet();
         currentSnackbar = null;
@@ -683,23 +693,37 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void restoreUiState(UiState s) {
-        if (s == null) return;
+        if (s == null) {
+            return;
+        }
         setStage(s.stageMode(), null);
         if (compare != null) {
             compare.setBefore(beforeBitmap);
             compare.setAfter(s.showingOriginal() ? null : lastRenderedBitmap);
         }
-        if (s.fileName() != null && fileLabel != null) fileLabel.setText(s.fileName());
-        if (s.rawNameText() != null && rawName != null) rawName.setText(s.rawNameText());
-        if (s.status() != null && statusText != null) statusText.setText(s.status());
+        if (s.fileName() != null && fileLabel != null) {
+            fileLabel.setText(s.fileName());
+        }
+        if (s.rawNameText() != null && rawName != null) {
+            rawName.setText(s.rawNameText());
+        }
+        if (s.status() != null && statusText != null) {
+            statusText.setText(s.status());
+        }
         showingOriginal = s.showingOriginal();
         setOriginalVisual(showingOriginal);
-        if (busyLabel != null) busyLabel.setVisibility(s.busy() ? View.VISIBLE : View.GONE);
-        if (progressBar != null) progressBar.setVisibility(s.progress() ? View.VISIBLE : View.GONE);
+        if (busyLabel != null) {
+            busyLabel.setVisibility(s.busy() ? View.VISIBLE : View.GONE);
+        }
+        if (progressBar != null) {
+            progressBar.setVisibility(s.progress() ? View.VISIBLE : View.GONE);
+        }
         if (exportProgressBar != null) {
             exportProgressBar.setVisibility(s.exportProgress() ? View.VISIBLE : View.GONE);
         }
-        if (sharePill != null) sharePill.setVisibility(s.shareVisible() ? View.VISIBLE : View.GONE);
+        if (sharePill != null) {
+            sharePill.setVisibility(s.shareVisible() ? View.VISIBLE : View.GONE);
+        }
         if (formatFootValue != null) {
             formatFootValue.setText(mmText(live().filmFormatMm) + " mm");
         }
@@ -746,7 +770,9 @@ public class MainActivity extends AppCompatActivity {
      */
     private void applyResponsiveLayout(boolean wide, int widthDp) {
         if (body == null || mainCol == null || controls == null || panelHolder == null
-                || navigationRail == null) return;
+                || navigationRail == null) {
+            return;
+        }
         wideLayout = wide;
         body.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
 
@@ -759,7 +785,9 @@ public class MainActivity extends AppCompatActivity {
         railLp.weight = 0f;
         navigationRail.setLayoutParams(railLp);
         navigationRail.setVisibility(wide ? View.VISIBLE : View.GONE);
-        if (tabLayout != null) tabLayout.setVisibility(wide ? View.GONE : View.VISIBLE);
+        if (tabLayout != null) {
+            tabLayout.setVisibility(wide ? View.GONE : View.VISIBLE);
+        }
 
         LinearLayout.LayoutParams mainLp = (LinearLayout.LayoutParams) mainCol.getLayoutParams();
         mainLp.width = wide ? 0 : -1;
@@ -795,10 +823,14 @@ public class MainActivity extends AppCompatActivity {
     /** Let the spectral curve's M3 surface own the film panel's spare height. */
     private void applyFilmCurveHeight(boolean wide) {
         final View surface = filmCurveCard != null ? filmCurveCard : filmCurve;
-        if (surface == null) return;
+        if (surface == null) {
+            return;
+        }
         LinearLayout.LayoutParams lp =
                 (LinearLayout.LayoutParams) surface.getLayoutParams();
-        if (lp == null) return;
+        if (lp == null) {
+            return;
+        }
         lp.height = wide ? 0 : dp(FILM_CURVE_HEIGHT_DP);
         lp.weight = wide ? 1f : 0f;
         surface.setLayoutParams(lp);
@@ -806,13 +838,19 @@ public class MainActivity extends AppCompatActivity {
 
     /** Keep the status line inside the stage when the stage is not full width. */
     private void updateStageReadoutWidths() {
-        if (statusText == null || stageView == null) return;
+        if (statusText == null || stageView == null) {
+            return;
+        }
         final int stageWidth = stageView.getWidth();
-        if (stageWidth <= 0) return;
+        if (stageWidth <= 0) {
+            return;
+        }
         final int byScreen = Math.round(currentWidthDp() * 0.60f
                 * getResources().getDisplayMetrics().density);
         final int wanted = Math.max(dp(120), Math.min(byScreen, stageWidth - dp(48)));
-        if (statusText.getMaxWidth() != wanted) statusText.setMaxWidth(wanted);
+        if (statusText.getMaxWidth() != wanted) {
+            statusText.setMaxWidth(wanted);
+        }
     }
 
     /** Rotations and foldable resizes arrive here because the manifest keeps
@@ -850,7 +888,9 @@ public class MainActivity extends AppCompatActivity {
         t.setText(s);
         t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp);
         t.setTextColor(color);
-        if (tf != null) t.setTypeface(tf);
+        if (tf != null) {
+            t.setTypeface(tf);
+        }
         t.setIncludeFontPadding(false);
         return t;
     }
@@ -886,7 +926,9 @@ public class MainActivity extends AppCompatActivity {
         while (i < text.length()) {
             final boolean cjk = isCjk(text.charAt(i));
             int j = i + 1;
-            while (j < text.length() && isCjk(text.charAt(j)) == cjk) ++j;
+            while (j < text.length() && isCjk(text.charAt(j)) == cjk) {
+                ++j;
+            }
             sb.setSpan(new TfSpan(cjk ? tfHan : tfBody, weight), i, j,
                     android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             i = j;
@@ -959,7 +1001,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
            private void buildUi() {
-        if (tfBody == null) loadUiFonts();
+        if (tfBody == null) {
+            loadUiFonts();
+        }
         applyWindowPalette();
         applySystemBars();
 
@@ -1041,7 +1085,9 @@ public class MainActivity extends AppCompatActivity {
         load.setOnClickListener(v -> showImportMenu());
         // At 2.0× the centred pill runs into the PRINT EXPOSURE readout at the
         // stage's right edge; bias it left rather than shrinking the label.
-        if (veryLargeText()) load.setTranslationX(-dp(44));
+        if (veryLargeText()) {
+            load.setTranslationX(-dp(44));
+        }
         load.addView(m3Label("选择照片",
                 veryLargeText() ? M3Tokens.TypeRole.LABEL_MEDIUM : M3Tokens.TypeRole.LABEL_LARGE,
                 m3Primary(), tfHan));
@@ -1131,7 +1177,9 @@ public class MainActivity extends AppCompatActivity {
                 new LinearLayout.LayoutParams(-1, -1));
         panelHolder.addView(scrollablePanel(buildEdgePanel()),
                 new LinearLayout.LayoutParams(-1, -1));
-        for (int i = 0; i < 4; ++i) panels[i] = panelHolder.getChildAt(i);
+        for (int i = 0; i < 4; ++i) {
+            panels[i] = panelHolder.getChildAt(i);
+        }
 
         controls.addView(buildTabs(), new LinearLayout.LayoutParams(-1, dp(TABS_HEIGHT_DP)));
         controls.addView(panelHolder, new LinearLayout.LayoutParams(-1, dp(PANEL_HEIGHT_DP)));
@@ -1166,7 +1214,9 @@ public class MainActivity extends AppCompatActivity {
                 error.printStackTrace(new java.io.PrintWriter(text));
                 DebugSink.textNow("crash", thread.getName() + " | " + text);
             } catch (Throwable ignored) { }
-            if (previous != null) previous.uncaughtException(thread, error);
+            if (previous != null) {
+                previous.uncaughtException(thread, error);
+            }
         });
     }
 
@@ -1181,13 +1231,19 @@ public class MainActivity extends AppCompatActivity {
 
     private void showSnackbar(final CharSequence message, final String action,
                               final View.OnClickListener onAction, final int duration) {
-        if (message == null || message.length() == 0) return;
+        if (message == null || message.length() == 0) {
+            return;
+        }
         if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
             runOnUiThread(() -> showSnackbar(message, action, onAction, duration));
             return;
         }
-        if (snackbarHost == null) return;
-        if (currentSnackbar != null) currentSnackbar.dismiss();
+        if (snackbarHost == null) {
+            return;
+        }
+        if (currentSnackbar != null) {
+            currentSnackbar.dismiss();
+        }
         final Snackbar bar = Snackbar.make(snackbarHost, message, duration);
         final TextView text = bar.getView().findViewById(
                 com.google.android.material.R.id.snackbar_text);
@@ -1200,11 +1256,15 @@ public class MainActivity extends AppCompatActivity {
             bar.setAction(action, onAction);
             final TextView actionView = bar.getView().findViewById(
                     com.google.android.material.R.id.snackbar_action);
-            if (actionView != null) actionView.setTypeface(tfHan);
+            if (actionView != null) {
+                actionView.setTypeface(tfHan);
+            }
         }
         bar.addCallback(new Snackbar.Callback() {
             @Override public void onDismissed(Snackbar dismissed, int event) {
-                if (currentSnackbar == dismissed) currentSnackbar = null;
+                if (currentSnackbar == dismissed) {
+                    currentSnackbar = null;
+                }
             }
         });
         bar.show();
@@ -1248,7 +1308,9 @@ public class MainActivity extends AppCompatActivity {
         // At very large text the wordmark and the two actions compete for one
         // 48 dp row; the subtitle is the first thing to go so the name and
         // the actions both stay legible. At 1.3× the tagline still fits.
-        if (!veryLargeText()) toolbar.setSubtitle(mixedText("/ CONSOLE"));
+        if (!veryLargeText()) {
+            toolbar.setSubtitle(mixedText("/ CONSOLE"));
+        }
         toolbar.setLongClickable(true);
         toolbar.setOnLongClickListener(v -> { showAbout(); return true; });
 
@@ -1296,7 +1358,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** The M3 undo action is visible only while a previous Look exists. */
     private void updateUndoAction() {
-        if (undoButton == null) return;
+        if (undoButton == null) {
+            return;
+        }
         final boolean can = currentSession != null && currentSession.canUndo();
         undoButton.setVisibility(can ? View.VISIBLE : View.GONE);
         undoButton.setContentDescription(can
@@ -1424,7 +1488,9 @@ public class MainActivity extends AppCompatActivity {
             row.setMinimumHeight(dp(READOUT_HEIGHT_DP));
             for (int column = 0; column < columns; ++column) {
                 final int i = rowIndex * columns + column;
-                if (i >= titles.length) break;
+                if (i >= titles.length) {
+                    break;
+                }
                 if (column > 0) {
                     row.addView(hairline(m3OutlineVariant()),
                             new LinearLayout.LayoutParams(dp(1), -1));
@@ -1496,9 +1562,15 @@ public class MainActivity extends AppCompatActivity {
         detail.setEllipsize(android.text.TextUtils.TruncateAt.END);
         cell.addView(detail, new LinearLayout.LayoutParams(-1, -2));
 
-        if (i == 0) readoutFilm = value;
-        if (i == 1) readoutPaper = value;
-        if (i == 2) readoutExposure = value;
+        if (i == 0) {
+            readoutFilm = value;
+        }
+        if (i == 1) {
+            readoutPaper = value;
+        }
+        if (i == 2) {
+            readoutExposure = value;
+        }
         if (i == 3) {
             readoutSpectrumValue = value;
             readoutSpectrumUnit = unit;
@@ -1526,8 +1598,12 @@ public class MainActivity extends AppCompatActivity {
     private void refreshReadoutStrip() {
         final String exposure = OpticsDelta.valueText(
                 optics.get(OpticsDelta.Param.EXPOSURE));
-        if (stageExposureValue != null) stageExposureValue.setText(exposure);
-        if (readoutExposure == null) return;
+        if (stageExposureValue != null) {
+            stageExposureValue.setText(exposure);
+        }
+        if (readoutExposure == null) {
+            return;
+        }
         readoutExposure.setText(exposure);
         readoutFilm.setText(stockLabel(live().filmStock, filmIds, filmLabels));
         readoutPaper.setText(isPositiveFilm(live().filmStock)
@@ -1555,17 +1631,25 @@ public class MainActivity extends AppCompatActivity {
 
     /** The strip's short name for a stock, or the em dash when none is chosen. */
     private String stockLabel(String id, List<String> ids, List<String> labels) {
-        if (id == null || id.isEmpty()) return "\u2014";
+        if (id == null || id.isEmpty()) {
+            return "\u2014";
+        }
         final int i = ids.indexOf(id);
-        if (i < 0 || i >= labels.size()) return id;
+        if (i < 0 || i >= labels.size()) {
+            return id;
+        }
         return StockNames.readout(labels.get(i));
     }
 
     /** The picker's full name for the same record. */
     private String fullStockLabel(String id, List<String> ids, List<String> labels) {
-        if (id == null || id.isEmpty()) return "\u2014";
+        if (id == null || id.isEmpty()) {
+            return "\u2014";
+        }
         final int i = ids.indexOf(id);
-        if (i < 0 || i >= labels.size()) return id;
+        if (i < 0 || i >= labels.size()) {
+            return id;
+        }
         return StockNames.full(labels.get(i));
     }
 
@@ -1794,7 +1878,9 @@ public class MainActivity extends AppCompatActivity {
         }
         scanVisible = !scanVisible;
         syncScanAvailability();
-        if (scanVisible && scanOverlay != null) scanOverlay.requestFocus();
+        if (scanVisible && scanOverlay != null) {
+            scanOverlay.requestFocus();
+        }
         saveScanStateIntoFrame();
         try {
             DebugSink.text("scan", "visible=" + scanVisible + " fraction=" + scanFraction);
@@ -1807,13 +1893,17 @@ public class MainActivity extends AppCompatActivity {
      * never a mock and never a placeholder number.
      */
     private Bitmap scanBitmap() {
-        if (stageMode != 1) return null;
+        if (stageMode != 1) {
+            return null;
+        }
         return showingOriginal ? beforeBitmap : lastRenderedBitmap;
     }
 
     /** Put the overlay, its readout, and the curve mark on one state. */
     private void syncScanAvailability() {
-        if (scanOverlay == null) return;
+        if (scanOverlay == null) {
+            return;
+        }
         final Bitmap bitmap = scanBitmap();
         final boolean available = bitmap != null;
         // Put the Activity's fraction onto the overlay first: a null bitmap
@@ -1830,7 +1920,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** The toggle's chip state: enabled only when there is a preview to read. */
     private void updateScanToggleVisual(boolean enabled) {
-        if (scanToggleChip == null) return;
+        if (scanToggleChip == null) {
+            return;
+        }
         scanToggleChip.setChecked(scanVisible);
         scanToggleChip.setEnabled(enabled);
         scanToggleChip.setAlpha(enabled ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
@@ -1865,7 +1957,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void saveScanStateIntoFrame() {
-        if (currentFrame < 0 || currentFrame >= frames.size()) return;
+        if (currentFrame < 0 || currentFrame >= frames.size()) {
+            return;
+        }
         final Frame frame = frames.get(currentFrame);
         frame.setScanFraction(scanFraction);
         frame.setScanVisible(scanVisible);
@@ -2022,7 +2116,9 @@ public class MainActivity extends AppCompatActivity {
      *  restored as-is; the slider only clamps the thumb it can reach, so a
      *  glare above its 12.0 cap still reaches the engine. */
     private void applyLook(Look look) {
-        if (look == null) return;
+        if (look == null) {
+            return;
+        }
         for (OpticsDelta.Param param : OpticsDelta.Param.values()) {
             optics.set(param, look.get(param));
         }
@@ -2036,11 +2132,15 @@ public class MainActivity extends AppCompatActivity {
         // pulled onto the Gate's measured edge before either control can draw.
         live().overscanFormat = pair.id;
         live().filmFormatMm = pair.longEdgeMm;
-        if (opticsSlider != null) bindActiveOptics();
+        if (opticsSlider != null) {
+            bindActiveOptics();
+        }
         syncOpticsChoices();
         syncToggleRows();
         syncDateDetail();
-        if (edgeValue != null) edgeValue.setText(pair.label);
+        if (edgeValue != null) {
+            edgeValue.setText(pair.label);
+        }
         if (formatFootValue != null) {
             formatFootValue.setText(mmText(pair.longEdgeMm) + " mm");
         }
@@ -2065,14 +2165,18 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void saveLookIntoFrames() {
-        if (currentFrame < 0 || currentFrame >= frames.size()) return;
+        if (currentFrame < 0 || currentFrame >= frames.size()) {
+            return;
+        }
         // The current Frame owns the live session already; captureLook writes
         // the legacy Film/Scale/Edge fields into it before the switch.
         captureLook();
     }
 
     private void updateShelfHandle() {
-        if (shelfHandleImage == null) return;
+        if (shelfHandleImage == null) {
+            return;
+        }
         Bitmap thumb = (currentFrame >= 0 && currentFrame < frames.size())
                 ? frames.get(currentFrame).thumb() : null;
         shelfHandleImage.setImageBitmap(thumb);
@@ -2082,13 +2186,19 @@ public class MainActivity extends AppCompatActivity {
      *  panels; folded it costs 20, and the canvas takes the difference -- the
      *  stage is the weighted child of the column, so nothing else has to move. */
     private void setShelfCollapsed(boolean collapsed) {
-        if (shelfCollapsed == collapsed) return;
+        if (shelfCollapsed == collapsed) {
+            return;
+        }
         // Nothing to fold into: with no photographs the handle would not be
         // drawn, and ＋ would go with the row -- a one-way trip.
-        if (collapsed && frames.isEmpty()) return;
+        if (collapsed && frames.isEmpty()) {
+            return;
+        }
         shelfCollapsed = collapsed;
         updateShelfVisibility();
-        if (collapsed) updateShelfHandle();
+        if (collapsed) {
+            updateShelfHandle();
+        }
     }
 
     /** The strip is furniture: it exists only when there is something on it.
@@ -2096,7 +2206,9 @@ public class MainActivity extends AppCompatActivity {
      *  own 选择照片 button is the way in, and a 62 dp row of nothing above the
      *  panels is just a gap. */
     private void updateShelfVisibility() {
-        if (sourceBar == null) return;
+        if (sourceBar == null) {
+            return;
+        }
         final boolean show = !frames.isEmpty() && !shelfCollapsed;
         sourceBar.setVisibility(show ? View.VISIBLE : View.GONE);
         android.view.ViewGroup.LayoutParams lp = sourceBar.getLayoutParams();
@@ -2112,7 +2224,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** File the frame that just finished importing, once. */
     private void rememberFrame(Uri uri) {
-        if (uri == null) return;
+        if (uri == null) {
+            return;
+        }
         String name = getFileName(uri);
         if (retryingNativeSize) {
             // Same photograph, decoded again at its own size. The chip is
@@ -2146,7 +2260,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** One chip per opened frame, newest at the right, the open one ringed. */
     private void rebuildFrameChips() {
-        if (thumbStrip == null) return;
+        if (thumbStrip == null) {
+            return;
+        }
         thumbStrip.removeAllViews();
         for (int i = 0; i < frames.size(); ++i) {
             final int index = i;
@@ -2161,14 +2277,18 @@ public class MainActivity extends AppCompatActivity {
             box.setPadding(dp(3), dp(3), dp(3), dp(3));
             ImageView img = new ImageView(this);
             img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            if (frame.thumb() != null) img.setImageBitmap(frame.thumb());
+            if (frame.thumb() != null) {
+                img.setImageBitmap(frame.thumb());
+            }
             box.addView(img, new android.widget.FrameLayout.LayoutParams(-1, -1));
             box.setOnClickListener(v -> reopenFrame(index));
             box.setOnLongClickListener(v -> {
                 showActionSheet("删除这张照片？",
                         (frame.name() == null ? "照片" : frame.name()) + "\n\n只从这条栏里移除，文件本身不动。",
                         new String[]{"删除", "取消"}, which -> {
-                            if (which == 0) removeFrame(index);
+                            if (which == 0) {
+                                removeFrame(index);
+                            }
                         });
                 return true;
             });
@@ -2209,7 +2329,9 @@ public class MainActivity extends AppCompatActivity {
      *  the frame was the one on the canvas, the canvas is emptied rather than
      *  silently showing a photograph that is no longer in the list. */
     private void removeFrame(int index) {
-        if (index < 0 || index >= frames.size()) return;
+        if (index < 0 || index >= frames.size()) {
+            return;
+        }
         frames.remove(index);
         if (index == currentFrame) {
             currentFrame = -1;
@@ -2218,7 +2340,9 @@ public class MainActivity extends AppCompatActivity {
             lastRenderedBitmap = null;
             scanVisible = false;
             scanFraction = ScanSample.DEFAULT_FRACTION;
-            if (compare != null) compare.clear();
+            if (compare != null) {
+                compare.clear();
+            }
             setStage(0, null);
             statusText.setText("等待导入");
         } else if (currentFrame > index) {
@@ -2232,8 +2356,12 @@ public class MainActivity extends AppCompatActivity {
     /** Re-open a frame from the strip. Same entry point the picker uses, so a
      *  RAW chip and a JPEG chip take exactly the roads they took the first time. */
     private void reopenFrame(int index) {
-        if (index < 0 || index >= frames.size()) return;
-        if (index == currentFrame && session != null) return;
+        if (index < 0 || index >= frames.size()) {
+            return;
+        }
+        if (index == currentFrame && session != null) {
+            return;
+        }
         final Frame frame = frames.get(index);
         saveLookIntoFrames();
         saveScanStateIntoFrame();
@@ -2245,7 +2373,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setOriginalVisual(boolean on) {
-        if (originalAction == null) return;
+        if (originalAction == null) {
+            return;
+        }
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setColor(palette.color(on ? Palette.Role.ACCENT : Palette.Role.SURFACE_ELEVATED));
         originalAction.setBackground(bg);
@@ -2404,7 +2534,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** A brand change starts a new shelf; other refreshes keep the chip scroll. */
     private void refreshFilmPanel(boolean resetScroll) {
-        if (filmChipRow == null) return;
+        if (filmChipRow == null) {
+            return;
+        }
         final int keepScroll = resetScroll || filmChipScroll == null
                 ? 0 : filmChipScroll.getScrollX();
         refreshBrandRow();
@@ -2417,12 +2549,16 @@ public class MainActivity extends AppCompatActivity {
         final String activeId = live().filmStock == null || showingOriginal ? null : live().filmStock;
         for (String id : FilmBrand.shelf(filmIds, brandFilter, activeId)) {
             final int i = filmIds.indexOf(id);
-            if (i < 0) continue;
+            if (i < 0) {
+                continue;
+            }
             addFilmChip(id, StockNames.shelf(filmLabels.get(i)),
                     chipSubtitle(i, filmStocks.get(id)),
                     activeId != null && id.equals(activeId));
         }
-        if (filmChipScroll != null) filmChipScroll.post(() -> filmChipScroll.scrollTo(keepScroll, 0));
+        if (filmChipScroll != null) {
+            filmChipScroll.post(() -> filmChipScroll.scrollTo(keepScroll, 0));
+        }
 
         final FilmStock stock = currentFilmStock();
         final SpectrumCurve nextCurve =
@@ -2435,7 +2571,9 @@ public class MainActivity extends AppCompatActivity {
                 stock == null ? "" : stock.seriesLabel(),
                 live().filmStock == null ? "NO FILM STOCK SELECTED" : SpectrumCurve.UNAVAILABLE_LABEL,
                 revealNow ? motionDuration(FILM_CURVE_REVEAL_MS) : 0);
-        if (revealNow) revealedCurve = nextCurve;
+        if (revealNow) {
+            revealedCurve = nextCurve;
+        }
         filmCurve.setContentDescription(curveDescription(stock));
         refreshFilmMetrics(stock);
         filmNote.setText(filmNoteText(stock));
@@ -2447,11 +2585,15 @@ public class MainActivity extends AppCompatActivity {
 
     /** The brand facet: M3 filter chips, with counts from the catalogue. */
     private void refreshBrandRow() {
-        if (brandRow == null) return;
+        if (brandRow == null) {
+            return;
+        }
         brandRow.removeAllViews();
         for (String id : FilmBrand.order()) {
             final int count = FilmBrand.count(filmIds, id);
-            if (count == 0 && !FilmBrand.ALL.equals(id)) continue;
+            if (count == 0 && !FilmBrand.ALL.equals(id)) {
+                continue;
+            }
             final boolean active = id.equals(brandFilter);
             final Chip chip = new Chip(this);
             // A real filter chip, not an assist chip with a checkmark bolted
@@ -2490,7 +2632,9 @@ public class MainActivity extends AppCompatActivity {
             chip.setContentDescription(FilmBrand.label(id) + "，" + count + " 支胶片"
                     + (active ? "，已选中" : "，筛选"));
             chip.setOnClickListener(v -> {
-                if (id.equals(brandFilter)) return;
+                if (id.equals(brandFilter)) {
+                    return;
+                }
                 brandFilter = id;
                 refreshFilmPanel(true);
             });
@@ -2503,12 +2647,18 @@ public class MainActivity extends AppCompatActivity {
     private String chipSubtitle(int index, FilmStock stock) {
         if (stock != null) {
             final String iso = stock.info().get("iso");
-            if (iso != null) return "ISO " + iso;
+            if (iso != null) {
+                return "ISO " + iso;
+            }
             final String type = stock.info().get("type");
-            if (type != null) return type.toUpperCase(java.util.Locale.US);
+            if (type != null) {
+                return type.toUpperCase(java.util.Locale.US);
+            }
         }
         if (index >= 0 && index < filmTypes.size()
-                && "positive".equals(filmTypes.get(index))) return "REVERSAL · SCAN";
+                && "positive".equals(filmTypes.get(index))) {
+            return "REVERSAL · SCAN";
+        }
         return "FILM";
     }
 
@@ -2590,8 +2740,12 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         card.setOnClickListener(v -> {
-            if ("original".equals(id)) toggleOriginal();
-            else pickFilmChip(id);
+            if ("original".equals(id)) {
+                toggleOriginal();
+            }
+            else {
+                pickFilmChip(id);
+            }
         });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 dp(FILM_CARD_WIDTH_DP + (largeText() ? 20 : 0)), dp(FILM_CARD_HEIGHT_DP));
@@ -2602,8 +2756,12 @@ public class MainActivity extends AppCompatActivity {
     /** A stock chip is a Look choice: same path as any other stock change. */
     private void pickFilmChip(String id) {
         final int index = filmIds.indexOf(id);
-        if (index < 0) return;
-        if (id.equals(live().filmStock) && !showingOriginal) return;
+        if (index < 0) {
+            return;
+        }
+        if (id.equals(live().filmStock) && !showingOriginal) {
+            return;
+        }
         live().filmStock = id;
         // Upstream's `selectFilmStock` rule: the Film the user picks brings its
         // own paper. An explicit paper chosen afterwards stays until the next
@@ -2631,7 +2789,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** Measured values only: a field the profile does not ship stays absent. */
     private void refreshFilmMetrics(FilmStock stock) {
-        if (filmMetricsRow == null) return;
+        if (filmMetricsRow == null) {
+            return;
+        }
         filmMetricsRow.removeAllViews();
         if (stock == null) {
             final String label = live().filmStock == null ? "—" : stockLabel(
@@ -2657,7 +2817,9 @@ public class MainActivity extends AppCompatActivity {
     private void addMetric(java.util.List<String[]> rows, FilmStock stock,
                            String key, String caption) {
         final String value = stock.info().get(key);
-        if (value == null || value.isEmpty()) return;
+        if (value == null || value.isEmpty()) {
+            return;
+        }
         rows.add(new String[]{caption, value.toUpperCase(java.util.Locale.US)});
     }
 
@@ -2680,7 +2842,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** A short factual line from the profile; a missing field is not invented. */
     private String filmNoteText(FilmStock stock) {
-        if (live().filmStock == null) return "SELECT A STOCK TO SEE ITS MEASURED RESPONSE.";
+        if (live().filmStock == null) {
+            return "SELECT A STOCK TO SEE ITS MEASURED RESPONSE.";
+        }
         if (stock == null) {
             return "CATALOGUE RECORD MISSING FOR " + live().filmStock.toUpperCase(java.util.Locale.US);
         }
@@ -2690,7 +2854,9 @@ public class MainActivity extends AppCompatActivity {
             return description != null && !description.isEmpty()
                     ? scan + " · " + description : scan;
         }
-        if (description != null && !description.isEmpty()) return description;
+        if (description != null && !description.isEmpty()) {
+            return description;
+        }
         final java.util.List<String> parts = new java.util.ArrayList<>();
         // The same declaration the Film choice applies, so the note cannot
         // claim a paper the Look would not move to.
@@ -2706,20 +2872,30 @@ public class MainActivity extends AppCompatActivity {
         if (parts.isEmpty()) {
             final String support = stock.info().get("support");
             final String stage = stock.info().get("stage");
-            if (support != null) parts.add(support.toUpperCase(java.util.Locale.US));
-            if (stage != null) parts.add(stage.toUpperCase(java.util.Locale.US));
+            if (support != null) {
+                parts.add(support.toUpperCase(java.util.Locale.US));
+            }
+            if (stage != null) {
+                parts.add(stage.toUpperCase(java.util.Locale.US));
+            }
         }
-        if (parts.isEmpty()) return "NO STOCK NOTES SHIPPED.";
+        if (parts.isEmpty()) {
+            return "NO STOCK NOTES SHIPPED.";
+        }
         final StringBuilder note = new StringBuilder();
         for (String part : parts) {
-            if (note.length() > 0) note.append(" · ");
+            if (note.length() > 0) {
+                note.append(" · ");
+            }
             note.append(part);
         }
         return note.toString();
     }
 
     private String curveDescription(FilmStock stock) {
-        if (live().filmStock == null) return "光谱：未选择胶片";
+        if (live().filmStock == null) {
+            return "光谱：未选择胶片";
+        }
         if (stock == null || !stock.curve().available()) {
             return "光谱：所选胶片没有随附采样，曲线不可用";
         }
@@ -2755,7 +2931,9 @@ public class MainActivity extends AppCompatActivity {
         showChoiceSheet("选择胶片", "共 " + filmIds.size() + " 支，品牌标签只筛片架",
                 names, current, picked -> {
                     if (picked == 0) {
-                        if (!showingOriginal) toggleOriginal();
+                        if (!showingOriginal) {
+                            toggleOriginal();
+                        }
                         return;
                     }
                     final int index = picked - 1;
@@ -2774,7 +2952,9 @@ public class MainActivity extends AppCompatActivity {
         showChoiceSheet("选择相纸 / 拷贝片", "当前 Look 会沿这张相纸显影",
                 printLabels, current, picked -> {
                     if (picked < 0 || picked >= printIds.size()
-                            || live().printStock.equals(printIds.get(picked))) return;
+                            || live().printStock.equals(printIds.get(picked))) {
+                        return;
+                    }
                     live().printStock = printIds.get(picked);
                     refreshPaperLabel();
                     showingOriginal = false;
@@ -2787,7 +2967,9 @@ public class MainActivity extends AppCompatActivity {
         panel.setOrientation(LinearLayout.VERTICAL);
         opticsPanel = panel;
         opticsPanel.setOnClickListener(v -> {
-            if (!opticsUnlocked) showSnackbar(opticsLockReason());
+            if (!opticsUnlocked) {
+                showSnackbar(opticsLockReason());
+            }
         });
         panel.addView(buildOpticsHead(),
                 new LinearLayout.LayoutParams(-1, -2));
@@ -2847,7 +3029,9 @@ public class MainActivity extends AppCompatActivity {
             return OpticsDelta.valueText(value) + " " + spec.unit;
         });
         opticsSlider.addOnChangeListener((slider, value, fromUser) -> {
-            if (syncingOptics) return;
+            if (syncingOptics) {
+                return;
+            }
             final OpticsDelta.Param spec = activeOptics();
             optics.set(spec, value);
             showActiveOptics(value);
@@ -2856,7 +3040,9 @@ public class MainActivity extends AppCompatActivity {
             // once; keyboard, switch access, and TalkBack changes coalesce so
             // a held arrow key does not queue a render per key. The guard at
             // the top keeps a Look restore and a chip rebind silent.
-            if (!trackingOpticsTouch) scheduleOpticsCommit(slider);
+            if (!trackingOpticsTouch) {
+                scheduleOpticsCommit(slider);
+            }
         });
         opticsSlider.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
             @Override public void onStartTrackingTouch(Slider slider) {
@@ -3046,7 +3232,9 @@ public class MainActivity extends AppCompatActivity {
     private void populateViewFields(LinearLayout fields, ViewAdjust.Group group) {
         fields.removeAllViews();
         for (ViewAdjust.Field field : ViewAdjust.Field.values()) {
-            if (field.group != group) continue;
+            if (field.group != group) {
+                continue;
+            }
             final LinearLayout block = new LinearLayout(this);
             block.setOrientation(LinearLayout.VERTICAL);
             block.setPadding(0, dp(10), 0, dp(4));
@@ -3080,7 +3268,9 @@ public class MainActivity extends AppCompatActivity {
                 value.setText(ViewAdjust.valueText(v, field.unit));
                 ViewCompat.setStateDescription(s,
                         ViewAdjust.valueText(v, field.unit));
-                if (!fromUser) return;
+                if (!fromUser) {
+                    return;
+                }
                 viewAdjustHandler.removeCallbacks(viewAdjustCommit);
                 viewAdjustHandler.postDelayed(viewAdjustCommit, 180);
             });
@@ -3108,7 +3298,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** Set a chip's M3 filter style from the current theme's roles. */
-    private void styleOpticsChip(Chip chip) {        chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null, 0,
+    private void styleOpticsChip(Chip chip) {
+        chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null, 0,
                 com.google.android.material.R.style.Widget_Material3_Chip_Filter));
         final int chipSurface = m3Role(
                 com.google.android.material.R.attr.colorSurfaceContainerLow,
@@ -3214,7 +3405,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** Bind the one slider and the readout to the strip's active parameter. */
     private void bindActiveOptics() {
-        if (opticsSlider == null) return;
+        if (opticsSlider == null) {
+            return;
+        }
         final OpticsDelta.Param spec = activeOptics();
         final float stored = optics.get(spec);
         syncingOptics = true;
@@ -3325,7 +3518,9 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         final OpticsDelta.Param spec = activeOptics();
-        if (spec.isDefault(optics.get(spec))) return;
+        if (spec.isDefault(optics.get(spec))) {
+            return;
+        }
         if (currentSession != null) {
             currentSession.edit(look -> look.reset(spec));
             optics = currentSession.look();
@@ -3344,14 +3539,20 @@ public class MainActivity extends AppCompatActivity {
         }
         final OpticsDelta.CameraFilter[] all = OpticsDelta.CameraFilter.values();
         final List<String> labels = new ArrayList<>();
-        for (OpticsDelta.CameraFilter filter : all) labels.add(filter.label);
+        for (OpticsDelta.CameraFilter filter : all) {
+            labels.add(filter.label);
+        }
         final int selected = OpticsDelta.CameraFilter.fromWire(optics.cameraFilter).ordinal();
         showChoiceSheet("镜头滤镜 / CAMERA FILTER",
                 "Wratten 滤镜在镜头前；放大机的滤色片属于相纸阶段",
                 labels, selected, picked -> {
-                    if (picked < 0 || picked >= all.length) return;
+                    if (picked < 0 || picked >= all.length) {
+                        return;
+                    }
                     final OpticsDelta.CameraFilter chosen = all[picked];
-                    if (chosen.wire.equals(optics.cameraFilter)) return;
+                    if (chosen.wire.equals(optics.cameraFilter)) {
+                        return;
+                    }
                     if (currentSession != null) {
                         currentSession.edit(look -> look.cameraFilter = chosen.wire);
                         optics = currentSession.look();
@@ -3370,14 +3571,20 @@ public class MainActivity extends AppCompatActivity {
         }
         final OpticsDelta.ProtectionNorm[] all = OpticsDelta.ProtectionNorm.values();
         final List<String> labels = new ArrayList<>();
-        for (OpticsDelta.ProtectionNorm norm : all) labels.add(norm.label);
+        for (OpticsDelta.ProtectionNorm norm : all) {
+            labels.add(norm.label);
+        }
         final int selected = OpticsDelta.ProtectionNorm.fromWire(optics.sceneNorm).ordinal();
         showChoiceSheet("保护基准 / PROTECTION NORM",
                 "高光与暗部保护按这个场景测量计算，不改变保护量",
                 labels, selected, picked -> {
-                    if (picked < 0 || picked >= all.length) return;
+                    if (picked < 0 || picked >= all.length) {
+                        return;
+                    }
                     final OpticsDelta.ProtectionNorm chosen = all[picked];
-                    if (chosen.wire.equals(optics.sceneNorm)) return;
+                    if (chosen.wire.equals(optics.sceneNorm)) {
+                        return;
+                    }
                     if (currentSession != null) {
                         currentSession.edit(look -> look.sceneNorm = chosen.wire);
                         optics = currentSession.look();
@@ -3467,7 +3674,8 @@ public class MainActivity extends AppCompatActivity {
         foot.addView(m3Label("片门与尺度联动 · 不裁切构图",
                 M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant(), tfHan),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        formatFootValue = m3Label(mmText(GateScale.resolve(live().overscanFormat, live().filmFormatMm).longEdgeMm) + " mm",
+        formatFootValue = m3Label(
+                mmText(GateScale.resolve(live().overscanFormat, live().filmFormatMm).longEdgeMm) + " mm",
                 M3Tokens.TypeRole.LABEL_LARGE, m3Primary(), tfBody);
         foot.addView(formatFootValue);
         panel.addView(foot, new LinearLayout.LayoutParams(-1, dp(28)));
@@ -3478,7 +3686,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void rebuildFormatCards() {
-        if (formatCardStrip == null) return;
+        if (formatCardStrip == null) {
+            return;
+        }
         formatCardStrip.removeAllViews();
         formatCards.clear();
         if (edgeIds.isEmpty()) {
@@ -3492,7 +3702,9 @@ public class MainActivity extends AppCompatActivity {
         for (int i = 0; i < edgeIds.size(); ++i) {
             final String gateId = edgeIds.get(i);
             final GateScale.Gate gate = GateScale.byId(gateId);
-            if (gate == null) continue;
+            if (gate == null) {
+                continue;
+            }
             final boolean active = gate.id.equals(live().overscanFormat);
 
             final int surface = m3Role(
@@ -3591,7 +3803,9 @@ public class MainActivity extends AppCompatActivity {
     /** A Scale card and its Gate are one choice, so one tap moves both. */
     private void pickScale(String gateId) {
         final GateScale.Gate gate = GateScale.byId(gateId);
-        if (gate == null) return;
+        if (gate == null) {
+            return;
+        }
         if (gate.id.equals(live().overscanFormat)
                 && Math.abs(gate.longEdgeMm - live().filmFormatMm) < 0.01f) {
             return;
@@ -4037,8 +4251,12 @@ public class MainActivity extends AppCompatActivity {
         if (datePage != null) {
             datePage.setVisibility(which == 1 ? View.VISIBLE : View.GONE);
         }
-        if (which == 0) syncRebatePage();
-        if (which == 1) syncDatePage();
+        if (which == 0) {
+            syncRebatePage();
+        }
+        if (which == 1) {
+            syncDatePage();
+        }
         refreshEdgeCards();
         // The panel is one ScrollView; a page opens at its own top.
         if (panels != null && activeTabIndex == 3 && panels[3] instanceof ScrollView) {
@@ -4048,12 +4266,18 @@ public class MainActivity extends AppCompatActivity {
 
     /** Repaint the entry cards and every chosen row from the live Look. */
     private void refreshEdgeCards() {
-        for (int i = 0; i < rebateRefreshers.size(); ++i) rebateRefreshers.get(i).run();
+        for (int i = 0; i < rebateRefreshers.size(); ++i) {
+            rebateRefreshers.get(i).run();
+        }
     }
 
     private String rebateSummary() {
-        if (!GateScale.canHostRebate(sourceWidth, sourceHeight)) return "这张图没有可用片门";
-        if (!live().overscanOn) return "未开启 · 点进去设置";
+        if (!GateScale.canHostRebate(sourceWidth, sourceHeight)) {
+            return "这张图没有可用片门";
+        }
+        if (!live().overscanOn) {
+            return "未开启 · 点进去设置";
+        }
         final String gate = edgeIds.isEmpty()
                 ? gateLabel(live().overscanFormat)
                 : GateScale.resolve(live().overscanFormat, live().filmFormatMm).label;
@@ -4063,7 +4287,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String dateSummary() {
-        if (!live().dateOn) return "未开启 · 点进去设置";
+        if (!live().dateOn) {
+            return "未开启 · 点进去设置";
+        }
         return ControlChoice.labelOf(DateBack.PLACEMENTS, live().datePlacement)
                 + ControlChoice.labelOf(DateBack.CORNERS, live().dateCorner)
                 + " · " + ControlChoice.labelOf(DateBack.STYLES, live().dateStyle)
@@ -4081,7 +4307,9 @@ public class MainActivity extends AppCompatActivity {
      * render while they are being moved into place.
      */
     private void syncRebatePage() {
-        if (rebateSwitch == null) return;
+        if (rebateSwitch == null) {
+            return;
+        }
         syncingRebate = true;
         syncingToggles = true;
         try {
@@ -4106,7 +4334,9 @@ public class MainActivity extends AppCompatActivity {
      * listeners from committing a render while they are being moved into place.
      */
     private void syncDatePage() {
-        if (dateSwitch == null) return;
+        if (dateSwitch == null) {
+            return;
+        }
         syncingRebate = true;
         syncingToggles = true;
         try {
@@ -4123,7 +4353,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** Dim and disable a whole control group without hiding what it offers. */
     private static void setEnabledDeep(View view, boolean enabled) {
-        if (view == null) return;
+        if (view == null) {
+            return;
+        }
         setEnabledRecursive(view, enabled);
         // One 38 % overlay for the group; setting it on every child too would
         // compound the opacity and make nested labels unreadable.
@@ -4188,7 +4420,9 @@ public class MainActivity extends AppCompatActivity {
             // A programmatic park (a Look restore, a page refresh) moves the
             // thumb only. Writing the snapped step back would replace a stored
             // 2.43 mm with 2.4 before the user touched anything.
-            if (!fromUser) return;
+            if (!fromUser) {
+                return;
+            }
             apply.accept(value);
             if (!syncingRebate) {
                 slider.removeCallbacks(rebateCommit);
@@ -4223,7 +4457,9 @@ public class MainActivity extends AppCompatActivity {
                     showChoiceSheet(labelText, "只列出这一版支持的选项",
                             java.util.Arrays.asList(ControlChoice.labels(choices)),
                             selected, picked -> {
-                                if (picked < 0 || picked >= choices.size()) return;
+                                if (picked < 0 || picked >= choices.size()) {
+                                    return;
+                                }
                                 setter.accept(choices.get(picked).id);
                             });
                 });
@@ -4308,12 +4544,16 @@ public class MainActivity extends AppCompatActivity {
 
     /** A switch change or a chosen row commits one render, not one per frame. */
     private void commitRebate() {
-        if (syncingRebate) return;
+        if (syncingRebate) {
+            return;
+        }
         onEdgeChanged();
     }
 
     private final Runnable rebateCommit = () -> {
-        if (!syncingRebate) onEdgeChanged();
+        if (!syncingRebate) {
+            onEdgeChanged();
+        }
     };
 
     private static float clampToSlider(float value, float min, float max) {
@@ -4326,7 +4566,9 @@ public class MainActivity extends AppCompatActivity {
      * Material's Slider rejects that instead of nudging it.
      */
     private static float snapToStep(float value, float min, float step) {
-        if (step <= 0f) return value;
+        if (step <= 0f) {
+            return value;
+        }
         final float snapped = min + Math.round((value - min) / step) * step;
         return Math.round(snapped * 1000f) / 1000f;
     }
@@ -4339,7 +4581,9 @@ public class MainActivity extends AppCompatActivity {
         final int current = edgeIds.indexOf(live().overscanFormat);
         showChoiceSheet("选择片门格式", "只列出与这张图形状相符的片门",
                 edgeLabels, current, picked -> {
-                    if (picked < 0 || picked >= edgeIds.size()) return;
+                    if (picked < 0 || picked >= edgeIds.size()) {
+                        return;
+                    }
                     // The frame that goes in this gate, not whatever the Scale
                     // page happened to be left on.
                     selectGate(edgeIds.get(picked));
@@ -4360,7 +4604,9 @@ public class MainActivity extends AppCompatActivity {
         rail.inflateMenu(R.menu.console_nav);
         for (int i = 0; i < TAB_NAMES.length; ++i) {
             final MenuItem item = rail.getMenu().findItem(TAB_ITEM_IDS[i]);
-            if (item == null) continue;
+            if (item == null) {
+                continue;
+            }
             // A span keeps the Chinese label on OPPOSans through the rail's
             // active/inactive text-appearance changes.
             item.setTitle(typed(TAB_NAMES[i], tfHan));
@@ -4369,9 +4615,13 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         rail.setOnItemSelectedListener(item -> {
-            if (suppressWorkspaceSelection) return true;
+            if (suppressWorkspaceSelection) {
+                return true;
+            }
             final int index = workspaceIndex(item.getItemId());
-            if (index < 0) return false;
+            if (index < 0) {
+                return false;
+            }
             if (index != activeTabIndex) {
                 setTab(index);
                 setPanelCollapsed(false);
@@ -4383,7 +4633,9 @@ public class MainActivity extends AppCompatActivity {
 
     private static int workspaceIndex(int itemId) {
         for (int i = 0; i < TAB_ITEM_IDS.length; ++i) {
-            if (TAB_ITEM_IDS[i] == itemId) return i;
+            if (TAB_ITEM_IDS[i] == itemId) {
+                return i;
+            }
         }
         return -1;
     }
@@ -4420,9 +4672,13 @@ public class MainActivity extends AppCompatActivity {
 
         tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override public void onTabSelected(TabLayout.Tab tab) {
-                if (suppressWorkspaceSelection) return;
+                if (suppressWorkspaceSelection) {
+                    return;
+                }
                 final int index = tab.getPosition();
-                if (index == activeTabIndex) return;
+                if (index == activeTabIndex) {
+                    return;
+                }
                 setTab(index);
                 setPanelCollapsed(false);
             }
@@ -4430,7 +4686,9 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onTabUnselected(TabLayout.Tab tab) { }
 
             @Override public void onTabReselected(TabLayout.Tab tab) {
-                if (suppressWorkspaceSelection) return;
+                if (suppressWorkspaceSelection) {
+                    return;
+                }
                 // A real tap just set lastTabTouchAt; a reselect from a layout
                 // pass must not expand the panel the user collapsed. Keyboard,
                 // switch-access, and TalkBack activation carry focus instead.
@@ -4438,7 +4696,9 @@ public class MainActivity extends AppCompatActivity {
                         || tab.view.isFocused()
                         || tab.view.isAccessibilityFocused()
                         || android.os.SystemClock.uptimeMillis() - lastTabTouchAt <= 500L;
-                if (!activated) return;
+                if (!activated) {
+                    return;
+                }
                 setPanelCollapsed(!panelCollapsed);
                 showSnackbar(panelCollapsed ? "参数面板已收起，再点当前页签展开" : "参数面板已展开");
             }
@@ -4448,7 +4708,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void setPanelCollapsed(boolean collapsed) {
         panelCollapsed = collapsed;
-        if (panelHolder != null) panelHolder.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+        if (panelHolder != null) {
+            panelHolder.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+        }
         if (controls != null) {
             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) controls.getLayoutParams();
             if (wideLayout) {
@@ -4519,8 +4781,12 @@ public class MainActivity extends AppCompatActivity {
         dialog.setContentView(content);
         dialog.setCanceledOnTouchOutside(true);
         dialog.setOnDismissListener(d -> {
-            if (openSheet == d) openSheet = null;
-            if (invoker != null && invoker.isAttachedToWindow()) invoker.requestFocus();
+            if (openSheet == d) {
+                openSheet = null;
+            }
+            if (invoker != null && invoker.isAttachedToWindow()) {
+                invoker.requestFocus();
+            }
         });
         dialog.show();
         final BottomSheetBehavior<android.widget.FrameLayout> behavior = dialog.getBehavior();
@@ -4532,7 +4798,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void dismissOpenSheet() {
         if (openSheet != null) {
-            if (openSheet.isShowing()) openSheet.dismiss();
+            if (openSheet.isShowing()) {
+                openSheet.dismiss();
+            }
             openSheet = null;
         }
     }
@@ -4548,7 +4816,9 @@ public class MainActivity extends AppCompatActivity {
     /** Import, export, and About use the same M3 sheet as the stock pickers. */
     void showActionSheet(String title, String note, String[] items,
                          java.util.function.IntConsumer onPick) {
-        if (items == null || items.length == 0 || isFinishing()) return;
+        if (items == null || items.length == 0 || isFinishing()) {
+            return;
+        }
         dismissOpenSheet();
         final BottomSheetDialog dialog = new BottomSheetDialog(this);
         dialog.setTitle(title);
@@ -4599,16 +4869,24 @@ public class MainActivity extends AppCompatActivity {
      *  on this having appeared. */
     private void maybeShowFeedbackGroup() {
         final android.content.SharedPreferences p = getSharedPreferences(PROMO_PREFS, MODE_PRIVATE);
-        if (p.getBoolean(PROMO_MUTED, false)) return;
-        if (p.getInt(PROMO_SEEN_CODE, 0) == UpdateCheck.versionCode(this)) return;
+        if (p.getBoolean(PROMO_MUTED, false)) {
+            return;
+        }
+        if (p.getInt(PROMO_SEEN_CODE, 0) == UpdateCheck.versionCode(this)) {
+            return;
+        }
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-            if (isFinishing() || !uiReady) return;
+            if (isFinishing() || !uiReady) {
+                return;
+            }
             showFeedbackGroup(true);
         }, 1800);
     }
 
     void showFeedbackGroup(final boolean auto) {
-        if (isFinishing()) return;
+        if (isFinishing()) {
+            return;
+        }
         final android.content.SharedPreferences p = getSharedPreferences(PROMO_PREFS, MODE_PRIVATE);
         final android.app.Dialog dialog = new android.app.Dialog(this);
         LinearLayout card = new LinearLayout(this);
@@ -4766,7 +5044,9 @@ public class MainActivity extends AppCompatActivity {
      */
     private void showChoiceSheet(String title, String note, List<String> labels,
                                  int selectedIndex, java.util.function.IntConsumer onPick) {
-        if (labels == null || labels.isEmpty() || isFinishing()) return;
+        if (labels == null || labels.isEmpty() || isFinishing()) {
+            return;
+        }
         dismissOpenSheet();
         final BottomSheetDialog dialog = new BottomSheetDialog(this);
         dialog.setTitle(title);
@@ -4806,9 +5086,13 @@ public class MainActivity extends AppCompatActivity {
             rows[selectedIndex].setOnClickListener(v -> dialog.dismiss());
         }
         group.setOnCheckedChangeListener((g, checkedId) -> {
-            if (checkedId == View.NO_ID) return;
+            if (checkedId == View.NO_ID) {
+                return;
+            }
             for (int i = 0; i < rows.length; ++i) {
-                if (rows[i].getId() != checkedId) continue;
+                if (rows[i].getId() != checkedId) {
+                    continue;
+                }
                 dialog.dismiss();
                 onPick.accept(i);
                 return;
@@ -4864,7 +5148,9 @@ public class MainActivity extends AppCompatActivity {
         live().dateTextB = "";
         syncToggleRows();
         syncDateDetail();
-        if (session != null) onEdgeChanged();
+        if (session != null) {
+            onEdgeChanged();
+        }
     }
 
     private void toggleOriginal() {
@@ -4928,7 +5214,9 @@ public class MainActivity extends AppCompatActivity {
             // The Scale is the Gate's measured long edge, never a neighbouring
             // page value: 6x17 is 168 mm, not the old 170 mm card.
             final GateScale.Gate gate = GateScale.byId(live().overscanFormat);
-            if (gate != null) live().filmFormatMm = gate.longEdgeMm;
+            if (gate != null) {
+                live().filmFormatMm = gate.longEdgeMm;
+            }
         } else {
             // No Gate fits this shape. Keep the stored pair consistent even
             // though the Rebate has nothing to cut.
@@ -4965,7 +5253,9 @@ public class MainActivity extends AppCompatActivity {
      * everything anyway.
      */
     private void onEdgeChanged() {
-        if (!uiReady || session == null || live().filmStock == null) return;
+        if (!uiReady || session == null || live().filmStock == null) {
+            return;
+        }
         showingOriginal = false;
         setOriginalVisual(false);
         try {
@@ -4992,7 +5282,9 @@ public class MainActivity extends AppCompatActivity {
     /** A typed imprint, or the frame's own EXIF date. */
     private String imprintDate() {
         final String typed = typedDateText();
-        if (typed != null) return typed;
+        if (typed != null) {
+            return typed;
+        }
         return defaultImprintDate();
     }
 
@@ -5001,7 +5293,9 @@ public class MainActivity extends AppCompatActivity {
      * has none. Cached for the open image; a typed text never overwrites it.
      */
     private String defaultImprintDate() {
-        if (defaultDateText != null && !defaultDateText.isEmpty()) return defaultDateText;
+        if (defaultDateText != null && !defaultDateText.isEmpty()) {
+            return defaultDateText;
+        }
         String exif = null;
         try {
             if (sourceUri != null) {
@@ -5066,7 +5360,9 @@ public class MainActivity extends AppCompatActivity {
         toggle.setPadding(0, dp(8), 0, dp(8));
         toggle.setContentDescription(toggleDescription(labelText, initial));
         toggle.setOnCheckedChangeListener((button, checked) -> {
-            if (syncingToggles) return;
+            if (syncingToggles) {
+                return;
+            }
             onChange.accept(checked);
             final boolean now = current.getAsBoolean();
             if (button.isChecked() != now) {
@@ -5091,7 +5387,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** Show the date back's line only while the imprint is enabled. */
     private void syncDateDetail() {
-        if (dateDetail == null) return;
+        if (dateDetail == null) {
+            return;
+        }
         if (live().dateOn) {
             dateDetail.setText(imprintDate());
             dateDetail.setVisibility(View.VISIBLE);
@@ -5113,7 +5411,9 @@ public class MainActivity extends AppCompatActivity {
      * one update and one picture.
      */
     private void commitOptics() {
-        if (opticsSlider != null) opticsSlider.removeCallbacks(opticsCommitRunnable);
+        if (opticsSlider != null) {
+            opticsSlider.removeCallbacks(opticsCommitRunnable);
+        }
         if (uiReady && session != null) {
             showingOriginal = false;
             setOriginalVisual(false);
@@ -5124,7 +5424,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** Record the settled Optics/View state in this Frame's session. */
     private void recordOpticsEdit() {
-        if (currentSession != null) currentSession.record();
+        if (currentSession != null) {
+            currentSession.record();
+        }
     }
 
     private void commitViewAdjust() {
@@ -5189,13 +5491,17 @@ public class MainActivity extends AppCompatActivity {
         for (int y = 0; y < h; ++y) {
             b.getPixels(row, 0, w, 0, y, w, 1);
             boolean black = true;
-            for (int x = 0; x < w && black; ++x) black = (row[x] & 0xFFFFFF) <= 0x060606;
+            for (int x = 0; x < w && black; ++x) {
+                black = (row[x] & 0xFFFFFF) <= 0x060606;
+            }
             if (!black) { top = y; break; }
         }
         for (int y = h - 1; y >= 0; --y) {
             b.getPixels(row, 0, w, 0, y, w, 1);
             boolean black = true;
-            for (int x = 0; x < w && black; ++x) black = (row[x] & 0xFFFFFF) <= 0x060606;
+            for (int x = 0; x < w && black; ++x) {
+                black = (row[x] & 0xFFFFFF) <= 0x060606;
+            }
             if (!black) { bottom = h - 1 - y; break; }
         }
         return new int[]{top, bottom};
@@ -5204,17 +5510,29 @@ public class MainActivity extends AppCompatActivity {
     /** The optics controls only mean something once there is a frame to change. */
     private void setOpticsUnlocked(boolean unlocked) {
         opticsUnlocked = unlocked;
-        if (opticsPanel == null) return;
+        if (opticsPanel == null) {
+            return;
+        }
         final float alpha = unlocked ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA;
         if (opticsStripScroll != null) {
             opticsStripScroll.setAlpha(alpha);
             opticsStripScroll.setEnabled(unlocked);
         }
-        for (Chip chip : opticsChips) chip.setEnabled(unlocked);
-        if (opticsSlider != null) opticsSlider.setEnabled(unlocked);
-        if (opticsReset != null) opticsReset.setEnabled(unlocked);
-        if (opticsFilterButton != null) opticsFilterButton.setEnabled(unlocked);
-        if (opticsNormButton != null) opticsNormButton.setEnabled(unlocked);
+        for (Chip chip : opticsChips) {
+            chip.setEnabled(unlocked);
+        }
+        if (opticsSlider != null) {
+            opticsSlider.setEnabled(unlocked);
+        }
+        if (opticsReset != null) {
+            opticsReset.setEnabled(unlocked);
+        }
+        if (opticsFilterButton != null) {
+            opticsFilterButton.setEnabled(unlocked);
+        }
+        if (opticsNormButton != null) {
+            opticsNormButton.setEnabled(unlocked);
+        }
         if (opticsLockNote != null) {
             opticsLockNote.setText(unlocked ? "" : "LOCKED · " + opticsLockReason());
             opticsLockNote.setVisibility(unlocked ? View.GONE : View.VISIBLE);
@@ -5224,7 +5542,9 @@ public class MainActivity extends AppCompatActivity {
     /** Which of the three things on the stage is showing. */
     private void setStage(int mode, String name) {
         stageMode = mode;
-        if (mode == 0) compare.clear();
+        if (mode == 0) {
+            compare.clear();
+        }
         emptyState.setVisibility(mode == 0 ? View.VISIBLE : View.GONE);
         compare.setVisibility(mode == 1 ? View.VISIBLE : View.GONE);
         rawState.setVisibility(mode == 2 ? View.VISIBLE : View.GONE);
@@ -5262,7 +5582,11 @@ public class MainActivity extends AppCompatActivity {
             reopeningFrame = false;
             suppressBudgetDialog = false;
             saveLookIntoFrames();
-            if (which == 0) pickImage(); else pickRawFile();
+            if (which == 0) {
+                pickImage();
+            } else {
+                pickRawFile();
+            }
         });
     }
 
@@ -5404,7 +5728,9 @@ public class MainActivity extends AppCompatActivity {
             android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;
             try (InputStream head = getContentResolver().openInputStream(uri)) {
-                if (head != null) android.graphics.BitmapFactory.decodeStream(head, null, bounds);
+                if (head != null) {
+                    android.graphics.BitmapFactory.decodeStream(head, null, bounds);
+                }
             }
             if (bounds.outWidth > 0 && bounds.outHeight > 0) {
                 return new int[]{bounds.outWidth, bounds.outHeight};
@@ -5439,7 +5765,9 @@ public class MainActivity extends AppCompatActivity {
      * never handed a larger frame than the measurement would have allowed.
      */
     private void startCanaryProbe() {
-        if (canaryStarted || engine == null) return;
+        if (canaryStarted || engine == null) {
+            return;
+        }
         canaryStarted = true;
         final SpektraLabEngine e = engine;
         new Thread(() -> {
@@ -5453,7 +5781,9 @@ public class MainActivity extends AppCompatActivity {
             final long budget = maxImportPixels();
             runOnUiThread(() -> {
                 try {
-                    if (result != null) probe.applyCanary(result);
+                    if (result != null) {
+                        probe.applyCanary(result);
+                    }
                     DebugSink.text("canary", (result == null ? "(no answer)" : result)
                             + "\n" + probe.describe());
                 } catch (Throwable ignored) { }
@@ -5555,7 +5885,9 @@ public class MainActivity extends AppCompatActivity {
         final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
         final byte[] chunk = new byte[16 * 1024];
         int n;
-        while ((n = in.read(chunk)) > 0) out.write(chunk, 0, n);
+        while ((n = in.read(chunk)) > 0) {
+            out.write(chunk, 0, n);
+        }
         return out.toByteArray();
     }
 
@@ -5567,15 +5899,25 @@ public class MainActivity extends AppCompatActivity {
      * fabricated series.
      */
     private void readFilmStocks(org.json.JSONArray films) {
-        if (films == null) return;
+        if (films == null) {
+            return;
+        }
         for (int i = 0; i < films.length(); ++i) {
             final org.json.JSONObject o = films.optJSONObject(i);
-            if (o == null) continue;
+            if (o == null) {
+                continue;
+            }
             final String id = o.optString("id");
-            if (id.isEmpty()) continue;
+            if (id.isEmpty()) {
+                continue;
+            }
             org.json.JSONObject data = o.optJSONObject("spectral");
-            if (data == null) data = o.optJSONObject("data");
-            if (data == null) data = o;
+            if (data == null) {
+                data = o.optJSONObject("data");
+            }
+            if (data == null) {
+                data = o;
+            }
             final String declared = o.optString("spectral_source",
                     data.optString("spectral_source", ""));
             final org.json.JSONArray log = data.optJSONArray("log_sensitivity");
@@ -5613,11 +5955,15 @@ public class MainActivity extends AppCompatActivity {
         final java.util.Iterator<String> keys = o.keys();
         while (keys.hasNext()) {
             final String key = keys.next();
-            if ("id".equals(key) || "name".equals(key) || "spectral_source".equals(key)) continue;
+            if ("id".equals(key) || "name".equals(key) || "spectral_source".equals(key)) {
+                continue;
+            }
             final Object value = o.opt(key);
             if (value instanceof String) {
                 final String text = ((String) value).trim();
-                if (!text.isEmpty()) info.put(key, text);
+                if (!text.isEmpty()) {
+                    info.put(key, text);
+                }
             } else if (value instanceof Number || value instanceof Boolean) {
                 info.put(key, String.valueOf(value));
             }
@@ -5627,7 +5973,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** One row per wavelength; absent or non-numeric values become NaN gaps. */
     private static double[] jsonDoubles(org.json.JSONArray array) {
-        if (array == null) return null;
+        if (array == null) {
+            return null;
+        }
         final double[] values = new double[array.length()];
         for (int i = 0; i < values.length; ++i) {
             values[i] = array.optDouble(i, Double.NaN);
@@ -5637,11 +5985,15 @@ public class MainActivity extends AppCompatActivity {
 
     /** A matrix of channel values; a single flat array is one channel. */
     private static double[][] jsonRows(org.json.JSONArray array) {
-        if (array == null || array.length() == 0) return null;
+        if (array == null || array.length() == 0) {
+            return null;
+        }
         if (array.optJSONArray(0) == null) {
             final double[] flat = jsonDoubles(array);
             final double[][] rows = new double[flat.length][];
-            for (int i = 0; i < rows.length; ++i) rows[i] = new double[]{flat[i]};
+            for (int i = 0; i < rows.length; ++i) {
+                rows[i] = new double[]{flat[i]};
+            }
             return rows;
         }
         final double[][] rows = new double[array.length()][];
@@ -5654,7 +6006,9 @@ public class MainActivity extends AppCompatActivity {
     private int getStatusBarHeight() {
         int result = 0;
         int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        if (resourceId > 0) result = getResources().getDimensionPixelSize(resourceId);
+        if (resourceId > 0) {
+            result = getResources().getDimensionPixelSize(resourceId);
+        }
         return result;
     }
 
@@ -5760,8 +6114,12 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != 1) return;
-        if (resultCode != RESULT_OK) return;          // the user cancelled
+        if (requestCode != 1) {
+            return;
+        }
+        if (resultCode != RESULT_OK) {
+            return;  // the user cancelled
+        }
         // RESULT_OK with no URI happens on ROMs whose picker cannot hand back a
         // stream for the item (a cloud-only photo, a broken provider). Doing
         // nothing there is what "下载后没法导入" looks like from the outside: the
@@ -5907,7 +6265,9 @@ public class MainActivity extends AppCompatActivity {
             "多半是 HEIC/HEIF 或 10-bit 的图（三星、iPhone 默认存这种）。\n"
             + "换「从文件选择」再试一次，读不到的话请先另存为 JPEG。",
             new String[]{"从文件选择", "取消"}, which -> {
-                if (which == 0) pickRawFile();
+                if (which == 0) {
+                    pickRawFile();
+                }
             });
         return false;
 }
@@ -5922,7 +6282,9 @@ if (k < 1.0) {
     final int nw = Math.max(1, (int) Math.round(sourceBitmap.getWidth() * k));
     final int nh = Math.max(1, (int) Math.round(sourceBitmap.getHeight() * k));
     Bitmap scaled = Bitmap.createScaledBitmap(sourceBitmap, nw, nh, true);
-    if (scaled != sourceBitmap) sourceBitmap.recycle();
+    if (scaled != sourceBitmap) {
+        sourceBitmap.recycle();
+    }
     sourceBitmap = scaled;
     try { DebugSink.text("import-scale", "k=" + k + " -> " + nw + "x" + nh
             + " avail=" + availBytes); } catch (Throwable ignored) { }
@@ -5991,7 +6353,9 @@ refreshEdgeFormats();
             // chosen; the first render happens when the user picks a stock.
             showingOriginal = true;
             lastRenderedBitmap = null;
-            if (!reopening) brandFilter = FilmBrand.ALL;
+            if (!reopening) {
+                brandFilter = FilmBrand.ALL;
+            }
             setOriginalVisual(true);
             refreshFilmPanel();
             if (live().filmStock != null) {
@@ -6101,14 +6465,20 @@ refreshEdgeFormats();
         long byBinding = Long.MAX_VALUE;
         try {
             final int byNative = engine == null ? 0 : engine.maxFramePixels();
-            if (byNative > 0) byBinding = byNative;
+            if (byNative > 0) {
+                byBinding = byNative;
+            }
         } catch (Throwable ignored) { }
-        if (byBinding == Long.MAX_VALUE) byBinding = probe.maxPixelsByBinding();
+        if (byBinding == Long.MAX_VALUE) {
+            byBinding = probe.maxPixelsByBinding();
+        }
         final long byMemory = DeviceProbe.maxPixelsByMemory(availableMemoryBytes());
         // The hard cap is measured, not chosen: 42.7 MP renders here, 44.8 MP
         // takes the device down, and the pool's peak is 6.3 planes (76 B/px).
         long px = Math.min(Math.min(byBinding, byMemory), DeviceProbe.HARD_PIXEL_CAP);
-        if (withRebate) px = (long) (px / 1.6);
+        if (withRebate) {
+            px = (long) (px / 1.6);
+        }
         return (int) Math.min(Math.max(px, 1_000_000L), Integer.MAX_VALUE);
     }
 
@@ -6324,7 +6694,9 @@ refreshEdgeFormats();
             //   · compare.clear() drops `CompareView.after`, the previous
             //     render, which nothing else ever clears;
             //   · the last render and the optics lock are reset below.
-            if (compare != null) compare.clear();
+            if (compare != null) {
+                compare.clear();
+            }
             lastRenderedBitmap = null;
             setOpticsUnlocked(false);
             setStage(2, getFileName(uri));
@@ -6345,7 +6717,9 @@ refreshEdgeFormats();
                     // format or the rebate. The Look was snapshotted on the UI
                     // thread, so `solve` below meters with the same values the
                     // first preview will render.
-                    if (importParams != null) session.setParams(importParams);
+                    if (importParams != null) {
+                        session.setParams(importParams);
+                    }
 
                     // The raw itself is the honest "before" side; see decodeRawPreview.
                     final Bitmap preview = decodeRawPreview(session);
@@ -6477,7 +6851,8 @@ refreshEdgeFormats();
                             + "\n\nbuild=SpektraLab Android " + UpdateCheck.versionName(this)
                             + "\n" + probe.describe();
                     android.content.ClipboardManager cm =
-                            (android.content.ClipboardManager) getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                            (android.content.ClipboardManager) getSystemService(
+                                    android.content.Context.CLIPBOARD_SERVICE);
                     cm.setPrimaryClip(android.content.ClipData.newPlainText("SpektraLab", text));
                     copy.setText("已复制");
                 } catch (Throwable t) {
@@ -6504,11 +6879,17 @@ refreshEdgeFormats();
 
     private int extractInt(String json, String key) {
         int idx = json.indexOf(key);
-        if (idx < 0) return 0;
+        if (idx < 0) {
+            return 0;
+        }
         idx += key.length();
         int end = json.indexOf(",", idx);
-        if (end < 0) end = json.indexOf("}", idx);
-        if (end < 0) return 0;
+        if (end < 0) {
+            end = json.indexOf("}", idx);
+        }
+        if (end < 0) {
+            return 0;
+        }
         try {
             return Integer.parseInt(json.substring(idx, end).trim());
         } catch (Exception e) {
@@ -6522,14 +6903,18 @@ refreshEdgeFormats();
             try (android.database.Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
                 if (cursor != null && cursor.moveToFirst()) {
                     int idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
-                    if (idx >= 0) result = cursor.getString(idx);
+                    if (idx >= 0) {
+                        result = cursor.getString(idx);
+                    }
                 }
             }
         }
         if (result == null) {
             result = uri.getPath();
             int cut = result.lastIndexOf('/');
-            if (cut != -1) result = result.substring(cut + 1);
+            if (cut != -1) {
+                result = result.substring(cut + 1);
+            }
         }
         return result;
     }
@@ -6544,7 +6929,9 @@ refreshEdgeFormats();
                      java.io.OutputStream out = new java.io.FileOutputStream(tempFile)) {
                     byte[] buf = new byte[8192];
                     int len;
-                    while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
+                    while ((len = in.read(buf)) > 0) {
+                        out.write(buf, 0, len);
+                    }
                 }
                 return tempFile.getAbsolutePath();
             } catch (Exception e) {
@@ -6575,7 +6962,9 @@ refreshEdgeFormats();
         } catch (Throwable t) {
             try { DebugSink.text("exif", "path: " + t); } catch (Throwable ignored) { }
         }
-        if (fromPlatform > 0) return fromPlatform;
+        if (fromPlatform > 0) {
+            return fromPlatform;
+        }
         // ExifInterface does not open every raw container: RW2 writes 0x55
         // where TIFF writes 42, and the platform reader refuses it outright on
         // some builds. IFD0's tag 0x0112 is four bytes away from a header we
@@ -6588,31 +6977,48 @@ refreshEdgeFormats();
         java.io.RandomAccessFile file = null;
         try {
             file = new java.io.RandomAccessFile(path, "r");
-            if (file.length() < 16) return -1;
+            if (file.length() < 16) {
+                return -1;
+            }
             final byte[] head = new byte[8];
             file.readFully(head);
             final boolean little = head[0] == 0x49 && head[1] == 0x49;
             final int magic = shortAt(head, 2, little);
-            if (magic != 42 && magic != 0x55) return -1;
+            if (magic != 42 && magic != 0x55) {
+                return -1;
+            }
             final long ifd = longAt(head, 4, little);
-            if (ifd <= 0 || ifd > file.length() - 2) return -1;
+            if (ifd <= 0 || ifd > file.length() - 2) {
+                return -1;
+            }
             file.seek(ifd);
             final byte[] count = new byte[2];
             file.readFully(count);
             final int entries = shortAt(count, 0, little);
-            if (entries <= 0 || entries > 512) return -1;
+            if (entries <= 0 || entries > 512) {
+                return -1;
+            }
             final byte[] table = new byte[entries * 12];
             file.readFully(table);
             for (int i = 0; i < entries; ++i) {
                 final int base = i * 12;
-                if (shortAt(table, base, little) != 0x0112) continue;      // Orientation
-                if (shortAt(table, base + 2, little) != 3) continue;       // SHORT
+                if (shortAt(table, base, little) != 0x0112) {
+                    continue;  // Orientation
+                }
+                if (shortAt(table, base + 2, little) != 3) {
+                    continue;  // SHORT
+                }
                 return shortAt(table, base + 8, little);
             }
         } catch (Throwable t) {
             return -1;
         } finally {
-            if (file != null) try { file.close(); } catch (Throwable ignored) { }
+            if (file != null) {
+                try {
+                    file.close();
+                } catch (Throwable ignored) {
+                }
+            }
         }
         return -1;
     }
@@ -6665,19 +7071,25 @@ refreshEdgeFormats();
             BitmapFactory.Options bounds = new BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;
             try (InputStream head = getContentResolver().openInputStream(uri)) {
-                if (head != null) BitmapFactory.decodeStream(head, null, bounds);
+                if (head != null) {
+                    BitmapFactory.decodeStream(head, null, bounds);
+                }
             } catch (Throwable t) {
                 try { DebugSink.text("decode", "sniff " + t); } catch (Throwable ignored) { }
             }
             if (bounds.outWidth > 0 && bounds.outHeight > 0) {
                 int sample = 1;
                 while ((long) (bounds.outWidth / (sample * 2)) * (bounds.outHeight / (sample * 2)) >= capPixels
-                        || Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= edgeCap) sample *= 2;
+                        || Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= edgeCap) {
+                    sample *= 2;
+                }
                 BitmapFactory.Options opts = new BitmapFactory.Options();
                 opts.inSampleSize = sample;
                 try (InputStream stream = getContentResolver().openInputStream(uri)) {
                     Bitmap decoded = BitmapFactory.decodeStream(stream, null, opts);
-                    if (decoded != null) return decoded;
+                    if (decoded != null) {
+                        return decoded;
+                    }
                     try { DebugSink.text("decode", "null at sample " + sample); }
                     catch (Throwable ignored) { }
                 } catch (Throwable t) {
@@ -6700,7 +7112,9 @@ refreshEdgeFormats();
      * reads every pixel into a float buffer.
      */
     private Bitmap decodeViaImageDecoder(Uri uri, final int capPixels, final int edgeCap) {
-        if (android.os.Build.VERSION.SDK_INT < 28) return null;
+        if (android.os.Build.VERSION.SDK_INT < 28) {
+            return null;
+        }
         try {
             final android.graphics.ImageDecoder.Source src =
                     android.graphics.ImageDecoder.createSource(getContentResolver(), uri);
@@ -6746,7 +7160,9 @@ refreshEdgeFormats();
 
     /** The orientation tag as a matrix. 0 or negative means "unreadable". */
     private Bitmap rotateForOrientation(Bitmap bitmap, int orientation) {
-        if (orientation <= 0) return bitmap;      // unreadable: leave the pixels alone
+        if (orientation <= 0) {
+            return bitmap;  // unreadable: leave the pixels alone
+        }
         try {
             android.graphics.Matrix matrix = new android.graphics.Matrix();
             switch (orientation) {
@@ -6785,7 +7201,9 @@ refreshEdgeFormats();
      * which is what left the status bar stuck on "配光中".
      */
     private void onStockChanged() {
-        if (session == null || !uiReady) return;
+        if (session == null || !uiReady) {
+            return;
+        }
         if (live().filmStock == null) {
             // No film yet: the frame stays the import's own, and the sheet's
             // choice is remembered for the first render.
@@ -6879,7 +7297,9 @@ refreshEdgeFormats();
         // here catches every control path (slider release, stock, switch, reset)
         // without each one having to remember undo. The session owns the state
         // and the history; this only decides when an edit is settled.
-        if (!restoringUndo && currentSession != null) currentSession.record();
+        if (!restoringUndo && currentSession != null) {
+            currentSession.record();
+        }
         updateUndoAction();
         // The view layer is a process-global native pass, so snapshot its
         // values with the Look and send them under the render lock.
@@ -6913,14 +7333,18 @@ refreshEdgeFormats();
         new Thread(() -> {
             try {
                 synchronized (renderMutex) {
-                if (session == null) throw new RuntimeException("session closed before render");
+                if (session == null) {
+                    throw new RuntimeException("session closed before render");
+                }
                 // The finished Look snapshot, taken on the UI thread before
                 // this thread started. Under the render lock it is one writer.
                 SpektraLabEngine.setViewAdjust(viewAdjust);
                 session.setParams(previewParams);
                 int[] dims = session.renderBegin("live");
                 int w = dims[0], h = dims[1];
-                if (w <= 0 || h <= 0) throw new RuntimeException("engine returned empty frame");
+                if (w <= 0 || h <= 0) {
+                    throw new RuntimeException("engine returned empty frame");
+                }
 
                 Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
                 int[] pixels = new int[w * h];
@@ -6982,7 +7406,9 @@ refreshEdgeFormats();
                 // failed without naming one, which on a frame this size is the
                 // same ceiling. Both have the same cure.
                 final int code = SpkError.codeOf(msg);
-                if (code == 1001 || code == 1009) offerSmallerImport();
+                if (code == 1001 || code == 1009) {
+                    offerSmallerImport();
+                }
             }
         }).start();
     }
@@ -7037,7 +7463,9 @@ refreshEdgeFormats();
      * One offer per import: a loop of dialogs is worse than the error.
      */
     private void offerSmallerImport() {
-        if (sourceUri == null || e1001Offered) return;
+        if (sourceUri == null || e1001Offered) {
+            return;
+        }
         e1001Offered = true;
         // The same ceiling the import uses, at 75 % of it. When the probe had
         // failed this used to fall back to the dispatch cap -- 16.5 MP -- which
@@ -7101,13 +7529,19 @@ refreshEdgeFormats();
     private void uploadStaleExportProgress() {
         try {
             java.io.File[] files = getCacheDir().listFiles();
-            if (files == null) return;
+            if (files == null) {
+                return;
+            }
             for (java.io.File f : files) {
-                if (!f.getName().endsWith(".prog")) continue;
+                if (!f.getName().endsWith(".prog")) {
+                    continue;
+                }
                 byte[] buf = new byte[(int) f.length()];
                 try (java.io.InputStream in = new java.io.FileInputStream(f)) {
                     int off = 0, n;
-                    while (off < buf.length && (n = in.read(buf, off, buf.length - off)) > 0) off += n;
+                    while (off < buf.length && (n = in.read(buf, off, buf.length - off)) > 0) {
+                        off += n;
+                    }
                 }
                 DebugSink.text("export-progress", "stale " + f.getName() + "\n"
                         + new String(buf, java.nio.charset.StandardCharsets.UTF_8));
@@ -7147,9 +7581,13 @@ refreshEdgeFormats();
     private void uploadCapabilities() {
         try {
             String caps = engine != null ? engine.capabilities() : null;
-            if (caps != null) DebugSink.text("capabilities", caps);
+            if (caps != null) {
+                DebugSink.text("capabilities", caps);
+            }
             String mem = engine != null ? engine.memoryReport() : null;
-            if (mem != null) DebugSink.text("memory-report", mem);
+            if (mem != null) {
+                DebugSink.text("memory-report", mem);
+            }
             uploadStaleExportProgress();
         } catch (Throwable ignored) {}
     }
@@ -7158,11 +7596,15 @@ refreshEdgeFormats();
     private void uploadExportProgress(java.io.File out) {
         try {
             java.io.File prog = new java.io.File(out.getAbsolutePath() + ".prog");
-            if (!prog.exists()) return;
+            if (!prog.exists()) {
+                return;
+            }
             byte[] buf = new byte[(int) prog.length()];
             try (java.io.InputStream in = new java.io.FileInputStream(prog)) {
                 int off = 0, n;
-                while (off < buf.length && (n = in.read(buf, off, buf.length - off)) > 0) off += n;
+                while (off < buf.length && (n = in.read(buf, off, buf.length - off)) > 0) {
+                    off += n;
+                }
             }
             DebugSink.text("export-progress", new String(buf, java.nio.charset.StandardCharsets.UTF_8));
             prog.delete();
@@ -7176,13 +7618,19 @@ refreshEdgeFormats();
     private String overscanCanvasLabel(SpektraLabEngine.Session source) {
         try {
             final String g = source == null ? null : source.overscanGeometry();
-            if (g == null) return "";
+            if (g == null) {
+                return "";
+            }
             final int wAt = g.indexOf("\"canvas_w\":");
             final int hAt = g.indexOf("\"canvas_h\":");
-            if (wAt < 0 || hAt < 0) return "";
+            if (wAt < 0 || hAt < 0) {
+                return "";
+            }
             final int w0 = wAt + 11, w1 = g.indexOf(',', w0);
             final int h0 = hAt + 11, h1 = g.indexOf(',', h0);
-            if (w1 < 0 || h1 < 0) return "";
+            if (w1 < 0 || h1 < 0) {
+                return "";
+            }
             return g.substring(w0, w1) + "x" + g.substring(h0, h1);
         } catch (Throwable ignored) { return ""; }
     }
@@ -7224,7 +7672,9 @@ refreshEdgeFormats();
         final boolean dng = "dng".equals(format);
         final String ext = dng ? ".dng" : tiff ? ".tif" : ".jpg";
         final String mime = dng ? "image/x-adobe-dng" : tiff ? "image/tiff" : "image/jpeg";
-        if (sharePill != null) sharePill.setVisibility(View.GONE);
+        if (sharePill != null) {
+            sharePill.setVisibility(View.GONE);
+        }
         if (engine == null || session == null) {
             showSnackbar("请先导入照片");
             return;
@@ -7300,7 +7750,9 @@ refreshEdgeFormats();
                             + " " + target.overscanGeometry());
                 } catch (Throwable ignored) { }
             } finally {
-                if (rawExport != null) rawExport.close();
+                if (rawExport != null) {
+                    rawExport.close();
+                }
             }
         }
         return new ExportRender(info, canvas);
@@ -7335,13 +7787,16 @@ refreshEdgeFormats();
 
         try {
             long len = tmp.length();
-            DebugSink.text("export", "format=" + format + " tier=" + tier + " w=" + w + " h=" + h + " renderMs=" + renderMs
+            DebugSink.text("export", "format=" + format + " tier=" + tier
+                    + " w=" + w + " h=" + h + " renderMs=" + renderMs
                     + " bytes=" + len);
             if (len > 0 && len < 30L * 1024 * 1024) {
                 byte[] buf = new byte[(int) len];
                 try (java.io.InputStream in = new java.io.FileInputStream(tmp)) {
                     int off = 0, n;
-                    while (off < buf.length && (n = in.read(buf, off, buf.length - off)) > 0) off += n;
+                    while (off < buf.length && (n = in.read(buf, off, buf.length - off)) > 0) {
+                        off += n;
+                    }
                 }
                 DebugSink.bytes("export", "out-" + tier + ext, buf, mime);
             }
@@ -7383,7 +7838,9 @@ refreshEdgeFormats();
             final android.os.Handler ticker = new android.os.Handler(android.os.Looper.getMainLooper());
             Runnable tick = new Runnable() {
                 @Override public void run() {
-                    if (!spinning.get()) return;
+                    if (!spinning.get()) {
+                        return;
+                    }
                     long el = (System.currentTimeMillis() - t0) / 1000;
                     statusText.setText("导出中（" + tier + "）：渲染中 " + el + " 秒...");
                     ticker.postDelayed(this, 1000);
@@ -7408,9 +7865,13 @@ refreshEdgeFormats();
                 uploadVkLog();
                 runOnUiThread(() -> applyExportFailure(msg));
                 final int code = SpkError.codeOf(msg);
-                if (code == 1001 || code == 1009) offerSmallerImport();
+                if (code == 1001 || code == 1009) {
+                    offerSmallerImport();
+                }
             } finally {
-                if (tmp.exists()) tmp.delete();
+                if (tmp.exists()) {
+                    tmp.delete();
+                }
             }
         }).start();
     }
@@ -7424,17 +7885,27 @@ refreshEdgeFormats();
     private static String describe(Throwable t) {
         final StringBuilder b = new StringBuilder();
         for (Throwable c = t; c != null && b.length() < 600; c = c.getCause()) {
-            if (b.length() > 0) b.append(" <- ");
+            if (b.length() > 0) {
+                b.append(" <- ");
+            }
             b.append(c.getClass().getSimpleName()).append(": ").append(c.getMessage());
-            if (c.getCause() == c) break;
+            if (c.getCause() == c) {
+                break;
+            }
         }
         return b.toString();
     }
 
     private static void deleteTree(java.io.File f) {
-        if (f == null) return;
+        if (f == null) {
+            return;
+        }
         java.io.File[] kids = f.listFiles();
-        if (kids != null) for (java.io.File k : kids) deleteTree(k);
+        if (kids != null) {
+            for (java.io.File k : kids) {
+                deleteTree(k);
+            }
+        }
         //noinspection ResultOfMethodCallIgnored
         f.delete();
     }
@@ -7452,9 +7923,13 @@ refreshEdgeFormats();
         java.io.File dir = new java.io.File(getFilesDir(), "resources");
         java.io.File marker = new java.io.File(dir, ".bundle");
         final String want = bundleVersion();
-        if (marker.isFile() && want.equals(readSmallFile(marker))) return dir.getAbsolutePath();
+        if (marker.isFile() && want.equals(readSmallFile(marker))) {
+            return dir.getAbsolutePath();
+        }
         synchronized (RESOURCE_LOCK) {
-            if (marker.isFile() && want.equals(readSmallFile(marker))) return dir.getAbsolutePath();
+            if (marker.isFile() && want.equals(readSmallFile(marker))) {
+                return dir.getAbsolutePath();
+            }
             final long t0 = System.currentTimeMillis();
             deleteTree(dir);
             copyAssetTree("resources", dir);
@@ -7479,7 +7954,9 @@ refreshEdgeFormats();
         try (java.io.InputStream in = new java.io.FileInputStream(f)) {
             byte[] b = new byte[(int) Math.min(f.length(), 32)];
             int off = 0, n;
-            while (off < b.length && (n = in.read(b, off, b.length - off)) > 0) off += n;
+            while (off < b.length && (n = in.read(b, off, b.length - off)) > 0) {
+                off += n;
+            }
             return new String(b, 0, off, java.nio.charset.StandardCharsets.UTF_8).trim();
         } catch (Throwable t) {
             return "";
@@ -7490,12 +7967,16 @@ refreshEdgeFormats();
         String[] files = getAssets().list(assetPath);
         if (files == null || files.length == 0) {
             java.io.File parent = outDir.getParentFile();
-            if (parent != null) parent.mkdirs();
+            if (parent != null) {
+                parent.mkdirs();
+            }
             try (InputStream in = getAssets().open(assetPath);
                  java.io.OutputStream out = new java.io.FileOutputStream(outDir)) {
                 byte[] buf = new byte[8192];
                 int len;
-                while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
+                while ((len = in.read(buf)) > 0) {
+                    out.write(buf, 0, len);
+                }
             }
             return;
         }
@@ -7512,7 +7993,9 @@ refreshEdgeFormats();
         // A sheet or snackbar outliving its Activity would keep this instance
         // reachable through a window the system still owns.
         dismissOpenSheet();
-        if (currentSnackbar != null) currentSnackbar.dismiss();
+        if (currentSnackbar != null) {
+            currentSnackbar.dismiss();
+        }
         currentSnackbar = null;
         snackbarHost = null;
         // Session *and* engine go down under the same lock the render runs
