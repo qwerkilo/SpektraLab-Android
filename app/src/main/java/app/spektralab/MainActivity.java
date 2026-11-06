@@ -7550,87 +7550,96 @@ refreshEdgeFormats();
         startPreviewRender(viewAdjust, previewParams);
     }
 
-    /** Run one preview render and publish its result on the UI thread. */
+    /** The worker half of a preview render. */
+    private void renderPreviewOnWorker(double[] viewAdjust, String previewParams) {
+        synchronized (renderMutex) {
+            if (session == null) {
+                throw new RuntimeException("session closed before render");
+            }
+            // The finished Look snapshot, taken on the UI thread before
+            // this thread started. Under the render lock it is one writer.
+            SpektraLabEngine.setViewAdjust(viewAdjust);
+            session.setParams(previewParams);
+            int[] dims = session.renderBegin("live");
+            int w = dims[0], h = dims[1];
+            if (w <= 0 || h <= 0) {
+                throw new RuntimeException("engine returned empty frame");
+            }
+
+            Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            int[] pixels = new int[w * h];
+            int copied = session.copyArgbRange(pixels, 0, h);
+            if (copied != w * h) {
+                throw new RuntimeException("pixel copy incomplete " + copied + "/" + (w * h));
+            }
+            bmp.setPixels(pixels, 0, w, 0, 0, w, h);
+            session.renderEnd();
+            // What the meter did to *this* frame. A render that looks dark
+            // is either the film's curve or an exposure the engine decided
+            // on, and the two are indistinguishable by eye -- one line of
+            // numbers settles it.
+            try {
+                final String pj = session.progressJson();
+                final int at = pj == null ? -1 : pj.indexOf("\"auto_exposure_ev\"");
+                DebugSink.text("exposure", "tier=live " + (at < 0 ? "(no progress json)"
+                        : pj.substring(at, Math.min(pj.length(), at + 40))));
+            } catch (Throwable ignored) { }
+            // The rebate's own numbers, next to the buffer they belong to.
+            // "the edge is wrong in the export but right in the preview" is
+            // a question only these two lines can answer.
+            try {
+                DebugSink.text("overscan-geom", "tier=live " + w + "x" + h + " "
+                        + session.overscanGeometry());
+            } catch (Throwable ignored) { }
+            // The engine's log for this render. When a frame comes back as
+            // one flat colour there is nothing else to read: it says which
+            // tier was built, how big, and what each dispatch covered.
+            uploadVkLog();
+
+            final int fw = w, fh = h;
+            try {
+                long hsh = 1469598103934665603L;
+                for (int i = 0; i < pixels.length; i += 7) { hsh ^= pixels[i]; hsh *= 1099511628211L; }
+                long t0 = System.currentTimeMillis();
+                java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                bmp.compress(Bitmap.CompressFormat.JPEG, 85, bo);
+                DebugSink.text("preview", "w=" + w + " h=" + h + " hash=" + Long.toHexString(hsh)
+                        + " copy=" + copied + " first=" + Integer.toHexString(pixels[0])
+                        + " mid=" + Integer.toHexString(pixels[(h / 2) * w + w / 2])
+                        + " jpegBytes=" + bo.size());
+                DebugSink.bytes("preview", "p.jpg", bo.toByteArray(), "image/jpeg");
+                DebugSink.text("preview-timing", "jpeg_ms=" + (System.currentTimeMillis() - t0));
+            } catch (Throwable ignored) {}
+            runOnUiThread(() -> applyPreviewResult(bmp, fw, fh));
+        }
+    }
+
+    /** Render failure reporting and the oversize retry. */
+    private void handlePreviewFailure(Throwable e) {
+        try { session.renderEnd(); } catch (Throwable ignored) {}
+        final String msg = describe(e);
+        runOnUiThread(() -> applyRenderFailure(msg));
+        // E-1001 is "a plane is bigger than one binding may name", and
+        // the only cure is a smaller session. The import cap already
+        // answers for a normal import, so reaching here means the frame
+        // came in past it -- a native-size import, or a build that had
+        // no cap. Offering the retry beats printing a code and leaving
+        // the user to find the long-press menu.
+        // 1001 is the binding range by name; 1009 is a Vulkan call that
+        // failed without naming one, which on a frame this size is the
+        // same ceiling. Both have the same cure.
+        final int code = SpkError.codeOf(msg);
+        if (code == 1001 || code == 1009) {
+            offerSmallerImport();
+        }
+    }
+
     private void startPreviewRender(double[] viewAdjust, String previewParams) {
         new Thread(() -> {
             try {
-                synchronized (renderMutex) {
-                if (session == null) {
-                    throw new RuntimeException("session closed before render");
-                }
-                // The finished Look snapshot, taken on the UI thread before
-                // this thread started. Under the render lock it is one writer.
-                SpektraLabEngine.setViewAdjust(viewAdjust);
-                session.setParams(previewParams);
-                int[] dims = session.renderBegin("live");
-                int w = dims[0], h = dims[1];
-                if (w <= 0 || h <= 0) {
-                    throw new RuntimeException("engine returned empty frame");
-                }
-
-                Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-                int[] pixels = new int[w * h];
-                int copied = session.copyArgbRange(pixels, 0, h);
-                if (copied != w * h) {
-                    throw new RuntimeException("pixel copy incomplete " + copied + "/" + (w * h));
-                }
-                bmp.setPixels(pixels, 0, w, 0, 0, w, h);
-                session.renderEnd();
-                // What the meter did to *this* frame. A render that looks dark
-                // is either the film's curve or an exposure the engine decided
-                // on, and the two are indistinguishable by eye -- one line of
-                // numbers settles it.
-                try {
-                    final String pj = session.progressJson();
-                    final int at = pj == null ? -1 : pj.indexOf("\"auto_exposure_ev\"");
-                    DebugSink.text("exposure", "tier=live " + (at < 0 ? "(no progress json)"
-                            : pj.substring(at, Math.min(pj.length(), at + 40))));
-                } catch (Throwable ignored) { }
-                // The rebate's own numbers, next to the buffer they belong to.
-                // "the edge is wrong in the export but right in the preview" is
-                // a question only these two lines can answer.
-                try {
-                    DebugSink.text("overscan-geom", "tier=live " + w + "x" + h + " "
-                            + session.overscanGeometry());
-                } catch (Throwable ignored) { }
-                // The engine's log for this render. When a frame comes back as
-                // one flat colour there is nothing else to read: it says which
-                // tier was built, how big, and what each dispatch covered.
-                uploadVkLog();
-
-                final int fw = w, fh = h;
-                try {
-                    long hsh = 1469598103934665603L;
-                    for (int i = 0; i < pixels.length; i += 7) { hsh ^= pixels[i]; hsh *= 1099511628211L; }
-                    long t0 = System.currentTimeMillis();
-                    java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-                    bmp.compress(Bitmap.CompressFormat.JPEG, 85, bo);
-                    DebugSink.text("preview", "w=" + w + " h=" + h + " hash=" + Long.toHexString(hsh)
-                            + " copy=" + copied + " first=" + Integer.toHexString(pixels[0])
-                            + " mid=" + Integer.toHexString(pixels[(h / 2) * w + w / 2])
-                            + " jpegBytes=" + bo.size());
-                    DebugSink.bytes("preview", "p.jpg", bo.toByteArray(), "image/jpeg");
-                    DebugSink.text("preview-timing", "jpeg_ms=" + (System.currentTimeMillis() - t0));
-                } catch (Throwable ignored) {}
-                runOnUiThread(() -> applyPreviewResult(bmp, fw, fh));
-            }
+                renderPreviewOnWorker(viewAdjust, previewParams);
             } catch (Throwable e) {
-                try { session.renderEnd(); } catch (Throwable ignored) {}
-                final String msg = describe(e);
-                runOnUiThread(() -> applyRenderFailure(msg));
-                // E-1001 is "a plane is bigger than one binding may name", and
-                // the only cure is a smaller session. The import cap already
-                // answers for a normal import, so reaching here means the frame
-                // came in past it -- a native-size import, or a build that had
-                // no cap. Offering the retry beats printing a code and leaving
-                // the user to find the long-press menu.
-                // 1001 is the binding range by name; 1009 is a Vulkan call that
-                // failed without naming one, which on a frame this size is the
-                // same ceiling. Both have the same cure.
-                final int code = SpkError.codeOf(msg);
-                if (code == 1001 || code == 1009) {
-                    offerSmallerImport();
-                }
+                handlePreviewFailure(e);
             }
         }).start();
     }
