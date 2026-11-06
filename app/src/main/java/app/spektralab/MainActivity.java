@@ -6905,6 +6905,11 @@ refreshEdgeFormats();
         try { DebugSink.text("render", "begin " + sourceWidth + "x" + sourceHeight); }
         catch (Throwable ignored) { }
 
+        startPreviewRender(viewAdjust, previewParams);
+    }
+
+    /** Run one preview render and publish its result on the UI thread. */
+    private void startPreviewRender(double[] viewAdjust, String previewParams) {
         new Thread(() -> {
             try {
                 synchronized (renderMutex) {
@@ -7239,6 +7244,16 @@ refreshEdgeFormats();
         final String rawExportPath = isRawFile ? (rawFilePath == null ? "" : rawFilePath) : null;
         // A bitmap export renders from the preview session; a RAW export opens
         // its own below. The render lock keeps a stock change out of either.
+        startExportThread(format, tier, tiff, dng, ext, mime, exportStock,
+                exportParams, exportViewAdjust, rawExportPath);
+    }
+
+
+    /** Render one export, write it to the gallery and report on the UI thread. */
+    private void startExportThread(String format, String tier, boolean tiff, boolean dng,
+                                  String ext, String mime, String exportStock,
+                                  String exportParams, double[] exportViewAdjust,
+                                  String rawExportPath) {
         new Thread(() -> {
             java.io.File tmp = new java.io.File(getCacheDir(), "export_" + System.currentTimeMillis() + ext);
             try {
@@ -7368,7 +7383,6 @@ refreshEdgeFormats();
             }
         }).start();
     }
-
 
     /**
      * `Class: message`, then its cause chain. A native library that fails to
