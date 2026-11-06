@@ -3724,28 +3724,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         return panel;
     }
 
-    private void rebuildFormatCards() {
-        if (formatCardStrip == null) {
-            return;
-        }
-        formatCardStrip.removeAllViews();
-        formatCards.clear();
-        if (edgeIds.isEmpty()) {
-            TextView none = m3Label("这张长宽比没有可用片门",
-                    M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant(), tfHan);
-            LinearLayout.LayoutParams noneLp = new LinearLayout.LayoutParams(-2, dp(105));
-            noneLp.leftMargin = dp(2);
-            formatCardStrip.addView(none, noneLp);
-            return;
-        }
-        for (int i = 0; i < edgeIds.size(); ++i) {
-            final String gateId = edgeIds.get(i);
-            final GateScale.Gate gate = GateScale.byId(gateId);
-            if (gate == null) {
-                continue;
-            }
-            final boolean active = gate.id.equals(live().overscanFormat);
-
+    /** Build one Scale card for a Gate. */
+    private MaterialCardView buildFormatCard(GateScale.Gate gate, boolean active) {
             final int surface = m3Role(
                     com.google.android.material.R.attr.colorSurfaceContainerLow,
                     Palette.Role.SURFACE_ELEVATED);
@@ -3787,41 +3767,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             card.setContentDescription(gate.label + "，" + mmText(gate.longEdgeMm) + " 毫米"
                     + (active ? "，已选" : ""));
 
-            LinearLayout stack = new LinearLayout(this);
-            stack.setOrientation(LinearLayout.VERTICAL);
-            stack.setPadding(dp(9), dp(11), dp(8), dp(7));
-
-            LinearLayout valueRow = new LinearLayout(this);
-            valueRow.setOrientation(LinearLayout.HORIZONTAL);
-            valueRow.setGravity(android.view.Gravity.BOTTOM);
-            TextView value = m3Label(mmText(gate.longEdgeMm),
-                    M3Tokens.TypeRole.TITLE_LARGE, active ? onSelected : onSurface, tfDisplay);
-            valueRow.addView(value);
-            TextView unit = m3Label("mm", M3Tokens.TypeRole.LABEL_SMALL,
-                    onSurfaceVariant, tfBody);
-            LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
-            unitLp.leftMargin = dp(2);
-            unitLp.bottomMargin = dp(2);
-            valueRow.addView(unit, unitLp);
-            stack.addView(valueRow);
-
-            TextView kind = m3Label(gate.panoramic() ? "宽幅" : "常规",
-                    M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
-            LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-2, -2);
-            kindLp.topMargin = dp(4);
-            stack.addView(kind, kindLp);
-
-            View spacer = new View(this);
-            stack.addView(spacer, new LinearLayout.LayoutParams(1, 0, 1f));
-
-            TextView name = m3Label(gate.label, M3Tokens.TypeRole.LABEL_MEDIUM,
-                    active ? onSelected : onSurface, tfHan);
-            name.setSingleLine(true);
-            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            stack.addView(name);
-
-            card.addView(stack, new android.widget.FrameLayout.LayoutParams(-1, -1));
-
+                card.addView(buildFormatCardContent(gate, active, onSurface, onSurfaceVariant, onSelected),
+                        new android.widget.FrameLayout.LayoutParams(-1, -1));
             card.setAccessibilityDelegate(new View.AccessibilityDelegate() {
                 @Override public void onInitializeAccessibilityNodeInfo(
                         View host, android.view.accessibility.AccessibilityNodeInfo info) {
@@ -3832,6 +3779,77 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
                 }
             });
             card.setOnClickListener(v -> pickScale(gate.id));
+                return card;
+    }
+
+    /** The value, unit, kind and name inside a Scale card. */
+    private LinearLayout buildFormatCardContent(GateScale.Gate gate, boolean active,
+                                                int onSurface, int onSurfaceVariant,
+                                                int onSelected) {
+    LinearLayout stack = new LinearLayout(this);
+    stack.setOrientation(LinearLayout.VERTICAL);
+    stack.setPadding(dp(9), dp(11), dp(8), dp(7));
+
+    LinearLayout valueRow = new LinearLayout(this);
+    valueRow.setOrientation(LinearLayout.HORIZONTAL);
+    valueRow.setGravity(android.view.Gravity.BOTTOM);
+    TextView value = m3Label(mmText(gate.longEdgeMm),
+            M3Tokens.TypeRole.TITLE_LARGE, active ? onSelected : onSurface, tfDisplay);
+    valueRow.addView(value);
+    TextView unit = m3Label("mm", M3Tokens.TypeRole.LABEL_SMALL,
+            onSurfaceVariant, tfBody);
+    LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
+    unitLp.leftMargin = dp(2);
+    unitLp.bottomMargin = dp(2);
+    valueRow.addView(unit, unitLp);
+    stack.addView(valueRow);
+
+    TextView kind = m3Label(gate.panoramic() ? "宽幅" : "常规",
+            M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
+    LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-2, -2);
+    kindLp.topMargin = dp(4);
+    stack.addView(kind, kindLp);
+
+    View spacer = new View(this);
+    stack.addView(spacer, new LinearLayout.LayoutParams(1, 0, 1f));
+
+    TextView name = m3Label(gate.label, M3Tokens.TypeRole.LABEL_MEDIUM,
+            active ? onSelected : onSurface, tfHan);
+    name.setSingleLine(true);
+    name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+    stack.addView(name);
+
+        return stack;
+    }
+
+    /** The empty Scale strip when no Gate fits the frame. */
+    private void showNoFormatCards() {
+            TextView none = m3Label("这张长宽比没有可用片门",
+                    M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant(), tfHan);
+            LinearLayout.LayoutParams noneLp = new LinearLayout.LayoutParams(-2, dp(105));
+            noneLp.leftMargin = dp(2);
+            formatCardStrip.addView(none, noneLp);
+            return;
+    }
+
+    private void rebuildFormatCards() {
+        if (formatCardStrip == null) {
+            return;
+        }
+        formatCardStrip.removeAllViews();
+        formatCards.clear();
+        if (edgeIds.isEmpty()) {
+            showNoFormatCards();
+        }
+        for (int i = 0; i < edgeIds.size(); ++i) {
+            final String gateId = edgeIds.get(i);
+            final GateScale.Gate gate = GateScale.byId(gateId);
+            if (gate == null) {
+                continue;
+            }
+            final boolean active = gate.id.equals(live().overscanFormat);
+
+            final MaterialCardView card = buildFormatCard(gate, active);
             LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(dp(84), dp(105));
             cardLp.rightMargin = dp(9);
             formatCardStrip.addView(card, cardLp);
