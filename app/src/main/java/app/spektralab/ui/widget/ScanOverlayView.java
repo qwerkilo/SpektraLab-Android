@@ -206,69 +206,87 @@ public class ScanOverlayView extends View {
         }
         switch (event.getActionMasked()) {
             case android.view.MotionEvent.ACTION_DOWN:
-                requestFocus();
-                downX = event.getX();
-                downY = event.getY();
-                dragging = false;
-                holding = false;
-                // Keep the compare divider draggable while Scan is on.
-                if (compare != null && compare.dividerHit(downX)) {
-                    forwarding = true;
-                    return compare.forwardTouch(event);
-                }
-                forwarding = false;
-                handler.postDelayed(hold, android.view.ViewConfiguration.getLongPressTimeout());
-                return true;
+                return handleDown(event);
             case android.view.MotionEvent.ACTION_MOVE:
-                if (forwarding) {
-                    return compare.forwardTouch(event);
-                }
-                if (holding) {
-                    return true;
-                }
-                if (!dragging) {
-                    if (Math.abs(event.getX() - downX) < slop
-                            && Math.abs(event.getY() - downY) < slop) {
-                        return true;
-                    }
-                    dragging = true;
-                    handler.removeCallbacks(hold);
-                }
-                setFraction(fractionAt(event.getX()));
-                return true;
+                return handleMove(event);
             case android.view.MotionEvent.ACTION_UP:
-                if (forwarding) {
-                    forwarding = false;
-                    return compare.forwardTouch(event);
-                }
-                handler.removeCallbacks(hold);
-                if (holding) {
-                    holding = false;
-                    if (compare != null) {
-                    compare.endHold();
-                }
-                } else if (!dragging) {
-                    setFraction(fractionAt(event.getX()));
-                }
-                dragging = false;
-                return true;
+                return handleUp(event);
             case android.view.MotionEvent.ACTION_CANCEL:
-                if (forwarding) {
-                    forwarding = false;
-                    compare.forwardTouch(event);
-                    return true;
-                }
-                handler.removeCallbacks(hold);
-                if (holding) {
-                    holding = false;
-                    if (compare != null) {
-                    compare.endHold();
-                }
-                }
-                dragging = false;
-                return true;
+                return handleCancel(event);
             default:
                 return true;
+        }
+    }
+
+    private boolean handleDown(android.view.MotionEvent event) {
+        requestFocus();
+        downX = event.getX();
+        downY = event.getY();
+        dragging = false;
+        holding = false;
+        // Keep the compare divider draggable while Scan is on.
+        if (compare != null && compare.dividerHit(downX)) {
+            forwarding = true;
+            return compare.forwardTouch(event);
+        }
+        forwarding = false;
+        handler.postDelayed(hold, android.view.ViewConfiguration.getLongPressTimeout());
+        return true;
+    }
+
+    private boolean handleMove(android.view.MotionEvent event) {
+        if (forwarding) {
+            return compare.forwardTouch(event);
+        }
+        if (holding) {
+            return true;
+        }
+        if (!dragging) {
+            if (Math.abs(event.getX() - downX) < slop
+                    && Math.abs(event.getY() - downY) < slop) {
+                return true;
+            }
+            dragging = true;
+            handler.removeCallbacks(hold);
+        }
+        setFraction(fractionAt(event.getX()));
+        return true;
+    }
+
+    private boolean handleUp(android.view.MotionEvent event) {
+        if (forwarding) {
+            forwarding = false;
+            return compare.forwardTouch(event);
+        }
+        handler.removeCallbacks(hold);
+        if (holding) {
+            holding = false;
+            endHold();
+        } else if (!dragging) {
+            setFraction(fractionAt(event.getX()));
+        }
+        dragging = false;
+        return true;
+    }
+
+    private boolean handleCancel(android.view.MotionEvent event) {
+        if (forwarding) {
+            forwarding = false;
+            compare.forwardTouch(event);
+            return true;
+        }
+        handler.removeCallbacks(hold);
+        if (holding) {
+            holding = false;
+            endHold();
+        }
+        dragging = false;
+        return true;
+    }
+
+    private void endHold() {
+        if (compare != null) {
+            compare.endHold();
         }
     }
 

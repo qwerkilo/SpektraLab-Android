@@ -15,6 +15,9 @@
         <module name="JavadocType">
             <property name="scope" value="public"/>
         </module>
+        <module name="CyclomaticComplexity">
+            <property name="max" value="20"/>
+        </module>
         <module name="MethodLength">
             <property name="max" value="80"/>
         </module>
