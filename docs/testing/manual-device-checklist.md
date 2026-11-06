@@ -51,6 +51,8 @@ Android version, and Theme mode.
 
 ## Regression
 
+- [ ] Open Date Back with the switch on: 日期位置, 日期角位 and 日期样式 rows all exist; change each, then toggle the theme and confirm all three values survive.
+- [ ] After any panel-builder refactor, open Film, Optics, Scale, Edge, Date Back and Compose and count the visible rows against the pre-refactor screen.
 - [ ] Import a JPEG, enable Scan, switch Frame A→B→A; Scan fraction and visibility return.
 - [ ] Drag Scan while the film panel is open: the curve's mark follows the sampled wavelength, not the drag's horizontal fraction; grayscale clears the mark; turn Scan off and the mark disappears.
 - [ ] Filter to KODAK, switch Frame, and return; the filter stays KODAK.

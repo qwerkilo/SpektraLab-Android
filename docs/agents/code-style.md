@@ -32,6 +32,19 @@ Governed packages: `app.spektralab.core`, `app.spektralab.model`,
 A new pure rule belongs in `core`; a new record in `model`; a new custom view in
 `ui.widget`. Do not add a field to `MainActivity` when an existing seam owns it.
 
+## Extracting a method
+
+- Move the block; do not retype it. Re-typing is how the Date Back corner and
+  style rows disappeared during the governance refactor.
+- Before committing a split, compare the call multiset of the old and new
+  bodies: every `addView`, listener, choice row and render call must appear
+  exactly once, in the same order.
+- Every public choice list in `DateBack` and `RebateControls` must stay inside
+  an `edgeChoiceRow(...)` call. `ChoiceRowCoverageCheck` fails `checkJvm` when a
+  list survives only in summary text.
+- After a panel split, open that panel on the device and count its rows against
+  the pre-split screen; the JVM checks cannot build Android views.
+
 ## Comments
 
 - Class and method Javadoc is English. User-visible text stays Chinese.
