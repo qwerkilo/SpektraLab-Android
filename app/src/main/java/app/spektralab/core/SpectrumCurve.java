@@ -1,4 +1,6 @@
-package app.spektralab;
+package app.spektralab.core;
+
+import app.spektralab.ScanSample;
 
 /**
  * The plottable form of a stock's shipped spectral series.
@@ -61,16 +63,24 @@ public final class SpectrumCurve {
      * unavailability, not a one-point curve.
      */
     public static SpectrumCurve of(double[] wavelengths, double[][] series) {
-        if (wavelengths == null || series == null) return NONE;
+        if (wavelengths == null || series == null) {
+            return NONE;
+        }
         final int paired = Math.min(wavelengths.length, series.length);
-        if (paired < 2) return NONE;
+        if (paired < 2) {
+            return NONE;
+        }
 
         int channels = 0;
         for (int i = 0; i < paired; ++i) {
             final double[] row = series[i];
-            if (row != null) channels = Math.max(channels, Math.min(MAX_CHANNELS, row.length));
+            if (row != null) {
+                channels = Math.max(channels, Math.min(MAX_CHANNELS, row.length));
+            }
         }
-        if (channels == 0) return NONE;
+        if (channels == 0) {
+            return NONE;
+        }
 
         final double[] nm = new double[paired];
         final double[][] vals = new double[channels][paired];
@@ -86,26 +96,38 @@ public final class SpectrumCurve {
                 if (finite(nm[i]) && finite(value)) {
                     vals[c][i] = value;
                     sampled = true;
-                    if (value < loValue) loValue = value;
-                    if (value > hiValue) hiValue = value;
+                    if (value < loValue) {
+                        loValue = value;
+                    }
+                    if (value > hiValue) {
+                        hiValue = value;
+                    }
                 } else {
                     vals[c][i] = Double.NaN;
                 }
             }
             if (sampled) {
                 samples++;
-                if (nm[i] < loNm) loNm = nm[i];
-                if (nm[i] > hiNm) hiNm = nm[i];
+                if (nm[i] < loNm) {
+                    loNm = nm[i];
+                }
+                if (nm[i] > hiNm) {
+                    hiNm = nm[i];
+                }
             }
         }
-        if (samples < 2) return NONE;
+        if (samples < 2) {
+            return NONE;
+        }
 
         final int[][] starts = new int[channels][samples];
         final int[][] lengths = new int[channels][samples];
         for (int c = 0; c < channels; ++c) {
             int run = -1;
             for (int i = 0; i < paired; ++i) {
-                if (!finite(vals[c][i])) continue;
+                if (!finite(vals[c][i])) {
+                    continue;
+                }
                 if (run < 0 || i != starts[c][run] + lengths[c][run]) {
                     run++;
                     starts[c][run] = i;
@@ -151,10 +173,14 @@ public final class SpectrumCurve {
 
     /** How many unbroken lines this channel draws. */
     public int runCount(int channel) {
-        if (!validChannel(channel)) return 0;
+        if (!validChannel(channel)) {
+            return 0;
+        }
         int count = 0;
         for (int run = 0; run < runStarts[channel].length; ++run) {
-            if (runLengths[channel][run] <= 0) break;
+            if (runLengths[channel][run] <= 0) {
+                break;
+            }
             count++;
         }
         return count;
@@ -162,13 +188,17 @@ public final class SpectrumCurve {
 
     /** The paired index where a run begins, or -1. */
     public int runStart(int channel, int run) {
-        if (!validChannel(channel) || run < 0 || run >= runCount(channel)) return -1;
+        if (!validChannel(channel) || run < 0 || run >= runCount(channel)) {
+            return -1;
+        }
         return runStarts[channel][run];
     }
 
     /** The number of consecutive real samples in a run, or 0. */
     public int runLength(int channel, int run) {
-        if (!validChannel(channel) || run < 0 || run >= runCount(channel)) return 0;
+        if (!validChannel(channel) || run < 0 || run >= runCount(channel)) {
+            return 0;
+        }
         return runLengths[channel][run];
     }
 
@@ -190,9 +220,13 @@ public final class SpectrumCurve {
      */
     public double normalizedAt(int channel, int run, int point) {
         final double value = rawAt(channel, run, point);
-        if (!finite(value)) return Double.NaN;
+        if (!finite(value)) {
+            return Double.NaN;
+        }
         final double span = maxValue - minValue;
-        if (!(span > 0)) return 0.5;
+        if (!(span > 0)) {
+            return 0.5;
+        }
         return (value - minValue) / span;
     }
 
@@ -205,9 +239,13 @@ public final class SpectrumCurve {
      * does vertically.
      */
     public double fractionAtNm(double nm) {
-        if (!available() || !finite(nm)) return Double.NaN;
+        if (!available() || !finite(nm)) {
+            return Double.NaN;
+        }
         final double span = maxNm - minNm;
-        if (!(span > 0)) return 0.5;
+        if (!(span > 0)) {
+            return 0.5;
+        }
         final double fraction = (nm - minNm) / span;
         return Math.max(0.0, Math.min(1.0, fraction));
     }
@@ -220,7 +258,9 @@ public final class SpectrumCurve {
      * no sample at all) has no mark on this axis.
      */
     public double fractionForSample(ScanSample sample) {
-        if (sample == null || !sample.hasWavelength()) return Double.NaN;
+        if (sample == null || !sample.hasWavelength()) {
+            return Double.NaN;
+        }
         return fractionAtNm(sample.wavelengthNm());
     }
 
@@ -235,8 +275,12 @@ public final class SpectrumCurve {
     }
 
     private int indexAt(int channel, int run, int point) {
-        if (!validChannel(channel) || run < 0 || run >= runCount(channel)) return -1;
-        if (point < 0 || point >= runLengths[channel][run]) return -1;
+        if (!validChannel(channel) || run < 0 || run >= runCount(channel)) {
+            return -1;
+        }
+        if (point < 0 || point >= runLengths[channel][run]) {
+            return -1;
+        }
         return runStarts[channel][run] + point;
     }
 

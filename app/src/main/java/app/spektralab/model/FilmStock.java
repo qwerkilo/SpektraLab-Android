@@ -1,8 +1,8 @@
 package app.spektralab.model;
 
+import app.spektralab.core.SpectrumCurve;
 import app.spektralab.core.SpectrumSamples;
 
-import app.spektralab.SpectrumCurve;
 
 /** One catalogue film record, in the form the film panel reads. */
 public final class FilmStock {
