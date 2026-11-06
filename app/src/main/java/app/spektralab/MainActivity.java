@@ -1697,7 +1697,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
      * top left, print exposure at the top right, live state at the lower
      * right. The Spectral rail takes the right edge.
      */
-    private void addStageReadouts(android.widget.FrameLayout stage) {
+    /** The top and bottom stage scrims. */
+    private void addStageScrims(android.widget.FrameLayout stage) {
         View topScrim = new View(this);
         topScrim.setBackground(new android.graphics.drawable.GradientDrawable(
                 android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
@@ -1720,6 +1721,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         stage.addView(bottomScrim, new android.widget.FrameLayout.LayoutParams(
                 -1, dp(68), android.view.Gravity.BOTTOM));
 
+    }
+
+    /** The file name and frame meta in the top-left corner. */
+    private void addStageFileReadout(android.widget.FrameLayout stage) {
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
         info.setClickable(false);
@@ -1746,6 +1751,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         infoLp.topMargin = dp(10);
         stage.addView(info, infoLp);
 
+    }
+
+    /** The print exposure readout in the top-right corner. */
+    private void addStageExposureReadout(android.widget.FrameLayout stage) {
         LinearLayout exposure = new LinearLayout(this);
         exposure.setOrientation(LinearLayout.VERTICAL);
         exposure.setGravity(android.view.Gravity.END);
@@ -1780,6 +1789,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         exposureLp.topMargin = dp(8);
         stage.addView(exposure, exposureLp);
 
+    }
+
+    /** The status line and the spectral rail. */
+    private void addStageStatusAndRail(android.widget.FrameLayout stage) {
         statusText = label("等待导入", 6.5f,
                 palette.color(Palette.Role.STAGE_INK), tfHan);
         statusText.setSingleLine(true);
@@ -1799,6 +1812,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         spectralRail.setBackgroundColor(palette.color(Palette.Role.STAGE_SCRIM_TOP));
         stage.addView(spectralRail, new android.widget.FrameLayout.LayoutParams(
                 dp(26), -1, android.view.Gravity.END));
+    }
+
+    private void addStageReadouts(android.widget.FrameLayout stage) {
+        addStageScrims(stage);
+        addStageFileReadout(stage);
+        addStageExposureReadout(stage);
+        addStageStatusAndRail(stage);
     }
 
     /**
