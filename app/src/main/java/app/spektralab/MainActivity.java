@@ -3001,18 +3001,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
                 });
     }
 
-    private LinearLayout buildOpticsPanel() {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        opticsPanel = panel;
-        opticsPanel.setOnClickListener(v -> {
-            if (!opticsUnlocked) {
-                showSnackbar(opticsLockReason());
-            }
-        });
-        panel.addView(buildOpticsHead(),
-                new LinearLayout.LayoutParams(-1, -2));
-
+    /** The 22-parameter chip strip. */
+    private void buildOpticsStrip(LinearLayout panel) {
         // The strip: one M3 chip per contract parameter, in the engine's own
         // order. It scrolls sideways instead of clipping, so 390 dp and large
         // text both keep every parameter reachable.
@@ -3052,10 +3042,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         opticsStripScroll.addView(opticsStrip,
                 new android.widget.FrameLayout.LayoutParams(-2, -2));
         panel.addView(opticsStripScroll, new LinearLayout.LayoutParams(-1, -2));
+    }
 
-        // The one active row: name, value, unit, display-only Δ, and reset.
-        panel.addView(buildOpticsReadout(), new LinearLayout.LayoutParams(-1, -2));
-
+    /** The single active-parameter slider and its touch policy. */
+    private void buildOpticsSlider(LinearLayout panel) {
         opticsSlider = new Slider(this);
         opticsSlider.setId(View.generateViewId());
         opticsSlider.setMinimumHeight(dp(SLIDER_HEIGHT_DP));
@@ -3096,6 +3086,22 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         });
         panel.addView(opticsSlider,
                 new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
+    }
+
+    private LinearLayout buildOpticsPanel() {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        opticsPanel = panel;
+        opticsPanel.setOnClickListener(v -> {
+            if (!opticsUnlocked) {
+                showSnackbar(opticsLockReason());
+            }
+        });
+        panel.addView(buildOpticsHead(),
+                new LinearLayout.LayoutParams(-1, -2));
+
+        buildOpticsStrip(panel);
+        buildOpticsSlider(panel);
 
         // The two choices the engine models separately from the 22 numbers.
         opticsFilterButton = opticsChoiceRow(panel, "镜头滤镜 / CAMERA FILTER",
