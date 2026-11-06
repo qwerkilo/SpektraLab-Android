@@ -2756,6 +2756,52 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         return "FILM";
     }
 
+    /** The text, description, accessibility role and click of a film card. */
+    private void buildFilmChipContent(MaterialCardView card, String id, String title,
+                                       String subtitle, boolean active,
+                                       android.content.res.ColorStateList ink,
+                                       android.content.res.ColorStateList muted) {
+LinearLayout content = new LinearLayout(this);
+content.setOrientation(LinearLayout.VERTICAL);
+content.setGravity(android.view.Gravity.CENTER_VERTICAL);
+content.setPadding(dp(8), dp(4), dp(24), dp(4));
+
+TextView name = m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM, m3OnSurface(), tfHan);
+name.setTextColor(ink);
+name.setSingleLine(true);
+name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+content.addView(name, new LinearLayout.LayoutParams(-1, -2));
+
+TextView kind = m3Label(subtitle, M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfBody);
+kind.setTextColor(muted);
+kind.setSingleLine(true);
+kind.setEllipsize(android.text.TextUtils.TruncateAt.END);
+LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-1, -2);
+kindLp.topMargin = dp(1);
+content.addView(kind, kindLp);
+card.addView(content, new android.widget.FrameLayout.LayoutParams(-1, -1));
+
+card.setContentDescription(title + (subtitle.isEmpty() ? "" : "，" + subtitle)
+        + (active ? "，已选中，双击切换" : "，未选中，双击选择"));
+card.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+    @Override public void onInitializeAccessibilityNodeInfo(
+            View host, android.view.accessibility.AccessibilityNodeInfo info) {
+        super.onInitializeAccessibilityNodeInfo(host, info);
+        info.setClassName(android.widget.RadioButton.class.getName());
+        info.setCheckable(true);
+        info.setChecked(active);
+    }
+});
+card.setOnClickListener(v -> {
+    if ("original".equals(id)) {
+        toggleOriginal();
+    }
+    else {
+        pickFilmChip(id);
+    }
+});
+    }
+
     private void addFilmChip(final String id, String title, String subtitle, boolean active) {
         // A real MaterialCardView carries pressed, focused, selected, and
         // disabled state; the state lists below only name M3 roles, so a
@@ -2802,45 +2848,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         card.setCheckedIconGravity(MaterialCardView.CHECKED_ICON_GRAVITY_TOP_END);
         card.setCheckedIconTint(android.content.res.ColorStateList.valueOf(checkedInk));
 
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        content.setPadding(dp(8), dp(4), dp(24), dp(4));
-
-        TextView name = m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM, restInk, tfHan);
-        name.setTextColor(ink);
-        name.setSingleLine(true);
-        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        content.addView(name, new LinearLayout.LayoutParams(-1, -2));
-
-        TextView kind = m3Label(subtitle, M3Tokens.TypeRole.LABEL_SMALL, restMuted, tfBody);
-        kind.setTextColor(muted);
-        kind.setSingleLine(true);
-        kind.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-1, -2);
-        kindLp.topMargin = dp(1);
-        content.addView(kind, kindLp);
-        card.addView(content, new android.widget.FrameLayout.LayoutParams(-1, -1));
-
-        card.setContentDescription(title + (subtitle.isEmpty() ? "" : "，" + subtitle)
-                + (active ? "，已选中，双击切换" : "，未选中，双击选择"));
-        card.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-            @Override public void onInitializeAccessibilityNodeInfo(
-                    View host, android.view.accessibility.AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                info.setClassName(android.widget.RadioButton.class.getName());
-                info.setCheckable(true);
-                info.setChecked(active);
-            }
-        });
-        card.setOnClickListener(v -> {
-            if ("original".equals(id)) {
-                toggleOriginal();
-            }
-            else {
-                pickFilmChip(id);
-            }
-        });
+        buildFilmChipContent(card, id, title, subtitle, active, ink, muted);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 dp(FILM_CARD_WIDTH_DP + (largeText() ? 20 : 0)), dp(FILM_CARD_HEIGHT_DP));
         lp.rightMargin = dp(FILM_CARD_GAP_DP);
