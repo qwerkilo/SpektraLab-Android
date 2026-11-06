@@ -68,7 +68,23 @@ public final class SpectrumCurve {
         if (paired < 2) {
             return NONE;
         }
+        final int channels = channelCount(series, paired);
+        if (channels == 0) {
+            return NONE;
+        }
+        final Samples samples = collect(wavelengths, series, channels, paired);
+        if (samples.count < 2) {
+            return NONE;
+        }
 
+        final int[][] starts = new int[channels][samples.count];
+        final int[][] lengths = new int[channels][samples.count];
+        buildRuns(channels, paired, samples.values, starts, lengths);
+        return new SpectrumCurve(samples.nm, samples.values, channels, samples.count,
+                samples.loNm, samples.hiNm, samples.loValue, samples.hiValue, starts, lengths);
+    }
+
+    private static int channelCount(double[][] series, int paired) {
         int channels = 0;
         for (int i = 0; i < paired; ++i) {
             final double[] row = series[i];
@@ -76,54 +92,42 @@ public final class SpectrumCurve {
                 channels = Math.max(channels, Math.min(MAX_CHANNELS, row.length));
             }
         }
-        if (channels == 0) {
-            return NONE;
-        }
+        return channels;
+    }
 
-        final double[] nm = new double[paired];
-        final double[][] vals = new double[channels][paired];
-        int samples = 0;
-        double loNm = Double.POSITIVE_INFINITY, hiNm = Double.NEGATIVE_INFINITY;
-        double loValue = Double.POSITIVE_INFINITY, hiValue = Double.NEGATIVE_INFINITY;
+    private static Samples collect(double[] wavelengths, double[][] series,
+                                   int channels, int paired) {
+        final Samples out = new Samples(paired, channels);
         for (int i = 0; i < paired; ++i) {
-            nm[i] = finite(wavelengths[i]) ? wavelengths[i] : Double.NaN;
+            out.nm[i] = finite(wavelengths[i]) ? wavelengths[i] : Double.NaN;
             final double[] row = series[i];
             boolean sampled = false;
             for (int c = 0; c < channels; ++c) {
                 final double value = row != null && c < row.length ? row[c] : Double.NaN;
-                if (finite(nm[i]) && finite(value)) {
-                    vals[c][i] = value;
+                if (finite(out.nm[i]) && finite(value)) {
+                    out.values[c][i] = value;
                     sampled = true;
-                    if (value < loValue) {
-                        loValue = value;
-                    }
-                    if (value > hiValue) {
-                        hiValue = value;
-                    }
+                    out.loValue = Math.min(out.loValue, value);
+                    out.hiValue = Math.max(out.hiValue, value);
                 } else {
-                    vals[c][i] = Double.NaN;
+                    out.values[c][i] = Double.NaN;
                 }
             }
             if (sampled) {
-                samples++;
-                if (nm[i] < loNm) {
-                    loNm = nm[i];
-                }
-                if (nm[i] > hiNm) {
-                    hiNm = nm[i];
-                }
+                out.count++;
+                out.loNm = Math.min(out.loNm, out.nm[i]);
+                out.hiNm = Math.max(out.hiNm, out.nm[i]);
             }
         }
-        if (samples < 2) {
-            return NONE;
-        }
+        return out;
+    }
 
-        final int[][] starts = new int[channels][samples];
-        final int[][] lengths = new int[channels][samples];
+    private static void buildRuns(int channels, int paired, double[][] values,
+                                  int[][] starts, int[][] lengths) {
         for (int c = 0; c < channels; ++c) {
             int run = -1;
             for (int i = 0; i < paired; ++i) {
-                if (!finite(vals[c][i])) {
+                if (!finite(values[c][i])) {
                     continue;
                 }
                 if (run < 0 || i != starts[c][run] + lengths[c][run]) {
@@ -135,8 +139,22 @@ public final class SpectrumCurve {
                 }
             }
         }
-        return new SpectrumCurve(nm, vals, channels, samples,
-                loNm, hiNm, loValue, hiValue, starts, lengths);
+    }
+
+    /** Mutable accumulator for {@link #collect}. */
+    private static final class Samples {
+        private final double[] nm;
+        private final double[][] values;
+        private int count;
+        private double loNm = Double.POSITIVE_INFINITY;
+        private double hiNm = Double.NEGATIVE_INFINITY;
+        private double loValue = Double.POSITIVE_INFINITY;
+        private double hiValue = Double.NEGATIVE_INFINITY;
+
+        private Samples(int paired, int channels) {
+            this.nm = new double[paired];
+            this.values = new double[channels][paired];
+        }
     }
 
     public boolean available() {
