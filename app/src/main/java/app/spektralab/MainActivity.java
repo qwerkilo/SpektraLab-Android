@@ -6109,6 +6109,49 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /** Open the RAW session with the import caps and the current Look. */
+    private SpektraLabEngine.Session openRawForImport(String filePath) {
+        // `film_stock` names a profile file: "" and "null" both make
+        // `load_profile` fail ("bad stock name"), so an unchosen film
+        // omits the key and the engine keeps its own default. The UI
+        // still shows 原图 and renders nothing until a chip is picked.
+        final String filmField = live().filmStock == null ? ""
+                : String.format("\"film_stock\":\"%s\",", live().filmStock);
+        final String params = String.format(
+                "{%s\"print_stock\":\"%s\",\"input_color_space\":\"ProPhoto RGB\","
+                        + "\"input_cctf_decoding\":false,\"output_color_space\":\"sRGB\","
+                        + "\"print_exposure\":%.2f,\"preview_long_edge\":2048}",
+                filmField, live().printStock,
+                optics.get(OpticsDelta.Param.EXPOSURE)
+        );
+
+        try {
+            DebugSink.text("open-params", "path=" + filePath + "\n" + params);
+        } catch (Throwable ignored) {
+        }
+        // The cap comes from the device, not from a constant: a plane is
+        // 12 B/px and a binding may not exceed the GPU's
+        // maxStorageBufferRange. Two limits apply, whichever is lower --
+        // that range, and the 65 535-workgroup dispatch limit
+        // (16,776,960 px) this driver still loses blocks over.
+        final boolean nativeSize = importAtNativeSize;
+        importAtNativeSize = false;
+        if (nativeSize) {
+            try {
+                DebugSink.text("import-mode", "native size, no cap");
+            } catch (Throwable ignored) {
+            }
+        }
+        // Keep the caps so a RAW export can decode the same frame in its
+        // own session.
+        rawImportMaxPixels = nativeSize ? 0 : maxImportPixels();
+        rawImportLongEdge = nativeSize ? 0 : IMPORT_LONG_EDGE;
+        final SpektraLabEngine.Session opened = engine.openRawSession(filePath, params,
+                rawImportMaxPixels, rawImportLongEdge);
+        lastImportError = null;
+        return opened;
+    }
+
     /** Solve the print exposure and filter pack once on open. */
     private void solveRawSession(SpektraLabEngine.Session source) {
         try {
@@ -6249,48 +6292,14 @@ public class MainActivity extends AppCompatActivity {
 
             new Thread(() -> {
                 try {
-                    String resourcesDir = getResourcesDir();
-                    if (engine == null) {
-                        vkLogFile().delete();
-                        engine = SpektraLabEngine.create(resourcesDir, vkLogFile().getAbsolutePath());
-                        uploadCapabilities();
-                    }
+                    ensureEngine();
                     // Under the render lock: closing a session out from under
                     // a render is a native crash, not an exception.
                     synchronized (renderMutex) {
                         if (session != null) { session.close(); session = null; }
                     }
                     
-                    // `film_stock` names a profile file: "" and "null" both make
-                    // `load_profile` fail ("bad stock name"), so an unchosen film
-                    // omits the key and the engine keeps its own default. The UI
-                    // still shows 原图 and renders nothing until a chip is picked.
-                    final String filmField = live().filmStock == null ? ""
-                            : String.format("\"film_stock\":\"%s\",", live().filmStock);
-                    String params = String.format(
-                        "{%s\"print_stock\":\"%s\",\"input_color_space\":\"ProPhoto RGB\",\"input_cctf_decoding\":false,\"output_color_space\":\"sRGB\",\"print_exposure\":%.2f,\"preview_long_edge\":2048}",
-                        filmField, live().printStock,
-                        optics.get(OpticsDelta.Param.EXPOSURE)
-                    );
-                    
-                    try { DebugSink.text("open-params", "path=" + filePath + "\n" + params); } catch (Throwable ignored) {}
-                    // The cap comes from the device, not from a constant: a
-                    // plane is 12 B/px and a binding may not exceed the GPU's
-                    // maxStorageBufferRange. Two limits apply, whichever is
-                    // lower -- that range, and the 65 535-workgroup dispatch
-                    // limit (16,776,960 px) this driver still loses blocks over.
-                    final boolean nativeSize = importAtNativeSize;
-                    importAtNativeSize = false;                   // one import only
-                    if (nativeSize) {
-                        try { DebugSink.text("import-mode", "native size, no cap"); } catch (Throwable ignored) { }
-                    }
-                    // Keep the caps so a RAW export can decode the same frame
-                    // in its own session.
-                    rawImportMaxPixels = nativeSize ? 0 : maxImportPixels();
-                    rawImportLongEdge = nativeSize ? 0 : IMPORT_LONG_EDGE;
-                    session = engine.openRawSession(filePath, params,
-                            rawImportMaxPixels, rawImportLongEdge);
-                    lastImportError = null;
+                    session = openRawForImport(filePath);
                     // **The session's own parameters, which this path never sent.**
                     // `openRawSession` carries the film, the paper and the decode
                     // colour space; it does not carry grain, halation, glare, the
