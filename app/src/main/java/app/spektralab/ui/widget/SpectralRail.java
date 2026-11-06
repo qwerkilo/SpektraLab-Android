@@ -3,7 +3,7 @@ package app.spektralab.ui.widget;
 import android.graphics.Typeface;
 import android.view.View;
 import app.spektralab.Palette;
-import app.spektralab.SpectrumSamples;
+import app.spektralab.core.SpectrumSamples;
 
 /**
  * The Spectrum's spatial reference: 380–780 nm along the preview's right

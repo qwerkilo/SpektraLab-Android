@@ -1,4 +1,6 @@
-package app.spektralab;
+package app.spektralab.core;
+
+import app.spektralab.SpectrumCurve;
 
 /**
  * The spectral samples a shipped stock carries, if any.
@@ -48,7 +50,9 @@ public final class SpectrumSamples {
      */
     public static SpectrumSamples of(double[] wavelengths, double[][] series) {
         final SpectrumCurve curve = SpectrumCurve.of(wavelengths, series);
-        if (!curve.available()) return NONE;
+        if (!curve.available()) {
+            return NONE;
+        }
         return new SpectrumSamples(curve.sampleCount(),
                 (int) Math.round(curve.minNm()), (int) Math.round(curve.maxNm()));
     }
@@ -81,7 +85,9 @@ public final class SpectrumSamples {
 
     /** The cell's quiet line: the shipped range, or the explicit state. */
     public String detailText() {
-        if (!available()) return UNAVAILABLE_LABEL;
+        if (!available()) {
+            return UNAVAILABLE_LABEL;
+        }
         return minNm + "\u2013" + maxNm + " nm";
     }
 }

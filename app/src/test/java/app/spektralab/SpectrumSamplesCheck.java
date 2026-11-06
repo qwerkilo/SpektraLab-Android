@@ -1,5 +1,7 @@
 package app.spektralab;
 
+import app.spektralab.core.SpectrumSamples;
+
 /**
  * Pure JVM contract for the Readout strip's spectrum cell: the cell reports
  * shipped samples when the catalogue carries them, and says so explicitly when
