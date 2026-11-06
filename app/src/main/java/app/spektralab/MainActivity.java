@@ -1827,7 +1827,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
      * deliberately away from the print-exposure corner, the status line, and
      * the folded shelf so the three never share a corner.
      */
-    private void addScanControls(android.widget.FrameLayout stage) {
+    /** The Scan inspect toggle chip under the file readout. */
+    private void buildScanToggleChip(android.widget.FrameLayout stage) {
         final int chipSurface = m3Role(
                 com.google.android.material.R.attr.colorSurfaceContainerLow,
                 Palette.Role.SURFACE_ELEVATED);
@@ -1867,6 +1868,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         toggleLp.topMargin = dp(34);
         stage.addView(chip, toggleLp);
 
+    }
+
+    /** The Scan inspect readout card above the shelf handle. */
+    private void buildScanReadoutCard(android.widget.FrameLayout stage) {
         // A filled M3 card is the readout surface; the numbers inside stay
         // measured text, and the card remains a non-interactive announcement.
         final int cardSurface = m3Role(
@@ -1926,6 +1931,11 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         // Clear of the 62 dp shelf handle and its 12 dp margin.
         readoutLp.bottomMargin = dp(84);
         stage.addView(card, readoutLp);
+    }
+
+    private void addScanControls(android.widget.FrameLayout stage) {
+        buildScanToggleChip(stage);
+        buildScanReadoutCard(stage);
         updateScanToggleVisual(false);
     }
 
