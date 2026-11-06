@@ -3972,6 +3972,151 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
      * enabled; they stay visible and dimmed while off, so the page explains
      * what is available without pretending the controls work.
      */
+    /** The rebate gate card and its live label. */
+    private void addRebateGateCard(int onSurface, int onSurfaceVariant) {
+rebateGateValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+rebateGateCard = new MaterialCardView(this);
+rebateGateCard.setCardElevation(0f);
+rebateGateCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
+rebateGateCard.setStrokeWidth(dp(1));
+rebateGateCard.setCardBackgroundColor(m3Role(
+        com.google.android.material.R.attr.colorSurfaceContainerLow,
+        Palette.Role.SURFACE_ELEVATED));
+rebateGateCard.setStrokeColor(m3OutlineVariant());
+rebateGateCard.setClickable(true);
+rebateGateCard.setFocusable(true);
+rebateGateCard.setOnClickListener(v -> showEdgePicker());
+final LinearLayout gateRow = new LinearLayout(this);
+gateRow.setOrientation(LinearLayout.HORIZONTAL);
+gateRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+gateRow.setPadding(dp(14), 0, dp(14), 0);
+gateRow.addView(m3Label("片门格式", M3Tokens.TypeRole.BODY_MEDIUM,
+        onSurfaceVariant, tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
+rebateGateValue.setGravity(android.view.Gravity.END);
+gateRow.addView(rebateGateValue, new LinearLayout.LayoutParams(-2, -2));
+final TextView gateArrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
+        onSurfaceVariant, tfBody);
+final LinearLayout.LayoutParams gateArrowLp = new LinearLayout.LayoutParams(-2, -2);
+gateArrowLp.leftMargin = dp(7);
+gateRow.addView(gateArrow, gateArrowLp);
+rebateGateCard.addView(gateRow,
+        new android.widget.FrameLayout.LayoutParams(-1, -1));
+rebateRefreshers.add(() -> {
+    final String label = edgeIds.isEmpty()
+            ? "无可用片门"
+            : GateScale.resolve(live().overscanFormat, live().filmFormatMm).label;
+    rebateGateValue.setText(label);
+    rebateGateCard.setContentDescription("片门格式，" + label);
+});
+final LinearLayout.LayoutParams gateLp = new LinearLayout.LayoutParams(-1, dp(52));
+gateLp.bottomMargin = dp(4);
+rebateControls.addView(rebateGateCard, gateLp);
+    }
+
+    /** The rebate switches and tone sliders. */
+    private void addRebateToneControls(int onSurface) {
+edgeTextSwitch = new MaterialSwitch(this);
+rebateControls.addView(switchRow("片边文字（厂标 / 张数）", null,
+        edgeTextSwitch, () -> live().edgeTextOn, on -> {
+            live().edgeTextOn = on;
+            syncRebatePage();
+            commitRebate();
+        }), new LinearLayout.LayoutParams(-1, dp(56)));
+
+rebateFogValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+rebateFogSlider = rebateSliderRow(rebateControls, "片基雾",
+        "片基本身的灰雾。0 是完全透明，越大越脏",
+        RebateControls.FOG_MIN, RebateControls.FOG_MAX, 0.05f,
+        RebateControls.clampFog(live().edgeFog),
+        value -> String.format(java.util.Locale.US, "%.2f", value),
+        value -> live().edgeFog = RebateControls.clampFog(value),
+        () -> live().edgeFog, rebateFogValue);
+
+rebateLeaksValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+rebateLeaksSlider = rebateSliderRow(rebateControls, "漏光",
+        "卷轴漏进来的光，从片边渗向画面",
+        RebateControls.LEAKS_MIN, RebateControls.LEAKS_MAX, 0.05f,
+        RebateControls.clampLeaks(live().edgeLeaks),
+        value -> String.format(java.util.Locale.US, "%.2f", value),
+        value -> live().edgeLeaks = RebateControls.clampLeaks(value),
+        () -> live().edgeLeaks, rebateLeaksValue);
+
+rebateFrameNoValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+rebateFrameNoSlider = rebateSliderRow(rebateControls, "片边张数",
+        "片边上印的张数。0 = 按 seed 随机",
+        RebateControls.FRAME_NUMBER_MIN, RebateControls.FRAME_NUMBER_MAX, 1f,
+        RebateControls.clampFrameNumber(live().frameNumber),
+        value -> value < 0.5f ? "自动" : String.valueOf(Math.round(value)),
+        value -> live().frameNumber = RebateControls.clampFrameNumber(value),
+        () -> live().frameNumber, rebateFrameNoValue);
+
+rebateFNumberValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+rebateFNumberSlider = rebateSliderRow(rebateControls, "光圈值",
+        "相机记录的 f 值。决定片门边缘的虚化。0 = 未知（按 f/5.6）",
+        RebateControls.F_NUMBER_MIN, RebateControls.F_NUMBER_MAX, 1f,
+        RebateControls.clampFNumber(live().edgeFNumber),
+        value -> value < 0.5f
+                ? "未知"
+                : "f/" + String.format(java.util.Locale.US, "%.1f", value),
+        value -> live().edgeFNumber = RebateControls.clampFNumber(value),
+        () -> live().edgeFNumber, rebateFNumberValue);
+
+    }
+
+    /** The rebate mode, gate, holes, carrier and seed rows. */
+    private void addRebateStructureControls(int onSurface) {
+rebateModeValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+rebateControls.addView(edgeChoiceRow("片边模式", rebateModeValue, RebateControls.MODES,
+        () -> live().edgeMode, id -> {
+            live().edgeMode = id;
+            syncRebatePage();
+            commitRebate();
+        }), new LinearLayout.LayoutParams(-1, -2));
+
+rebateGateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+rebateControls.addView(edgeChoiceRow("片门形状", rebateGateStyleValue,
+        RebateControls.GATE_STYLES, () -> live().edgeGate, id -> {
+            live().edgeGate = id;
+            syncRebatePage();
+            commitRebate();
+        }), new LinearLayout.LayoutParams(-1, -2));
+
+rebateHolesValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+rebateControls.addView(edgeChoiceRow("齿孔", rebateHolesValue, RebateControls.HOLES,
+        () -> live().edgeHoles, id -> {
+            live().edgeHoles = id;
+            syncRebatePage();
+            commitRebate();
+        }), new LinearLayout.LayoutParams(-1, -2));
+
+rebateCarrierValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+rebateControls.addView(edgeChoiceRow("片夹", rebateCarrierValue,
+        RebateControls.CARRIERS, () -> live().edgeCarrier, id -> {
+            live().edgeCarrier = id;
+            syncRebatePage();
+            commitRebate();
+        }), new LinearLayout.LayoutParams(-1, -2));
+
+rebateCameraSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+rebateControls.addView(rebateValueRow("片边种子", rebateCameraSeedValue,
+        () -> String.valueOf(live().cameraSeed),
+        () -> askSeed("片边随机种子（0 – 2147483647）", live().cameraSeed, value -> {
+            live().cameraSeed = value;
+            syncRebatePage();
+            commitRebate();
+        })), new LinearLayout.LayoutParams(-1, -2));
+
+rebateFrameSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
+        () -> String.valueOf(live().frameSeed),
+        () -> askSeed("帧随机种子（0 – 2147483647）", live().frameSeed, value -> {
+            live().frameSeed = value;
+            syncRebatePage();
+            commitRebate();
+        })), new LinearLayout.LayoutParams(-1, -2));
+
+    }
+
     private LinearLayout buildRebatePage() {
         final LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
@@ -3999,140 +4144,9 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         rebateControls = new LinearLayout(this);
         rebateControls.setOrientation(LinearLayout.VERTICAL);
 
-        rebateGateValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        rebateGateCard = new MaterialCardView(this);
-        rebateGateCard.setCardElevation(0f);
-        rebateGateCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
-        rebateGateCard.setStrokeWidth(dp(1));
-        rebateGateCard.setCardBackgroundColor(m3Role(
-                com.google.android.material.R.attr.colorSurfaceContainerLow,
-                Palette.Role.SURFACE_ELEVATED));
-        rebateGateCard.setStrokeColor(m3OutlineVariant());
-        rebateGateCard.setClickable(true);
-        rebateGateCard.setFocusable(true);
-        rebateGateCard.setOnClickListener(v -> showEdgePicker());
-        final LinearLayout gateRow = new LinearLayout(this);
-        gateRow.setOrientation(LinearLayout.HORIZONTAL);
-        gateRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        gateRow.setPadding(dp(14), 0, dp(14), 0);
-        gateRow.addView(m3Label("片门格式", M3Tokens.TypeRole.BODY_MEDIUM,
-                onSurfaceVariant, tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-        rebateGateValue.setGravity(android.view.Gravity.END);
-        gateRow.addView(rebateGateValue, new LinearLayout.LayoutParams(-2, -2));
-        final TextView gateArrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
-                onSurfaceVariant, tfBody);
-        final LinearLayout.LayoutParams gateArrowLp = new LinearLayout.LayoutParams(-2, -2);
-        gateArrowLp.leftMargin = dp(7);
-        gateRow.addView(gateArrow, gateArrowLp);
-        rebateGateCard.addView(gateRow,
-                new android.widget.FrameLayout.LayoutParams(-1, -1));
-        rebateRefreshers.add(() -> {
-            final String label = edgeIds.isEmpty()
-                    ? "无可用片门"
-                    : GateScale.resolve(live().overscanFormat, live().filmFormatMm).label;
-            rebateGateValue.setText(label);
-            rebateGateCard.setContentDescription("片门格式，" + label);
-        });
-        final LinearLayout.LayoutParams gateLp = new LinearLayout.LayoutParams(-1, dp(52));
-        gateLp.bottomMargin = dp(4);
-        rebateControls.addView(rebateGateCard, gateLp);
-
-        edgeTextSwitch = new MaterialSwitch(this);
-        rebateControls.addView(switchRow("片边文字（厂标 / 张数）", null,
-                edgeTextSwitch, () -> live().edgeTextOn, on -> {
-                    live().edgeTextOn = on;
-                    syncRebatePage();
-                    commitRebate();
-                }), new LinearLayout.LayoutParams(-1, dp(56)));
-
-        rebateFogValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        rebateFogSlider = rebateSliderRow(rebateControls, "片基雾",
-                "片基本身的灰雾。0 是完全透明，越大越脏",
-                RebateControls.FOG_MIN, RebateControls.FOG_MAX, 0.05f,
-                RebateControls.clampFog(live().edgeFog),
-                value -> String.format(java.util.Locale.US, "%.2f", value),
-                value -> live().edgeFog = RebateControls.clampFog(value),
-                () -> live().edgeFog, rebateFogValue);
-
-        rebateLeaksValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        rebateLeaksSlider = rebateSliderRow(rebateControls, "漏光",
-                "卷轴漏进来的光，从片边渗向画面",
-                RebateControls.LEAKS_MIN, RebateControls.LEAKS_MAX, 0.05f,
-                RebateControls.clampLeaks(live().edgeLeaks),
-                value -> String.format(java.util.Locale.US, "%.2f", value),
-                value -> live().edgeLeaks = RebateControls.clampLeaks(value),
-                () -> live().edgeLeaks, rebateLeaksValue);
-
-        rebateFrameNoValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        rebateFrameNoSlider = rebateSliderRow(rebateControls, "片边张数",
-                "片边上印的张数。0 = 按 seed 随机",
-                RebateControls.FRAME_NUMBER_MIN, RebateControls.FRAME_NUMBER_MAX, 1f,
-                RebateControls.clampFrameNumber(live().frameNumber),
-                value -> value < 0.5f ? "自动" : String.valueOf(Math.round(value)),
-                value -> live().frameNumber = RebateControls.clampFrameNumber(value),
-                () -> live().frameNumber, rebateFrameNoValue);
-
-        rebateFNumberValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        rebateFNumberSlider = rebateSliderRow(rebateControls, "光圈值",
-                "相机记录的 f 值。决定片门边缘的虚化。0 = 未知（按 f/5.6）",
-                RebateControls.F_NUMBER_MIN, RebateControls.F_NUMBER_MAX, 1f,
-                RebateControls.clampFNumber(live().edgeFNumber),
-                value -> value < 0.5f
-                        ? "未知"
-                        : "f/" + String.format(java.util.Locale.US, "%.1f", value),
-                value -> live().edgeFNumber = RebateControls.clampFNumber(value),
-                () -> live().edgeFNumber, rebateFNumberValue);
-
-        rebateModeValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        rebateControls.addView(edgeChoiceRow("片边模式", rebateModeValue, RebateControls.MODES,
-                () -> live().edgeMode, id -> {
-                    live().edgeMode = id;
-                    syncRebatePage();
-                    commitRebate();
-                }), new LinearLayout.LayoutParams(-1, -2));
-
-        rebateGateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        rebateControls.addView(edgeChoiceRow("片门形状", rebateGateStyleValue,
-                RebateControls.GATE_STYLES, () -> live().edgeGate, id -> {
-                    live().edgeGate = id;
-                    syncRebatePage();
-                    commitRebate();
-                }), new LinearLayout.LayoutParams(-1, -2));
-
-        rebateHolesValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        rebateControls.addView(edgeChoiceRow("齿孔", rebateHolesValue, RebateControls.HOLES,
-                () -> live().edgeHoles, id -> {
-                    live().edgeHoles = id;
-                    syncRebatePage();
-                    commitRebate();
-                }), new LinearLayout.LayoutParams(-1, -2));
-
-        rebateCarrierValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        rebateControls.addView(edgeChoiceRow("片夹", rebateCarrierValue,
-                RebateControls.CARRIERS, () -> live().edgeCarrier, id -> {
-                    live().edgeCarrier = id;
-                    syncRebatePage();
-                    commitRebate();
-                }), new LinearLayout.LayoutParams(-1, -2));
-
-        rebateCameraSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        rebateControls.addView(rebateValueRow("片边种子", rebateCameraSeedValue,
-                () -> String.valueOf(live().cameraSeed),
-                () -> askSeed("片边随机种子（0 – 2147483647）", live().cameraSeed, value -> {
-                    live().cameraSeed = value;
-                    syncRebatePage();
-                    commitRebate();
-                })), new LinearLayout.LayoutParams(-1, -2));
-
-        rebateFrameSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
-                () -> String.valueOf(live().frameSeed),
-                () -> askSeed("帧随机种子（0 – 2147483647）", live().frameSeed, value -> {
-                    live().frameSeed = value;
-                    syncRebatePage();
-                    commitRebate();
-                })), new LinearLayout.LayoutParams(-1, -2));
-
+        addRebateGateCard(onSurface, onSurfaceVariant);
+        addRebateToneControls(onSurface);
+        addRebateStructureControls(onSurface);
         page.addView(rebateControls, new LinearLayout.LayoutParams(-1, -2));
         return page;
     }
