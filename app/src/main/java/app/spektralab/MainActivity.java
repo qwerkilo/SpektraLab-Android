@@ -6109,6 +6109,45 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * The decoded RAW frame in working space, packed without a transfer
+     * function. A camera JPEG is not a stand-in: it is the camera's
+     * rendering, not this frame.
+     */
+    private Bitmap decodeRawPreview(SpektraLabEngine.Session source) {
+        Bitmap rawView = null;
+        try {
+            final int[] d = source.exportSource("live");
+            if (d != null && d[0] > 0 && d[1] > 0) {
+                final int rw = d[0], rh = d[1];
+                final int[] px = new int[rw * rh];
+                if (source.copyArgbRange(px, 0, rh) == rw * rh) {
+                    rawView = Bitmap.createBitmap(rw, rh, Bitmap.Config.ARGB_8888);
+                    rawView.setPixels(px, 0, rw, 0, 0, rw, rh);
+                }
+            }
+            try {
+                int probePixel = 0;
+                if (rawView != null) {
+                    final int[] one = new int[1];
+                    rawView.getPixels(one, 0, 1, Math.max(0, rawView.getWidth() / 2),
+                            Math.max(0, rawView.getHeight() / 2), 1, 1);
+                    probePixel = one[0];
+                }
+                DebugSink.text("raw-view", rawView == null ? "export: empty"
+                        : "export " + rawView.getWidth() + "x" + rawView.getHeight()
+                        + " mid=" + Integer.toHexString(probePixel));
+            } catch (Throwable ignored) {
+            }
+        } catch (Throwable t) {
+            try {
+                DebugSink.text("raw-view", "export failed: " + t);
+            } catch (Throwable ignored) {
+            }
+        }
+        return rawView;
+    }
+
     private void loadRawImage(Uri uri) {
         final boolean reopening = reopeningFrame;
         // The Look the RAW session must carry, snapshotted here on the UI
@@ -6190,42 +6229,8 @@ public class MainActivity extends AppCompatActivity {
                     // first preview will render.
                     if (importParams != null) session.setParams(importParams);
 
-                    // **The raw itself**, which is the "before" side of every
-                    // comparison and the only honest thing to show on import:
-                    // the decoded frame in working space, packed with no
-                    // transfer function, so a display reads it the way it reads
-                    // a raw -- flat, and dark. The camera's own JPEG is **not**
-                    // a stand-in for it: a preview is the camera's rendering,
-                    // not this frame, and showing it as "原图" is the same lie
-                    // as importing it would be. No frame, no picture.
-                    Bitmap rawView = null;
-                    try {
-                        final int[] d = session.exportSource("live");
-                        if (d != null && d[0] > 0 && d[1] > 0) {
-                            final int rw = d[0], rh = d[1];
-                            final int[] px = new int[rw * rh];
-                            if (session.copyArgbRange(px, 0, rh) == rw * rh) {
-                                rawView = Bitmap.createBitmap(rw, rh, Bitmap.Config.ARGB_8888);
-                                rawView.setPixels(px, 0, rw, 0, 0, rw, rh);
-                            }
-                        }
-                        try {
-                            int probePixel = 0;
-                            if (rawView != null) {
-                                int[] one = new int[1];
-                                rawView.getPixels(one, 0, 1, Math.max(0, rawView.getWidth() / 2),
-                                                  Math.max(0, rawView.getHeight() / 2), 1, 1);
-                                probePixel = one[0];
-                            }
-                            DebugSink.text("raw-view", rawView == null ? "export: empty"
-                                    : "export " + rawView.getWidth() + "x" + rawView.getHeight()
-                                      + " mid=" + Integer.toHexString(probePixel));
-                        }
-                        catch (Throwable ignored) { }
-                    } catch (Throwable t) {
-                        try { DebugSink.text("raw-view", "export failed: " + t); } catch (Throwable ignored) { }
-                    }
-                    final Bitmap preview = rawView;
+                    // The raw itself is the honest "before" side; see decodeRawPreview.
+                    final Bitmap preview = decodeRawPreview(session);
                     final boolean hasPreview = preview != null;
                     if (!hasPreview) {
                         // The canvas is not allowed to be blank for no reason.
