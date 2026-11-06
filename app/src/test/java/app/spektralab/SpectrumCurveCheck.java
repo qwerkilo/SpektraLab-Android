@@ -1,5 +1,6 @@
 package app.spektralab;
 
+import app.spektralab.core.ScanSample;
 import app.spektralab.core.SpectrumCurve;
 
 /**

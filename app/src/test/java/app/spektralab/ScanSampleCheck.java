@@ -1,5 +1,7 @@
 package app.spektralab;
 
+import app.spektralab.core.ScanSample;
+
 /**
  * Pure JVM contract for Scan inspect's sample: one ARGB row, one horizontal
  * fraction, real RGB, and an estimated dominant wavelength.

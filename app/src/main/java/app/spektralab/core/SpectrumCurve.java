@@ -1,7 +1,5 @@
 package app.spektralab.core;
 
-import app.spektralab.ScanSample;
-
 /**
  * The plottable form of a stock's shipped spectral series.
  *
