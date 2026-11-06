@@ -697,10 +697,32 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         setStage(s.stageMode(), null);
+        restoreCompare(s);
+        restoreLabels(s);
+        showingOriginal = s.showingOriginal();
+        setOriginalVisual(showingOriginal);
+        restoreProgressIndicators(s);
+        if (formatFootValue != null) {
+            formatFootValue.setText(mmText(live().filmFormatMm) + " mm");
+        }
+        setTab(s.activeTab());
+        setPanelCollapsed(s.panelCollapsed());
+        setOpticsUnlocked(s.opticsUnlocked());
+        edgePageIndex = s.edgePageIndex();
+        openEdgePage(edgePageIndex);
+        scanFraction = s.scanFraction();
+        scanVisible = s.scanVisible();
+        refreshFilmPanel();
+    }
+
+    private void restoreCompare(UiState s) {
         if (compare != null) {
             compare.setBefore(beforeBitmap);
             compare.setAfter(s.showingOriginal() ? null : lastRenderedBitmap);
         }
+    }
+
+    private void restoreLabels(UiState s) {
         if (s.fileName() != null && fileLabel != null) {
             fileLabel.setText(s.fileName());
         }
@@ -710,8 +732,9 @@ public class MainActivity extends AppCompatActivity {
         if (s.status() != null && statusText != null) {
             statusText.setText(s.status());
         }
-        showingOriginal = s.showingOriginal();
-        setOriginalVisual(showingOriginal);
+    }
+
+    private void restoreProgressIndicators(UiState s) {
         if (busyLabel != null) {
             busyLabel.setVisibility(s.busy() ? View.VISIBLE : View.GONE);
         }
@@ -724,17 +747,6 @@ public class MainActivity extends AppCompatActivity {
         if (sharePill != null) {
             sharePill.setVisibility(s.shareVisible() ? View.VISIBLE : View.GONE);
         }
-        if (formatFootValue != null) {
-            formatFootValue.setText(mmText(live().filmFormatMm) + " mm");
-        }
-        setTab(s.activeTab());
-        setPanelCollapsed(s.panelCollapsed());
-        setOpticsUnlocked(s.opticsUnlocked());
-        edgePageIndex = s.edgePageIndex();
-        openEdgePage(edgePageIndex);
-        scanFraction = s.scanFraction();
-        scanVisible = s.scanVisible();
-        refreshFilmPanel();
     }
 
     /** A zero system animation scale means non-essential motion is off. */
@@ -775,9 +787,21 @@ public class MainActivity extends AppCompatActivity {
         }
         wideLayout = wide;
         body.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        applyRailLayout(wide, widthDp);
+        applyColumnWidths(wide, widthDp);
+        // On a wide window the control column is a distinct instrument rail:
+        // the page colour would otherwise run on below the panel and read as
+        // an unfinished half-column. The film curve then takes the rest of the
+        // rail on the default tab instead of leaving its lower half empty.
+        final int rail = wide ? m3Surface() : m3Background();
+        controls.setBackgroundColor(rail);
+        panelHolder.setBackgroundColor(rail);
+        applyFilmCurveHeight(wide);
+        updateStageReadoutWidths();
+    }
 
-        // The M3 navigation rail takes the leading edge only on a wide window;
-        // the phone keeps the secondary tabs under the stage.
+    /** The leading navigation rail replaces the phone tabs on a wide window. */
+    private void applyRailLayout(boolean wide, int widthDp) {
         LinearLayout.LayoutParams railLp =
                 (LinearLayout.LayoutParams) navigationRail.getLayoutParams();
         railLp.width = dp(ConsoleLayout.railWidthDp(widthDp));
@@ -788,7 +812,10 @@ public class MainActivity extends AppCompatActivity {
         if (tabLayout != null) {
             tabLayout.setVisibility(wide ? View.GONE : View.VISIBLE);
         }
+    }
 
+    /** The stage column against the control column. */
+    private void applyColumnWidths(boolean wide, int widthDp) {
         LinearLayout.LayoutParams mainLp = (LinearLayout.LayoutParams) mainCol.getLayoutParams();
         mainLp.width = wide ? 0 : -1;
         mainLp.height = wide ? -1 : 0;
@@ -808,16 +835,6 @@ public class MainActivity extends AppCompatActivity {
         panelLp.height = wide ? 0 : dp(PANEL_HEIGHT_DP);
         panelLp.weight = wide ? 1f : 0f;
         panelHolder.setLayoutParams(panelLp);
-
-        // On a wide window the control column is a distinct instrument rail:
-        // the page colour would otherwise run on below the panel and read as
-        // an unfinished half-column. The film curve then takes the rest of the
-        // rail on the default tab instead of leaving its lower half empty.
-        final int rail = wide ? m3Surface() : m3Background();
-        controls.setBackgroundColor(rail);
-        panelHolder.setBackgroundColor(rail);
-        applyFilmCurveHeight(wide);
-        updateStageReadoutWidths();
     }
 
     /** Let the spectral curve's M3 surface own the film panel's spare height. */
@@ -2641,6 +2658,16 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         // another brand is selected, FilmBrand.shelf pins it first so the
         // shelf never hides the Look that is still in force.
         final String activeId = live().filmStock == null || showingOriginal ? null : live().filmStock;
+        refreshFilmShelf(activeId);
+        if (filmChipScroll != null) {
+            filmChipScroll.post(() -> filmChipScroll.scrollTo(keepScroll, 0));
+        }
+        final FilmStock stock = currentFilmStock();
+        refreshFilmCurve(stock);
+        refreshFilmDetails(stock);
+    }
+
+    private void refreshFilmShelf(String activeId) {
         for (String id : FilmBrand.shelf(filmIds, brandFilter, activeId)) {
             final int i = filmIds.indexOf(id);
             if (i < 0) {
@@ -2650,11 +2677,9 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
                     chipSubtitle(i, filmStocks.get(id)),
                     activeId != null && id.equals(activeId));
         }
-        if (filmChipScroll != null) {
-            filmChipScroll.post(() -> filmChipScroll.scrollTo(keepScroll, 0));
-        }
+    }
 
-        final FilmStock stock = currentFilmStock();
+    private void refreshFilmCurve(FilmStock stock) {
         final SpectrumCurve nextCurve =
                 stock == null ? SpectrumCurve.unavailable() : stock.curve();
         // A new curve reveals once. A render-state refresh re-sends the same
@@ -2668,6 +2693,9 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         if (revealNow) {
             revealedCurve = nextCurve;
         }
+    }
+
+    private void refreshFilmDetails(FilmStock stock) {
         filmCurve.setContentDescription(curveDescription(stock));
         refreshFilmMetrics(stock);
         filmNote.setText(filmNoteText(stock));
@@ -2959,6 +2987,15 @@ card.setOnClickListener(v -> {
         if (description != null && !description.isEmpty()) {
             return description;
         }
+        final java.util.List<String> parts = stockNotes(stock);
+        if (parts.isEmpty()) {
+            return "NO STOCK NOTES SHIPPED.";
+        }
+        return joinNotes(parts);
+    }
+
+    /** The declared paper, halation and fallback support/stage notes. */
+    private java.util.List<String> stockNotes(FilmStock stock) {
         final java.util.List<String> parts = new java.util.ArrayList<>();
         // The same declaration the Film choice applies, so the note cannot
         // claim a paper the Look would not move to.
@@ -2981,9 +3018,10 @@ card.setOnClickListener(v -> {
                 parts.add(stage.toUpperCase(java.util.Locale.US));
             }
         }
-        if (parts.isEmpty()) {
-            return "NO STOCK NOTES SHIPPED.";
-        }
+        return parts;
+    }
+
+    private String joinNotes(java.util.List<String> parts) {
         final StringBuilder note = new StringBuilder();
         for (String part : parts) {
             if (note.length() > 0) {
@@ -5631,38 +5669,53 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         for (int i = 0; i < panels.length; ++i) {
             panels[i].setVisibility(i == active ? View.VISIBLE : View.GONE);
         }
-        if (tabLayout != null) {
-            final TabLayout.Tab tab = tabLayout.getTabAt(active);
-            if (tab != null && tabLayout.getSelectedTabPosition() != active) {
-                suppressWorkspaceSelection = true;
-                try {
-                    tabLayout.selectTab(tab, false);
-                } finally {
-                    suppressWorkspaceSelection = false;
-                }
+        syncTabLayout(active);
+        syncNavigationRail(active);
+        animatePanelIn(previous, active);
+    }
+
+    private void syncTabLayout(int active) {
+        if (tabLayout == null) {
+            return;
+        }
+        final TabLayout.Tab tab = tabLayout.getTabAt(active);
+        if (tab != null && tabLayout.getSelectedTabPosition() != active) {
+            suppressWorkspaceSelection = true;
+            try {
+                tabLayout.selectTab(tab, false);
+            } finally {
+                suppressWorkspaceSelection = false;
             }
         }
-        if (navigationRail != null && active >= 0 && active < TAB_ITEM_IDS.length) {
-            final MenuItem item = navigationRail.getMenu().findItem(TAB_ITEM_IDS[active]);
-            if (item != null && !item.isChecked()) {
-                suppressWorkspaceSelection = true;
-                try {
-                    navigationRail.setSelectedItemId(TAB_ITEM_IDS[active]);
-                } finally {
-                    suppressWorkspaceSelection = false;
-                }
+    }
+
+    private void syncNavigationRail(int active) {
+        if (navigationRail == null || active < 0 || active >= TAB_ITEM_IDS.length) {
+            return;
+        }
+        final MenuItem item = navigationRail.getMenu().findItem(TAB_ITEM_IDS[active]);
+        if (item != null && !item.isChecked()) {
+            suppressWorkspaceSelection = true;
+            try {
+                navigationRail.setSelectedItemId(TAB_ITEM_IDS[active]);
+            } finally {
+                suppressWorkspaceSelection = false;
             }
         }
-        if (uiReady && previous != active && active >= 0 && active < panels.length) {
-            final int duration = motionDuration(170);
-            final View panel = panels[active];
-            panel.setAlpha(duration > 0 ? 0f : 1f);
-            panel.setTranslationY(dp(4));
-            if (duration > 0) {
-                panel.animate().alpha(1f).translationY(0f).setDuration(duration).start();
-            } else {
-                panel.setTranslationY(0f);
-            }
+    }
+
+    private void animatePanelIn(int previous, int active) {
+        if (!uiReady || previous == active || active < 0 || active >= panels.length) {
+            return;
+        }
+        final int duration = motionDuration(170);
+        final View panel = panels[active];
+        panel.setAlpha(duration > 0 ? 0f : 1f);
+        panel.setTranslationY(dp(4));
+        if (duration > 0) {
+            panel.animate().alpha(1f).translationY(0f).setDuration(duration).start();
+        } else {
+            panel.setTranslationY(0f);
         }
     }
 
