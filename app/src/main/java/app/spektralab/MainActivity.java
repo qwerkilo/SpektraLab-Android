@@ -27,6 +27,7 @@ import app.spektralab.core.FilmBrand;
 import app.spektralab.core.ImageFormat;
 import app.spektralab.core.SafeFileName;
 import app.spektralab.core.PrintTarget;
+import app.spektralab.core.SpectrumSamples;
 import app.spektralab.core.StockNames;
 import app.spektralab.core.ImportBudget;
 import app.spektralab.model.FilmStock;
