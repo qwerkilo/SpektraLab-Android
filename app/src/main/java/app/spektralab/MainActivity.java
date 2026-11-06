@@ -4157,31 +4157,8 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
      * visible and dimmed while off. The default text comes from the Frame's
      * EXIF capture date; a custom text is sent to the engine exactly as typed.
      */
-    private LinearLayout buildDatePage() {
-        final LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setVisibility(View.GONE);
-        page.addView(edgePageHead("日期水印 / DATE BACK"), new LinearLayout.LayoutParams(-1, -2));
-
-        final int onSurface = m3Role(
-                com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
-        final int onSurfaceVariant = m3Role(
-                com.google.android.material.R.attr.colorOnSurfaceVariant,
-                Palette.Role.MUTED_INK);
-
-        dateSwitch = new MaterialSwitch(this);
-        dateDetail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
-        page.addView(switchRow("开启日期水印", dateDetail, dateSwitch, () -> live().dateOn, on -> {
-            live().dateOn = on;
-            syncDatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, dp(56)));
-
-        dateControls = new LinearLayout(this);
-        dateControls.setOrientation(LinearLayout.VERTICAL);
-
-        // The one field the app used to decide for the user: the EXIF date is
-        // the default, but the imprint has always been editable.
+    /** The editable date imprint field. */
+    private void addDateTextField(int onSurface) {
         dateTextValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(rebateValueRow("日期文字", dateTextValue,
                 this::effectiveDateText, () -> {
@@ -4192,7 +4169,10 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                         commitRebate();
                     });
                 }), new LinearLayout.LayoutParams(-1, -2));
+    }
 
+    /** The date inset, size and exposure sliders. */
+    private void addDateGeometryControls(int onSurface) {
         dateInsetXValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
         dateInsetXSlider = rebateSliderRow(dateControls, "左右内边距",
                 "字到片门左右边的距离，毫米",
@@ -4228,7 +4208,10 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                 value -> String.format(java.util.Locale.US, "%+.1f EV", value),
                 value -> live().dateEv = DateBack.clampEv(value),
                 () -> live().dateEv, dateEvValue);
+    }
 
+    /** The date placement, corner and style choices. */
+    private void addDateStyleControls(int onSurface) {
         datePlacementValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(edgeChoiceRow("日期位置", datePlacementValue,
                 DateBack.PLACEMENTS, () -> live().datePlacement, id -> {
@@ -4236,23 +4219,10 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                     syncDatePage();
                     commitRebate();
                 }), new LinearLayout.LayoutParams(-1, -2));
+    }
 
-        dateCornerValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(edgeChoiceRow("日期角位", dateCornerValue,
-                DateBack.CORNERS, () -> live().dateCorner, id -> {
-                    live().dateCorner = id;
-                    syncDatePage();
-                    commitRebate();
-                }), new LinearLayout.LayoutParams(-1, -2));
-
-        dateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(edgeChoiceRow("日期样式", dateStyleValue,
-                DateBack.STYLES, () -> live().dateStyle, id -> {
-                    live().dateStyle = id;
-                    syncDatePage();
-                    commitRebate();
-                }), new LinearLayout.LayoutParams(-1, -2));
-
+    /** The capture-data and second-frame text fields. */
+    private void addDateDataControls(int onSurface) {
         dateDataValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(rebateValueRow("拍摄数据", dateDataValue,
                 () -> live().dataText.isEmpty() ? "（空）" : live().dataText,
@@ -4261,6 +4231,37 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                     syncDatePage();
                     commitRebate();
                 })), new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    private LinearLayout buildDatePage() {
+        final LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setVisibility(View.GONE);
+        page.addView(edgePageHead("日期水印 / DATE BACK"), new LinearLayout.LayoutParams(-1, -2));
+
+        final int onSurface = m3Role(
+                com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
+        final int onSurfaceVariant = m3Role(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.Role.MUTED_INK);
+
+        dateSwitch = new MaterialSwitch(this);
+        dateDetail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
+        page.addView(switchRow("开启日期水印", dateDetail, dateSwitch, () -> live().dateOn, on -> {
+            live().dateOn = on;
+            syncDatePage();
+            commitRebate();
+        }), new LinearLayout.LayoutParams(-1, dp(56)));
+
+        dateControls = new LinearLayout(this);
+        dateControls.setOrientation(LinearLayout.VERTICAL);
+
+        // The one field the app used to decide for the user: the EXIF date is
+        // the default, but the imprint has always been editable.
+        addDateTextField(onSurface);
+        addDateGeometryControls(onSurface);
+        addDateStyleControls(onSurface);
+        addDateDataControls(onSurface);
 
         dateTextBValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(rebateValueRow("第二帧日期", dateTextBValue,
