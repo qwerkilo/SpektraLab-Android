@@ -4936,21 +4936,8 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         }, 1800);
     }
 
-    void showFeedbackGroup(final boolean auto) {
-        if (isFinishing()) {
-            return;
-        }
-        final android.content.SharedPreferences p = getSharedPreferences(PROMO_PREFS, MODE_PRIVATE);
-        final android.app.Dialog dialog = new android.app.Dialog(this);
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundColor(m3Role(
-                com.google.android.material.R.attr.colorSurfaceContainerHigh,
-                Palette.Role.SURFACE_ELEVATED));
-        View cap = new View(this);
-        cap.setBackgroundColor(m3Primary());
-        card.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
-
+    /** The feedback card header and its close link. */
+    private void addFeedbackHeader(LinearLayout card, android.app.Dialog dialog) {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -4965,7 +4952,10 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         close.setOnClickListener(v -> dialog.dismiss());
         head.addView(close);
         card.addView(head, new LinearLayout.LayoutParams(-1, dp(42)));
+    }
 
+    /** The feedback card copy and group number. */
+    private void addFeedbackBody(LinearLayout card) {
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(dp(16), 0, dp(16), 4);
@@ -4991,7 +4981,10 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         hintLp.topMargin = dp(5);
         body.addView(hint, hintLp);
         card.addView(body, new LinearLayout.LayoutParams(-1, -2));
+    }
 
+    /** The open and copy actions. */
+    private void addFeedbackActions(LinearLayout card) {
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setPadding(dp(16), dp(16), dp(16), dp(16));
@@ -5030,21 +5023,28 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         });
         actions.addView(copy, new LinearLayout.LayoutParams(0, dp(42), 1.45f));
         card.addView(actions, new LinearLayout.LayoutParams(-1, -2));
+    }
 
-        if (auto) {
-            TextView mute = m3Label("不再自动弹出", M3Tokens.TypeRole.LABEL_MEDIUM,
-                    m3OnSurfaceVariant(), tfHan);
-            mute.setGravity(android.view.Gravity.CENTER);
-            mute.setPaintFlags(mute.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
-            mute.setPadding(0, 0, 0, dp(14));
-            mute.setOnClickListener(v -> {
-                p.edit().putBoolean(PROMO_MUTED, true).apply();
-                dialog.dismiss();
-                showSnackbar("已关闭，仍可在「关于」里找到反馈群");
-            });
-            card.addView(mute, new LinearLayout.LayoutParams(-1, dp(30)));
-        }
+    /** The mute link shown on the automatic popup. */
+    private void addFeedbackMute(LinearLayout card, android.app.Dialog dialog,
+                                          android.content.SharedPreferences p) {
+        TextView mute = m3Label("不再自动弹出", M3Tokens.TypeRole.LABEL_MEDIUM,
+                m3OnSurfaceVariant(), tfHan);
+        mute.setGravity(android.view.Gravity.CENTER);
+        mute.setPaintFlags(mute.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+        mute.setPadding(0, 0, 0, dp(14));
+        mute.setOnClickListener(v -> {
+            p.edit().putBoolean(PROMO_MUTED, true).apply();
+            dialog.dismiss();
+            showSnackbar("已关闭，仍可在「关于」里找到反馈群");
+        });
+        card.addView(mute, new LinearLayout.LayoutParams(-1, dp(30)));
 
+    }
+
+    /** Show the card and record that this build has mentioned it. */
+    private void showFeedbackCard(android.app.Dialog dialog, LinearLayout card,
+                                           android.content.SharedPreferences p) {
         dialog.setContentView(card);
         dialog.setCanceledOnTouchOutside(true);
         dialog.show();
@@ -5058,6 +5058,30 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         }
         // Shown counts as seen: the point is that a new build mentions it once.
         p.edit().putInt(PROMO_SEEN_CODE, UpdateCheck.versionCode(this)).apply();
+    }
+
+    void showFeedbackGroup(final boolean auto) {
+        if (isFinishing()) {
+            return;
+        }
+        final android.content.SharedPreferences p = getSharedPreferences(PROMO_PREFS, MODE_PRIVATE);
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundColor(m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerHigh,
+                Palette.Role.SURFACE_ELEVATED));
+        View cap = new View(this);
+        cap.setBackgroundColor(m3Primary());
+        card.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
+
+        addFeedbackHeader(card, dialog);
+        addFeedbackBody(card);
+        addFeedbackActions(card);
+        if (auto) {
+            addFeedbackMute(card, dialog, p);
+        }
+        showFeedbackCard(dialog, card, p);
     }
 
     private boolean copyToClipboard(String labelText, String text) {
