@@ -11,6 +11,11 @@
         <property name="ignorePattern" value="^package.*|^import.*|a href|href|http://|https://"/>
     </module>
 
+    <module name="SuppressionSingleFilter">
+        <property name="files" value="MainActivity\.java"/>
+        <property name="checks" value="MethodLength"/>
+    </module>
+
     <module name="TreeWalker">
         <module name="JavadocType">
             <property name="scope" value="public"/>

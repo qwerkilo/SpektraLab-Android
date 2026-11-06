@@ -12,13 +12,15 @@ dependencies {
     checkstyleTool 'com.puppycrawl.tools:checkstyle:10.12.4'
 }
 
-// Enforce the Alibaba-style rules on the newly extracted packages first.
-// MainActivity is added to this source set once it is split.
+// Enforce the Alibaba-style rules on the extracted packages and the composition
+// root. MainActivity MethodLength is temporarily suppressed in the checkstyle
+// config while its panel builders are split.
 tasks.register('checkstyleGovernance', Checkstyle) {
     source = fileTree('src/main/java/app/spektralab') {
         include 'ui/**/*.java'
         include 'model/**/*.java'
         include 'core/**/*.java'
+        include 'MainActivity.java'
     }
     configFile = rootProject.file('config/checkstyle/checkstyle.xml')
     configDirectory = rootProject.file('config/checkstyle')
