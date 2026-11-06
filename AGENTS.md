@@ -1,141 +1,97 @@
 # SpektraLab for Android
 
-Unofficial Android port of the SpektraLab film/paper simulation engine (Vulkan). RAW in, physically modelled film + paper out, on device.
+Unofficial Android port of the SpektraLab film/paper simulation engine (Vulkan). Java UI + JNI over an **out-of-tree C++ engine**. Gradle is the primary build; the Termux scripts are the legacy path. There is no JUnit or instrumentation suite: verification is pure JVM `*Check` programs, static gates, and a physical device.
 
-Java UI + JNI over an **out-of-tree C++ engine**. Gradle is the primary build; the Termux scripts remain for the pre-M3 tree. Pure JVM checks run with `./gradlew checkJvm`; there is no instrumentation suite.
+## Build (Gradle)
 
-## Build: Gradle primary, Termux legacy
+On this Windows checkout use `.\gradlew.bat`; the wrapper is committed. Gradle needs `local.properties` with `sdk.dir=F:\\android-sdk`, JDK 17 or 21, SDK 36.
 
-The Gradle wrapper is committed; see “Gradle / Material 3” below for the current path. The Termux scripts below are the legacy/pre-M3 fallback and assume the repo is at `$HOME/SpektraLab-apk`, the engine at `$HOME/SpektraLab-android-adreno/engine`, Termux prefix `/data/data/com.termux/files/usr`, SDK 36, NDK `28.2.13676358`.
+- `assembleDebug` stages `assets/` and `arm64-v8a` libraries from a donor APK, default `app/build/SpektraLab-1.5.0e-qa.apk`; override with `-PbaseApk=<path>`.
+- The donor's `stock_catalog.json` is excluded on purpose. `generateStockCatalog` rebuilds it from the staged profiles, so `targetPrint` and spectral arrays match the profiles. A donor catalogue without `targetPrint` silently disables automatic paper selection.
+- Sign with `SPK_KEYSTORE`, `SPK_KS_PASS`, `SPK_KEY_PASS`, `SPK_KEY_ALIAS`. Without them Gradle uses a debug key that cannot update an installed release build.
+- For Android 15/16 (16 KB pages):
+  - `.\gradlew.bat align16k`
+  - install `app/build/outputs/apk/debug/app-debug-16k-signed.apk`
+  - do not install plain `app-debug.apk`; it is only 4 KB zip-aligned.
+- **Never run `.\gradlew.bat clean`.** `app/build/` holds tracked scripts (`gen-stock-catalog.py`, `check-*.py`, build helpers) and `clean` deletes them. Use `--rerun-tasks`, or delete only generated outputs.
 
-Engine source: upstream `JamesQiu2005/SpektraLab` at `445e314`, then `git apply patches/engine-android.patch`.
-
-Run in this order:
-
-```bash
-bash app/build/build-libs-raw.sh        # once; downloads LibRaw 0.22.2, adds HE/HE* sniff
-bash app/build/build-engine.sh          # all engine TUs; pass names to rebuild a subset
-bash app/build/build-native.sh          # both JNI units; links libspektrafilm_engine.so
-bash app/build/build-libs.sh            # stages .so and rewrites DT_NEEDED
-bash app/build/build-dex.sh             # javac + d8; regenerates app/build/sources.txt
-python3 app/build/gen-stock-catalog.py  # only when profiles changed
-bash build-apk.sh                       # aapt + zip + sign + check-libs; copies to /sdcard/Download
-```
-
-Never hand-copy `libspektrafilm_engine.so` into `app/build/apk/lib`; `build-libs.sh` renames `libjpeg.so.8` / `libz.so.1` to `libjpeg_8.so` / `libz_1.so` and rewrites every DT_NEEDED. Skipping it ships a library that cannot load (E-9000). `check-libs.py` fails `build-apk.sh` if the closure is broken.
-
-`build-apk.sh` signs with `$HOME/SpektraLab-apk/debug.keystore` (gitignored). `app/build/apk/res` and most of `app/build/apk/assets` are local-only staging: no script creates them. `app/src/main/assets` is gitignored too (~30 MB of profiles and resources).
-
-On Windows without Termux, `app/build/build-apk-windows.ps1` compiles, dexes with the R8 jar, reuses a base APK's assets and native libraries, then align-signs. Set `SPK_KEYSTORE`, `SPK_KS_PASS`, `SPK_KEY_PASS`, `SPK_KEY_ALIAS`; pass `-BaseApk` only when the newest `*-console.apk` is not the donor.
-
-## Gradle / Material 3
-
-`./gradlew assembleDebug` is the primary build for the M3 migration. It uses `JAVA_HOME` (CI sets JDK 17; local JDK 17 or 21 works), compiles and targets SDK 36, and stages `assets/` plus `arm64-v8a` libraries from `app/build/SpektraLab-1.5.0e-qa.apk` (override with `-PbaseApk=<path>`). The donor's `stock_catalog.json` is deliberately excluded; `generateStockCatalog` rebuilds it from the staged profiles into `build/generated/stockAssets`, so `targetPrint` and the spectral series match the shipped profiles. Set the same `SPK_*` variables to sign with the release key; without them Gradle uses its debug key and the APK will not update an installed release build. For Android 15/16 devices with 16 KB pages, run `./gradlew align16k` (needs build-tools 36) and install `app/build/outputs/apk/debug/app-debug-16k-signed.apk`; the plain debug APK is only 4 KB zip-aligned. Never run `./gradlew clean`: `app/build/` holds tracked build scripts (`gen-stock-catalog.py`, `check-*.py`, the Windows/Termux helpers), and `clean` deletes them. Use `--rerun-tasks`, or remove only generated outputs. The legacy scripts remain the fallback for the pre-M3 tree.
-
-## Upstreams
-
-- **Engine**: `JamesQiu2005/SpektraLab`, branch `assist/vulkan-engine-1.3.4` at `445e314`. The engine is out of tree; sync by reapplying `patches/engine-android.patch` to the new baseline, never by merging the desktop app.
-- **Android app**: `SAINTTaiYi/SpektraLab-Android`, branch `master` at `1.5.0e` (`a2ffbc3`). The fork's `origin` is `qwerkilo/SpektraLab-Android`; pushing there does not update the user-facing channel. The 1.5.0e native/JNI core is merged; its histogram, dark theme, and canvas UI changes are a follow-up M3 port (issue #3). Merge upstream syncs with a **merge commit**, never squash: squash drops the upstream parent and GitHub reports the fork behind even when the trees match.
-- On Windows, build-tools 34 `d8` crashes on `MainActivity$1.class` (`NullPointerException`). Use the R8 jar in `android-sdk/cmdline-tools/latest/lib/r8.jar` with JDK 17 instead.
-
-## Where the code lives
-
-- `MainActivity.java` — ~7.4k lines, programmatic `View` UI in one file. No XML layouts; the M3 theme, color roles, and type attrs live in `app/src/main/res/values/*` (`themes.xml`, `colors.xml`, `attrs.xml`), with the rail menu in `app/src/main/res/menu/console_nav.xml` and its icons in `app/src/main/res/drawable/`.
-- `FrameLookSession.java` — the live per-Frame `Look` and undo history. The Activity holds only the current session; `look()` is read-only and edits go through `edit`/`record`. Every panel (Film, Optics, View, Scale, Edge, Date) reads and writes that session; do not add a parallel copy of a Look value.
-- `RenderSnapshot.java` — one UI-thread snapshot of the Look, engine JSON, stock, long edge and view-adjust values. Preview, export and RAW import build it once and hand it to their worker; do not rebuild parameters inside the worker.
-- `ui/widget/` — extracted custom views (`SpectralRail`, `ToolGlyph`, `ArrowView`, `GuideView`, `EdgeBackdrop`, `SnackbarHost`, `CompareView`, `ScanOverlayView`). New views go here, not back into `MainActivity`.
-- `model/FilmStock.java` — the immutable catalogue record read by the film panel; fields are private with accessors.
-- `model/Frame.java` — one opened photograph: URI, RAW flag, name, thumbnail, its Frame Look session, and its Scan state. The Activity keeps a list of these and no duplicate per-frame fields.
-- `ui/UiState.java` — the presentation snapshot used by a theme rebuild; it holds no Look, Frame or engine value.
-- `ui/ThemeMode.java` — the persisted light/dark choice and its Palette lookup.
-- `core/ImportBudget.java` — pure import-scale arithmetic shared by the budget dialog and the decoder.
-- `core/ImageFormat.java` — filename RAW/unsupported checks shared by the picker and decoder.
-- `core/StockNames.java` — full/shelf/readout stock labels, shared by the picker and readout strip.
-- `core/SafeFileName.java` — provider filename sanitiser used before a cache write.
-- `core/ReleaseUrl.java` — HTTPS/host whitelist for the update-check link.
-- `core/FilmBrand.java` — brand facet order, counts and shelf pinning.
-- `core/PrintTarget.java` — the film's declared paper, applied only when it exists.
-- `core/SpectrumSamples.java` — the measured sample count and range readout.
-- `core/SpectrumCurve.java` — paired spectral runs, gaps and axis fractions.
-- `core/ScanSample.java` — one preview-row sample and its λ estimate.
-- `StockCatalogue.java` — the one store for the film/print catalogue entries (id, label, type, use). The Activity exposes read-only id/label/type views over those lists; do not add a parallel list.
-- `SpektraLabEngine.java` — JNI facade. `prepare(libDir)` loads bundled `.so` by absolute path before the engine; there is intentionally no `static {}` loader, so a load failure keeps its cause. One native result buffer, serialized by `RENDER_LOCK`.
-- `spektralab_jni.cpp` — session, render, JPEG/TIFF/DNG export. `spektralab_raw_jni.cpp` — LibRaw decode.
-- The engine itself is not in this repo; only `patches/engine-android.patch` and `docs/tiling.md` are.
-
-## Traps
-
-- `spk_result.row_stride_px` is in **pixels**, 4 uint16 per pixel: index `rgba16 + y * stride * 4`.
-- Dispatches are capped at 65,535 workgroups × 256 threads; the engine chunks with a push-constant base. Per-plane binding range (`maxStorageBufferRange`) is still the hard import wall — `DeviceProbe` derives the cap and canary-tests it. The app caps imports at `HARD_PIXEL_CAP` 42 MP and `IMPORT_LONG_EDGE` 8000; the 16.7 MP dispatch ceiling is handled by the 1.5.0e banded renderer, not by the import cap.
-- `build-engine.sh <unit>...` is incremental, but a header change forces a full rebuild (vtable/ABI skew). Keep that stamp.
-- Both JNI units are recompiled every time on purpose; a stale `spektralab_raw_jni.o` links fine and breaks the first RAW open.
-- `app/build/sources.txt` is generated by `build-dex.sh`; don't edit it.
-- Reversal/slide film is allowed: `scan_film` must ride the stock delta, not the slider delta. The Print stock stays stored for a later negative but is unused while a slide is selected; preview and export must send the same value.
-- `[E-xxxx]` codes in `SpkError.java` are user-facing: E-1001 binding range, E-1108 HE/HE*, E-9000 native load, E-2001/2002 update. Keep the number when changing the text.
-
-## Release
-
-- Version is duplicated in `AndroidManifest.xml` (`versionCode` + `versionName`), `app/build.gradle` (`defaultConfig`), and the channel files; `VersionCheck` fails `checkJvm` if they disagree. Current stable is `156` / `1.4.4-m3a`.
-- Two announcement files: `preview.json` (pre-release build, channel `preview`) and `update.json` (last stable build; 1.3.4 clients read it, and it currently carries 156 / `1.4.4-m3a`). `UpdateCheck` compares version **and** channel, reads only the fork's endpoints, and a stable build never reads `preview.json`; `ReleaseUrl` allowlists `spektralab.workshop.skin`, the update host, and the fork's GitHub release paths.
-- A stable announcement is gated by `docs/known-issues.md`. KI-1 (>16.7 MP rebate bottom print) is fixed by the 1.4.4 engine and recorded as `Release gate: accepted`; `1.4.4-m3a` was verified on device with a 4704×4345 export. Do not reopen the gate without a new reproduction or an explicit ADR-0005 reversal.
-- `[CHANNEL=preview|stable] CF_TOKEN=... ./scripts/announce.sh <code> <name> <apk|-> "note"...` derives the channel from the version name when unset, writes/commits/pushes `preview.json` or `update.json`, purges jsDelivr, uploads a stable APK to KV (24 MiB limit; a preview APK goes out only as a GitHub Release asset), and creates a GitHub Release.
-- **Identity split**: `announce.sh` and the GitHub Release target `qwerkilo/SpektraLab-Android`; the upstream `SAINTTaiYi` repository is the source reference, not this fork's release channel. `UpdateCheck` reads the fork's `spektralab.workshop.skin` and `qwerkilo` endpoints. Pushing upstream does not update the channel users read. Confirm the target before announcing.
-- Default branch `master`; jsDelivr and raw.githubusercontent both read `@master`.
-
-## CodeGraph
-
-This checkout has a `.codegraph/` index. Prefer `codegraph explore "<symbols or question>"` (or the MCP `codegraph_explore`) over a grep/read loop for code questions. The database is local and gitignored; on a fresh clone run `codegraph init -y`. The `post-commit` and `post-merge` hooks run `codegraph sync --quiet` when the CLI is installed.
+Legacy Termux build, only when rebuilding native code: `build-libs-raw.sh` (once) → `build-engine.sh` → `build-native.sh` → `build-libs.sh`. `build-libs.sh` renames `libjpeg.so.8` / `libz.so.1` and rewrites every `DT_NEEDED`; hand-copying `libspektrafilm_engine.so` ships a library that cannot load (E-9000).
 
 ## Verify
 
-No JUnit or instrumentation suite. Pure JVM checks live in `app/src/test/java/app/spektralab/*Check.java` (Palette, M3Tokens, ThemeMode, SpectrumSamples, SpectrumCurve, OpticsDelta, GateScale, ScanSample, ConsoleLayout, FilmBrand, StockNames, PrintTarget, SafeFileName, ReleaseUrl, UpdateGate, SpkError, VersionCheck, ViewAdjust, Composition, Look, LookRestatement, LookHistory, DateBack, RebateControls, Icon, FrameLookSession, RenderSnapshot, StockCatalogue, ImportBudget, ImageFormat). Run them with `./gradlew checkJvm`; run `./gradlew checkstyleGovernance` for the Alibaba-style rules (`config/checkstyle/checkstyle.xml`) on the extracted packages and `MainActivity`. CI runs both. It compiles the checks against the app's real debug classpath and runs each one from the repository root, so `M3TokenCheck` can read `res/values/colors.xml` and `themes.xml`. They do not need a device. Plain `javac -cp android.jar` no longer compiles the main sources because `MainActivity` imports AppCompat and Material; the legacy Termux scripts are the pre-M3 fallback and do not build this tree. `python app/build/check-manifest.py` pins permissions, exports, cleartext, and backup; `python app/build/check-apk.py <apk>` re-checks the merged APK (target SDK, permissions, backup, cleartext); `python app/build/test-gen-stock-catalog.py` covers the profile generator. For Android 15/16 16 KB pages, `./gradlew align16k` and install `app-debug-16k-signed.apk`. Then install on the device and watch logcat tags `SpektraLabJNI` and `SpektraLabRAW`. On the device, `DebugSink` POSTs diagnostics to `127.0.0.1:8770` (Termux-side sink). Driver telemetry goes to `report.workshop.skin`. Manual device matrix: `docs/testing/manual-device-checklist.md`. When a new `*Check.java` is added, run `./gradlew checkJvm --rerun-tasks`: Gradle can otherwise report the task up-to-date and silently skip the new check.
+```powershell
+.\gradlew.bat checkstyleGovernance checkJvm lintDebug
+python app/build/check-manifest.py
+python app/build/test-gen-stock-catalog.py
+python app/build/check-apk.py <apk>    # after assemble/align16k
+```
+
+- `checkJvm` compiles the `*Check.java` programs against the real debug classpath and runs each one from the repo root. A new check needs `checkJvm --rerun-tasks`, or Gradle may report the task up to date and skip it.
+- `checkstyleGovernance` enforces the Alibaba-style subset on `core/**`, `model/**`, `ui/**` and `MainActivity`. Do not exclude a file to make a change pass; move code to its owning package.
+- `check-manifest.py` and `check-apk.py` pin target SDK, permissions, exports, cleartext and backup.
+- Device checks: install, then watch logcat tags `SpektraLabJNI` and `SpektraLabRAW`. `DebugSink` posts diagnostics to `127.0.0.1:8770`; driver telemetry goes to `report.workshop.skin`. Manual matrix: `docs/testing/manual-device-checklist.md`.
+
+## Code map
+
+- `MainActivity.java` — ~8.3k lines, the composition root and programmatic `View` UI. No XML layouts. M3 theme, color roles and type attrs live in `app/src/main/res/values/*`; the rail menu is `res/menu/console_nav.xml`.
+- `FrameLookSession.java` — the live per-Frame `Look` plus undo. The Activity holds only the current session; `look()` is read-only, edits go through `edit`/`record`. Never add a second copy of a Look value.
+- `RenderSnapshot.java` — one UI-thread snapshot of the Look, engine JSON, stock, long edge and view-adjust. Preview, export and RAW import build it once; workers must not re-read live state.
+- `StockCatalogue.java` — the single store for film/print entries. The Activity exposes read-only views; do not add a parallel list.
+- `ui/widget/` — extracted custom views (`SpectralRail`, `ToolGlyph`, `ArrowView`, `GuideView`, `EdgeBackdrop`, `SnackbarHost`, `CompareView`, `ScanOverlayView`). New views go here.
+- `core/` — framework-free rules and format helpers. `model/` — immutable records (`FilmStock`, `Frame`). `ui/` — presentation state (`UiState`, `ThemeMode`). The root package keeps the composition root and the remaining domain seams (`Look`, `GateScale`, `OpticsDelta`, `Palette`, `M3Tokens`, `UpdateGate`, `SpkError`).
+- `SpektraLabEngine.java` — JNI facade; loads bundled `.so` by absolute path, no `static {}` loader. `spektralab_jni.cpp` — session/render/export; `spektralab_raw_jni.cpp` — LibRaw decode. The engine is not in this repo; only `patches/engine-android.patch` and `docs/tiling.md` are.
+
+## Traps
+
+- `spk_result.row_stride_px` is in **pixels**, 4 uint16 per pixel: `rgba16 + y * stride * 4`.
+- Imports are capped at 42 MP / 8000 long edge. The 16.7 MP dispatch ceiling is handled by the banded renderer in the 1.5.0e engine, not by the import cap.
+- `build-engine.sh <unit>...` is incremental, but a header change needs a full rebuild; otherwise vtable/ABI skew. Both JNI units are recompiled every build on purpose; a stale `spektralab_raw_jni.o` links and breaks the first RAW open.
+- `app/build/sources.txt` is generated by `build-dex.sh`; do not edit it.
+- Reversal/slide film: `scan_film` must ride the **stock delta**, not the slider delta. The Print stock stays stored but unused while a slide is selected; preview and export must send the same value.
+- `[E-xxxx]` codes in `SpkError.java` are user-facing. Keep the number when changing the text: E-1001 binding range, E-1108 HE/HE*, E-9000 native load, E-2001/2002 update.
+- GitHub compares **ancestry**, not trees. Upstream syncs must be merge commits, never squash, or the fork shows as behind even when files match.
 
 ## Device: DroidMind first
 
-Use the global `droidmind` MCP for Android device work. Do not start with raw `adb`.
+Use the global `droidmind` MCP; do not start with raw `adb`.
 
-- `android-device` — list/connect/properties; call `list_devices` first and use the serial it returns. Wi-Fi ports change between sessions.
-- `android-screenshot`, `android-ui`, `android-app`, `android-file`, `android-log`, `android-diag`, `android-shell` — prefer these over ad-hoc `adb shell`; use `android-shell` only for commands without a dedicated tool.
-- The MCP launches `uvx --python 3.13 --from git+https://github.com/hyperb1iss/droidmind --with "mcp<2" droidmind --transport stdio --adb-path F:\android-sdk\platform-tools\adb.exe`. Keep the `mcp<2` pin (DroidMind 1.30 uses FastMCP) and the explicit ADB path.
+- Call `android-device` `list_devices` first; Wi-Fi ports change, so use the returned serial.
+- `android-ui` taps/swipes, `android-screenshot`, `android-app`, `android-file`, `android-log`, `android-diag` cover most work. Use `android-shell` only for commands with no dedicated tool.
+- Config lives in `C:\Users\qwerkilo\.config\opencode\opencode.json`. It launches the local venv `C:\Users\qwerkilo\AppData\Local\Temp\opencode\droidmind-venv\Scripts\droidmind.exe --transport stdio --adb-path F:\android-sdk\platform-tools\adb.exe` with `mcp[cli]<2`; `uvx` fails when PyPI/GitHub TLS is flaky. If tools are missing, run `opencode mcp list`, then `opencode service restart`.
 - Fall back to `F:\android-sdk\platform-tools\adb.exe` only when the MCP is unavailable.
-- Installing, clearing data, uninstalling, or rebooting is state-changing: name the target serial explicitly and only do it when the task calls for it.
-- For a wide-window check, change `wm size` (for example `1800x2608`) and restore it; `wm density` recreates the Activity and clears the in-memory Frames, so do not use it to claim state preservation.
+- Installing, clearing data, uninstalling and rebooting are state-changing: name the target serial explicitly.
+- For a wide-window check use `wm size 1800x2608` and restore it. Never use `wm density`: it recreates the Activity and clears in-memory Frames, so it cannot prove state preservation.
+- MIUI `GestureStub` / `AntiMistakeTouch` and other apps' full-screen windows can swallow taps over the app; an ignored tap is not proof of an app bug.
 
-When the Termux engine toolchain is unavailable, a device build can replace `classes.dex` inside the shipped APK and re-sign it; the native libraries and assets stay from that APK. Do not hand-copy `libspektrafilm_engine.so`.
+## Upstreams
 
-GitHub Actions (`.github/workflows/android.yml`) runs `checkJvm`, lint, the manifest/APK gates, and builds a signed 16 KB APK on `windows-latest`. It downloads the donor APK from upstream release `v1.5.0e`; that download replaces the local `app/build/SpektraLab-1.5.0e-qa.apk`.
+- **Engine**: `JamesQiu2005/SpektraLab`, branch `assist/vulkan-engine-1.3.4` at `445e314`. Sync by reapplying `patches/engine-android.patch`; never merge the desktop app.
+- **Android app**: `SAINTTaiYi/SpektraLab-Android` at `1.5.0e` (`a2ffbc3`). The fork's `origin` is `qwerkilo/SpektraLab-Android`; pushing there does not update the upstream channel. The 1.5.0e native core is merged; upstream histogram/dark-theme/canvas UI remains a follow-up M3 port.
+- On Windows, build-tools 34 `d8` crashes on `MainActivity$1.class`. Use the R8 jar in `android-sdk/cmdline-tools/latest/lib/r8.jar` with JDK 17.
 
-## Commits
+## Release
 
-Conventional commits, one concern each: `fix(native):`, `feat:`, `chore(update):`,
-`release:`. Integration merges use `merge: <topic>` as already recorded in the
-history; merge commits are exempt from the conventional prefix because their
-subject names the joined work, not a new concern.
-
-## Agent skills
-
-### Issue tracker
-
-Issues live in this repo's GitHub Issues (`qwerkilo/SpektraLab-Android`), managed with the `gh` CLI. See `docs/agents/issue-tracker.md`. Issues are enabled; publish new tickets with `gh issue create`.
-
-### Triage labels
-
-Five canonical roles, default label strings. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
-
-### Code style
-
-Alibaba-style rules, package layering and comments: `docs/agents/code-style.md`.
-
-## Pre-commit hook
-
-Enable once per clone: `git config core.hooksPath .githooks`.
-The hook syntax-checks staged `.sh` files with `bash -n`, staged `.py` files with `ast.parse`, rejects staged text that is not valid UTF-8, runs `git diff --cached --check`, and refuses a direct commit on `master`/`main` unless `ALLOW_MASTER_COMMIT=1` is set for that commit.
-It does not run the Android build. Edit UTF-8 docs with the editor tool or Python (`newline='\n'`); Windows PowerShell 5 `Set-Content -Encoding utf8` writes a BOM and has corrupted non-ASCII text.
+- Version is duplicated in `AndroidManifest.xml`, `app/build.gradle` and the channel files; `VersionCheck` fails `checkJvm` on a mismatch. Current stable: **156 / `1.4.4-m3a`** (`update.json`). Current preview: **181 / `1.5.0e-m3`** (`preview.json`).
+- `UpdateCheck` compares version **and** channel, and reads only the fork's endpoints. `ReleaseUrl` allowlists `spektralab.workshop.skin`, the update host, and the fork's GitHub release paths.
+- Stable is gated by `docs/known-issues.md`. KI-1 (>16.7 MP rebate bottom print) is fixed in the 1.4.4 engine and recorded as `Release gate: accepted`; do not reopen it without a new reproduction.
+- `[CHANNEL=preview|stable] CF_TOKEN=... ./scripts/announce.sh <code> <name> <apk|-> "note"...` writes and pushes the channel file, purges jsDelivr, uploads a stable APK to KV (24 MiB limit), and creates a GitHub Release. It targets `qwerkilo/SpektraLab-Android`; confirm the identity before announcing.
+- Default branch `master`; jsDelivr and raw.githubusercontent both read `@master`.
 
 ## Git workflow
 
-Never commit directly to `master`. Create a feature branch, verify the change, then merge into `master`. `master` is protected: the `build` Android check is required, force pushes and deletions are blocked, and admins are included. Land changes through a pull request.
+- Never commit directly to `master`. Branch, verify, push, open a PR, wait for the required `build` check, then squash-merge.
+- `master` is protected: required `build`, up-to-date branch, no force-push or deletion, admins included.
+- Conventional commits with one concern: `fix(native):`, `feat:`, `chore(update):`, `release:`. Merge commits use `merge: <topic>` and are exempt.
+- Enable the hook once per clone: `git config core.hooksPath .githooks`. It checks staged `.sh` with `bash -n`, staged `.py` with `ast.parse`, rejects non-UTF-8 text, runs `git diff --cached --check`, and blocks commits on `master`/`main` unless `ALLOW_MASTER_COMMIT=1`.
+- Edit UTF-8 docs with the editor or Python (`newline='\n'`). Windows PowerShell 5 `Set-Content -Encoding utf8` writes a BOM and has corrupted Chinese text.
+
+## CodeGraph
+
+`.codegraph/` is present and gitignored. Prefer `codegraph explore "<symbols or question>"` (or MCP `codegraph_explore`) over grep/read loops. `post-commit` and `post-merge` run `codegraph sync --quiet` when the CLI is installed; on a fresh clone run `codegraph init -y`.
+
+## Agent docs
+
+- Issue tracker: `docs/agents/issue-tracker.md` (GitHub Issues in `qwerkilo/SpektraLab-Android`, `gh` CLI).
+- Triage labels: `docs/agents/triage-labels.md`.
+- Domain docs: `GLOSSARY.md` and `docs/adr/`; see `docs/agents/domain.md`.
+- Code style and layering: `docs/agents/code-style.md`.

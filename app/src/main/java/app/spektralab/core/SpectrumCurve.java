@@ -107,16 +107,24 @@ public final class SpectrumCurve {
                 if (finite(out.nm[i]) && finite(value)) {
                     out.values[c][i] = value;
                     sampled = true;
-                    out.loValue = Math.min(out.loValue, value);
-                    out.hiValue = Math.max(out.hiValue, value);
+                    if (value < out.loValue) {
+                        out.loValue = value;
+                    }
+                    if (value > out.hiValue) {
+                        out.hiValue = value;
+                    }
                 } else {
                     out.values[c][i] = Double.NaN;
                 }
             }
             if (sampled) {
                 out.count++;
-                out.loNm = Math.min(out.loNm, out.nm[i]);
-                out.hiNm = Math.max(out.hiNm, out.nm[i]);
+                if (out.nm[i] < out.loNm) {
+                    out.loNm = out.nm[i];
+                }
+                if (out.nm[i] > out.hiNm) {
+                    out.hiNm = out.nm[i];
+                }
             }
         }
         return out;
