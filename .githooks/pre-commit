@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 # Syntax-check staged shell and Python files before commit.
+# Refuse a direct commit on master/main; feature branches only.
 # Enable once per clone: git config core.hooksPath .githooks
 set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
 cd "$root"
+
+branch=$(git symbolic-ref --quiet --short HEAD || true)
+if [[ $branch == "master" || $branch == "main" ]] && [[ ${ALLOW_MASTER_COMMIT:-0} != "1" ]]; then
+  printf 'pre-commit: refusing a direct commit on %s; create a feature branch.\n' "$branch" >&2
+  printf 'pre-commit: override once with ALLOW_MASTER_COMMIT=1.\n' >&2
+  exit 1
+fi
 
 python_bin=""
 if command -v python3 >/dev/null 2>&1; then

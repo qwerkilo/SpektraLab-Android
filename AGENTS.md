@@ -133,7 +133,7 @@ Alibaba-style rules, package layering and comments: `docs/agents/code-style.md`.
 ## Pre-commit hook
 
 Enable once per clone: `git config core.hooksPath .githooks`.
-The hook syntax-checks staged `.sh` files with `bash -n`, staged `.py` files with `ast.parse`, rejects staged text that is not valid UTF-8, and runs `git diff --cached --check`.
+The hook syntax-checks staged `.sh` files with `bash -n`, staged `.py` files with `ast.parse`, rejects staged text that is not valid UTF-8, runs `git diff --cached --check`, and refuses a direct commit on `master`/`main` unless `ALLOW_MASTER_COMMIT=1` is set for that commit.
 It does not run the Android build. Edit UTF-8 docs with the editor tool or Python (`newline='\n'`); Windows PowerShell 5 `Set-Content -Encoding utf8` writes a BOM and has corrupted non-ASCII text.
 
 ## Git workflow
