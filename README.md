@@ -5,25 +5,27 @@
 颗粒、光晕和成色剂耦合按画幅的微米尺度计算，不是 LUT。
 
 > 社区移植，不是上游官方版本。引擎来自上游 `assist/vulkan-engine-1.3.4`（commit `445e314`），
-> 应用层同步到上游 `1.4.4`。
+> 应用层已同步到上游 `1.5.0e`。
 
 ## 当前版本
 
-**`1.4.4-m3a` · versionCode 156**
+**稳定版：`1.4.4-m3a` · versionCode 156**
+
+**源码预览：`1.5.0e-m3` · versionCode 181**
 
 - [GitHub Releases](https://github.com/qwerkilo/SpektraLab-Android/releases)
 - 更新通道：`update.json`（stable）与 `preview.json`（preview）
 - 官网：[spektralab.workshop.skin](https://spektralab.workshop.skin/)
 
-`1.4.4-m3a` 的主要内容：
+`1.5.0e-m3` 的主要内容：
 
-- 上游 1.4.4 分带渲染、解码白平衡、加性光晕、导出元数据与 RAW 修复
-- 修复 >16.7 MP 片边导出底部帧号 / 厂标丢失（KI-1）
-- M3 控制台：双主题、动态色、手机 tabs / ≥600 dp navigation rail
-- 视图调整：白平衡、亮度、颜色、四区色彩分级
-- 构图：0/90/180/270°、细旋转、裁切、翻转、Apply 提案
-- 每帧 Look 撤销、画布双指缩放 / 平移、Scan inspect RGB / λ 读数
-- 修复启动器图标为黑色的问题，补回自适应图标与各密度图标
+- 同步上游 1.5.0e 原生核心：分带渲染覆盖胶片与冲印，新增 77 MP 片边导出路径
+- 修复导出花屏、片边条带、日期偏移、片门越界与片边中文方块
+- 保留 M3 控制台：双主题、动态色、视图调整、构图、每帧撤销、画布缩放、Scan inspect
+- 上游的直方图、暗色主题与画布 UI 仍待移植到 M3 控制台
+
+`1.4.4-m3a` 是当前稳定下载，包含 1.4.4 分带渲染、解码白平衡、加性光晕、导出元数据、
+RAW 修复，以及启动器图标修复。
 
 ## 现在能做什么
 
@@ -46,6 +48,8 @@
 从 [Releases](https://github.com/qwerkilo/SpektraLab-Android/releases) 下载
 `SpektraLab-1.4.4-m3a-arm64-v8a.apk`，安装到 arm64-v8a 的 Android 设备。
 
+`1.5.0e-m3` 是源码预览，尚未作为 stable 发布；稳定通道仍由 `update.json` 提供 156。
+
 Android 15 / 16（16 KB 页）请使用 release 中已 `zipalign -P 16` 的包；本地构建见下。
 
 ## 构建
@@ -67,13 +71,13 @@ sdk.dir=F:\\android-sdk
 Gradle 需要一份 **donor APK** 提供 `assets/` 与 `arm64-v8a` 原生库。默认读取：
 
 ```text
-app/build/SpektraLab-1.4.4-qa.apk
+app/build/SpektraLab-1.5.0e-qa.apk
 ```
 
 也可以显式指定：
 
 ```powershell
-.\gradlew.bat assembleDebug -PbaseApk="C:\path\to\SpektraLab-1.4.4-arm64-v8a.apk"
+.\gradlew.bat assembleDebug -PbaseApk="C:\path\to\SpektraLab-1.5.0e-arm64-v8a.apk"
 ```
 
 `stock_catalog.json` 不从 donor 复制，而是由 `generateStockCatalog` 根据 donor 的
@@ -93,6 +97,7 @@ $env:SPK_KEY_ALIAS="qwerkilo"
 构建与检查：
 
 ```powershell
+.\gradlew.bat checkstyleGovernance   # Alibaba-style rules
 .\gradlew.bat checkJvm        # 纯 JVM 检查
 .\gradlew.bat lintDebug       # Android lint
 .\gradlew.bat assembleDebug   # 4 KB zip-aligned debug APK
@@ -112,9 +117,9 @@ app/build/outputs/apk/debug/app-debug-16k-signed.apk
 `.github/workflows/android.yml` 在 `windows-latest` 上运行：
 
 1. JDK 17、Python 3.12、Android SDK 36
-2. `checkJvm`、`lintDebug`
+2. `checkstyleGovernance`、`checkJvm`、`lintDebug`
 3. `check-manifest.py`、`check-apk.py`
-4. 下载上游 `v1.4.4` donor，构建并签名 16 KB APK
+4. 下载上游 `v1.5.0e` donor，构建并签名 16 KB APK
 5. 上传可安装的 `SpektraLab-debug-16k` artifact
 
 CI 使用仓库 secrets 中的 release keystore；fork PR 默认拿不到 secrets。
@@ -129,6 +134,8 @@ CI 使用仓库 secrets 中的 release keystore；fork PR 默认拿不到 secret
 没有 JUnit / instrumentation 测试套件。纯 JVM 检查在
 `app/src/test/java/app/spektralab/*Check.java`，用 `./gradlew checkJvm` 运行；
 新增 `*Check.java` 后加 `--rerun-tasks`，否则 Gradle 可能跳过。
+`./gradlew checkstyleGovernance` 检查 `core/`、`model/`、`ui/` 与 `MainActivity` 的
+命名、括号、行长、方法长度和圈复杂度。
 
 另外两个构建门：
 
@@ -145,7 +152,11 @@ python app/build/test-gen-stock-catalog.py
 
 | 路径 | 内容 |
 |---|---|
-| `app/src/main/java/app/spektralab/` | Activity、Look / ViewAdjust / Composition、纯 JVM 检查的 seam |
+| `app/src/main/java/app/spektralab/` | 组合根 `MainActivity`、Look / FrameLookSession / RenderSnapshot、剩余领域接缝 |
+| `app/src/main/java/app/spektralab/core/` | 无 Android 依赖的规则与格式处理（导入预算、光谱、品牌、文件名等） |
+| `app/src/main/java/app/spektralab/model/` | 不可变记录：`FilmStock`、`Frame` |
+| `app/src/main/java/app/spektralab/ui/` | 展示状态 `UiState`、`ThemeMode` |
+| `app/src/main/java/app/spektralab/ui/widget/` | 提取出的自定义 View |
 | `app/src/main/res/` | M3 theme、color roles、type attrs、rail menu、drawable |
 | `app/src/main/cpp/` | JNI：会话、渲染、JPEG / TIFF / DNG 导出、RAW 打开 |
 | `app/build/` | 资源 / 原生库 staging、Gradle 辅助脚本、Termux 旧脚本 |
@@ -182,14 +193,21 @@ python app/build/test-gen-stock-catalog.py
 An unofficial Android port of the SpektraLab film/paper simulation engine (Vulkan backend).
 RAW or JPEG in, physically modelled film + paper out, on the phone.
 
-Current release: **1.4.4-m3a (156)** — upstream 1.4.4 banded rendering, decode white balance,
-additive halation, export metadata, RAW fixes, and the M3 Console (view adjust, composition,
-per-Frame undo, Scan inspect, dynamic colour, phone tabs / wide navigation rail).
+Stable release: **1.4.4-m3a (156)**. Source preview: **1.5.0e-m3 (181)**.
+
+The stable build carries upstream 1.4.4 banded rendering, decode white balance,
+additive halation, export metadata, RAW fixes, and the M3 Console (view adjust,
+composition, per-Frame undo, Scan inspect, dynamic colour, phone tabs / wide
+navigation rail). The preview source tracks the upstream 1.5.0e native core:
+banded film and print passes, a 77 MP rebate export path, and export fixes for
+banding, date offset, gate overflow and CJK edge text. Upstream histogram,
+dark-theme and canvas UI changes are not yet ported to the M3 Console.
 
 Build with `./gradlew assembleDebug` (requires JDK 17, SDK 36, and a donor
-`app/build/SpektraLab-1.4.4-qa.apk` or `-PbaseApk=<path>`), then `./gradlew align16k`
-for a 16 KB-aligned installable APK. Checks: `./gradlew checkJvm`, `lintDebug`,
-`python app/build/check-manifest.py`, `python app/build/check-apk.py <apk>`.
+`app/build/SpektraLab-1.5.0e-qa.apk` or `-PbaseApk=<path>`), then `./gradlew align16k`
+for a 16 KB-aligned installable APK. Checks: `./gradlew checkstyleGovernance`,
+`checkJvm`, `lintDebug`, `python app/build/check-manifest.py`,
+`python app/build/check-apk.py <apk>`.
 
 Known limits: no instrumentation suite; `contrast_mask` unsupported on Vulkan;
 42 MP / 8000 px import caps; 2.0× large-text overflow; 16 KB native ELF rebuild pending.
