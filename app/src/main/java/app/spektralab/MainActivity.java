@@ -3224,21 +3224,11 @@ card.setOnClickListener(v -> {
      * Composition as an M3 sheet. The values are part of the Look and go
      * through the engine's geometry node; no bitmap transform is baked in.
      */
-    private void showComposeSheet() {
-        final BottomSheetDialog dialog = new BottomSheetDialog(this);
-        final LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(18), dp(20), dp(24));
-        root.addView(m3Label("构图 / COMPOSE", M3Tokens.TypeRole.TITLE_MEDIUM,
-                m3OnSurface(), tfDisplay));
-
+    /** The quarter-turn chip row. */
+    private void buildComposeTurns(LinearLayout root, int[] draftTurns) {
         final ChipGroup turns = new ChipGroup(this);
         turns.setSingleSelection(true);
         turns.setSelectionRequired(true);
-        final int[] draftTurns = {live().geometryTurns};
-        final float[] draft = {live().geometryRotation, live().geometryCropX, live().geometryCropY,
-                live().geometryCropW, live().geometryCropH};
-        final boolean[] draftFlips = {live().geometryFlipH, live().geometryFlipV};
         final String[] labels = {"0°", "90°", "180°", "270°"};
         for (int i = 0; i < labels.length; ++i) {
             final int quarter = i;
@@ -3253,6 +3243,10 @@ card.setOnClickListener(v -> {
         }
         root.addView(turns, new LinearLayout.LayoutParams(-1, -2));
 
+    }
+
+    /** The rotation and crop sliders. */
+    private void buildComposeSliders(LinearLayout root, float[] draft) {
         composeSlider(root, "旋转 / ROTATION", -45f, 45f, draft[0],
                 v -> draft[0] = v);
         composeSlider(root, "裁切 X / CROP X", 0f, 1f, draft[1],
@@ -3264,6 +3258,10 @@ card.setOnClickListener(v -> {
         composeSlider(root, "裁切高 / CROP H", 0.05f, 1f, draft[4],
                 v -> draft[4] = v);
 
+    }
+
+    /** The two flip switches. */
+    private void buildComposeFlips(LinearLayout root, boolean[] draftFlips) {
         final MaterialSwitch flipH = new MaterialSwitch(this);
         flipH.setText(mixedText("水平翻转 / FLIP H"));
         flipH.setChecked(draftFlips[0]);
@@ -3276,6 +3274,11 @@ card.setOnClickListener(v -> {
         flipV.setOnCheckedChangeListener((b, checked) -> draftFlips[1] = checked);
         root.addView(flipV, new LinearLayout.LayoutParams(-1, dp(48)));
 
+    }
+
+    /** The apply and reset buttons. */
+    private void buildComposeActions(LinearLayout root, BottomSheetDialog dialog,
+                                             int[] draftTurns, float[] draft, boolean[] draftFlips) {
         final MaterialButton apply = actionButton(
                 mixedText("应用构图"), "应用旋转、裁切和翻转");
         apply.setOnClickListener(v -> {
@@ -3304,6 +3307,25 @@ card.setOnClickListener(v -> {
         });
         root.addView(reset, new LinearLayout.LayoutParams(-2, dp(48)));
 
+    }
+
+    private void showComposeSheet() {
+        final BottomSheetDialog dialog = new BottomSheetDialog(this);
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(18), dp(20), dp(24));
+        root.addView(m3Label("构图 / COMPOSE", M3Tokens.TypeRole.TITLE_MEDIUM,
+                m3OnSurface(), tfDisplay));
+
+        final int[] draftTurns = {live().geometryTurns};
+        final float[] draft = {live().geometryRotation, live().geometryCropX, live().geometryCropY,
+                live().geometryCropW, live().geometryCropH};
+        final boolean[] draftFlips = {live().geometryFlipH, live().geometryFlipV};
+
+        buildComposeTurns(root, draftTurns);
+        buildComposeSliders(root, draft);
+        buildComposeFlips(root, draftFlips);
+        buildComposeActions(root, dialog, draftTurns, draft, draftFlips);
         dialog.setContentView(root);
         dialog.show();
     }
