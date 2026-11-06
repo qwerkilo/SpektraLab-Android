@@ -6860,6 +6860,115 @@ refreshEdgeFormats();
      * scrolls, can be selected, and copies itself in one tap -- an error the
      * user cannot forward is an error nobody can fix.
      */
+    /** The error card header and close link. */
+    private void addErrorHeader(LinearLayout card, android.app.Dialog dialog) {
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        head.setPadding(dp(16), 0, dp(16), 0);
+        TextView kicker = mixedM3Label("ERROR / 错误详情",
+                M3Tokens.TypeRole.LABEL_LARGE, m3Primary());
+        head.addView(kicker, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView close = m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
+                m3OnSurfaceVariant(), tfHan);
+        close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+        close.setPadding(dp(12), dp(14), 0, dp(14));
+        close.setOnClickListener(v -> dialog.dismiss());
+        head.addView(close);
+        card.addView(head, new LinearLayout.LayoutParams(-1, dp(42)));
+    }
+
+    /** The scrollable error detail. */
+    private void addErrorBody(LinearLayout card, String shownTitle, String shownBody) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout bodyBox = new LinearLayout(this);
+        bodyBox.setOrientation(LinearLayout.VERTICAL);
+        bodyBox.setPadding(dp(16), 0, dp(16), 4);
+        TextView titleView = m3Label(shownTitle, M3Tokens.TypeRole.TITLE_LARGE,
+                m3OnSurface(), tfHan);
+        bodyBox.addView(titleView);
+        TextView advice = m3Label("请复制下面的完整信息，方便定位问题。",
+                M3Tokens.TypeRole.BODY_MEDIUM, m3OnSurfaceVariant(), tfHan);
+        LinearLayout.LayoutParams adviceLp = new LinearLayout.LayoutParams(-1, -2);
+        adviceLp.topMargin = dp(8);
+        bodyBox.addView(advice, adviceLp);
+        TextView detail = m3Label(shownBody, M3Tokens.TypeRole.BODY_SMALL,
+                m3OnSurface(), tfHan);
+        detail.setTextIsSelectable(true);
+        detail.setPadding(dp(12), dp(11), dp(12), dp(11));
+        android.graphics.drawable.GradientDrawable detailBg = new android.graphics.drawable.GradientDrawable();
+        detailBg.setColor(m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerLowest,
+                Palette.Role.SURFACE_SUNKEN));
+        detail.setBackground(detailBg);
+        LinearLayout.LayoutParams detailLp = new LinearLayout.LayoutParams(-1, -2);
+        detailLp.topMargin = dp(14);
+        bodyBox.addView(detail, detailLp);
+        scroll.addView(bodyBox, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        int bodyHeight = (int) Math.min(dp(340), getResources().getDisplayMetrics().heightPixels * 0.44f);
+        card.addView(scroll, new LinearLayout.LayoutParams(-1, bodyHeight));
+    }
+
+    /** The close and copy actions. */
+    private void addErrorActions(LinearLayout card, android.app.Dialog dialog,
+                                         String shownTitle, String shownBody) {
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setPadding(dp(16), dp(14), dp(16), dp(16));
+        TextView closeAction = m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
+                m3Primary(), tfHan);
+        closeAction.setGravity(android.view.Gravity.CENTER);
+        android.graphics.drawable.GradientDrawable closeBg = new android.graphics.drawable.GradientDrawable();
+        closeBg.setColor(m3Role(
+                com.google.android.material.R.attr.colorSurfaceContainerHigh,
+                Palette.Role.SURFACE_ELEVATED));
+        closeBg.setStroke(dp(1), m3Primary());
+        closeAction.setBackground(closeBg);
+        closeAction.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        closeLp.rightMargin = dp(8);
+        actions.addView(closeAction, closeLp);
+        TextView copy = m3Label("复制错误信息", M3Tokens.TypeRole.LABEL_LARGE,
+                m3Role(com.google.android.material.R.attr.colorOnPrimary,
+                        Palette.Role.ON_ACCENT), tfHan);
+        copy.setGravity(android.view.Gravity.CENTER);
+        android.graphics.drawable.GradientDrawable copyBg = new android.graphics.drawable.GradientDrawable();
+        copyBg.setColor(m3Primary());
+        copy.setBackground(copyBg);
+        copy.setOnClickListener(v -> {
+            try {
+                final String text = shownTitle + "\n\n" + shownBody
+                        + "\n\nbuild=SpektraLab Android " + UpdateCheck.versionName(this)
+                        + "\n" + probe.describe();
+                android.content.ClipboardManager cm =
+                        (android.content.ClipboardManager) getSystemService(
+                                android.content.Context.CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("SpektraLab", text));
+                copy.setText("已复制");
+            } catch (Throwable t) {
+                copy.setText("复制失败 · 请长按详情");
+            }
+        });
+        actions.addView(copy, new LinearLayout.LayoutParams(0, dp(48), 1.45f));
+        card.addView(actions, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    /** Show the error card with the shared dialog window shape. */
+    private void showErrorCardWindow(android.app.Dialog dialog, LinearLayout card) {
+        dialog.setContentView(card);
+        dialog.setCanceledOnTouchOutside(true);
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(
+                new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+            int width = Math.min(dp(358),
+                    getResources().getDisplayMetrics().widthPixels - dp(32));
+            dialog.getWindow().setLayout(width, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            dialog.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            dialog.getWindow().setDimAmount(0.30f);
+        }
+    }
+
     private void showErrorDialog(String title, String body) {
         final String shownTitle = (title == null || title.isEmpty()) ? "错误" : title;
         final String shownBody = (body == null || body.isEmpty()) ? "[E-0000] 未知错误" : body;
@@ -6875,101 +6984,10 @@ refreshEdgeFormats();
                     Palette.Role.ACCENT));
             card.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
 
-            LinearLayout head = new LinearLayout(this);
-            head.setOrientation(LinearLayout.HORIZONTAL);
-            head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            head.setPadding(dp(16), 0, dp(16), 0);
-            TextView kicker = mixedM3Label("ERROR / 错误详情",
-                    M3Tokens.TypeRole.LABEL_LARGE, m3Primary());
-            head.addView(kicker, new LinearLayout.LayoutParams(0, -2, 1f));
-            TextView close = m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
-                    m3OnSurfaceVariant(), tfHan);
-            close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
-            close.setPadding(dp(12), dp(14), 0, dp(14));
-            close.setOnClickListener(v -> dialog.dismiss());
-            head.addView(close);
-            card.addView(head, new LinearLayout.LayoutParams(-1, dp(42)));
-
-            ScrollView scroll = new ScrollView(this);
-            LinearLayout bodyBox = new LinearLayout(this);
-            bodyBox.setOrientation(LinearLayout.VERTICAL);
-            bodyBox.setPadding(dp(16), 0, dp(16), 4);
-            TextView titleView = m3Label(shownTitle, M3Tokens.TypeRole.TITLE_LARGE,
-                    m3OnSurface(), tfHan);
-            bodyBox.addView(titleView);
-            TextView advice = m3Label("请复制下面的完整信息，方便定位问题。",
-                    M3Tokens.TypeRole.BODY_MEDIUM, m3OnSurfaceVariant(), tfHan);
-            LinearLayout.LayoutParams adviceLp = new LinearLayout.LayoutParams(-1, -2);
-            adviceLp.topMargin = dp(8);
-            bodyBox.addView(advice, adviceLp);
-            TextView detail = m3Label(shownBody, M3Tokens.TypeRole.BODY_SMALL,
-                    m3OnSurface(), tfHan);
-            detail.setTextIsSelectable(true);
-            detail.setPadding(dp(12), dp(11), dp(12), dp(11));
-            android.graphics.drawable.GradientDrawable detailBg = new android.graphics.drawable.GradientDrawable();
-            detailBg.setColor(m3Role(
-                    com.google.android.material.R.attr.colorSurfaceContainerLowest,
-                    Palette.Role.SURFACE_SUNKEN));
-            detail.setBackground(detailBg);
-            LinearLayout.LayoutParams detailLp = new LinearLayout.LayoutParams(-1, -2);
-            detailLp.topMargin = dp(14);
-            bodyBox.addView(detail, detailLp);
-            scroll.addView(bodyBox, new android.widget.FrameLayout.LayoutParams(-1, -2));
-            int bodyHeight = (int) Math.min(dp(340), getResources().getDisplayMetrics().heightPixels * 0.44f);
-            card.addView(scroll, new LinearLayout.LayoutParams(-1, bodyHeight));
-
-            LinearLayout actions = new LinearLayout(this);
-            actions.setOrientation(LinearLayout.HORIZONTAL);
-            actions.setPadding(dp(16), dp(14), dp(16), dp(16));
-            TextView closeAction = m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
-                    m3Primary(), tfHan);
-            closeAction.setGravity(android.view.Gravity.CENTER);
-            android.graphics.drawable.GradientDrawable closeBg = new android.graphics.drawable.GradientDrawable();
-            closeBg.setColor(m3Role(
-                    com.google.android.material.R.attr.colorSurfaceContainerHigh,
-                    Palette.Role.SURFACE_ELEVATED));
-            closeBg.setStroke(dp(1), m3Primary());
-            closeAction.setBackground(closeBg);
-            closeAction.setOnClickListener(v -> dialog.dismiss());
-            LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(0, dp(48), 1f);
-            closeLp.rightMargin = dp(8);
-            actions.addView(closeAction, closeLp);
-            TextView copy = m3Label("复制错误信息", M3Tokens.TypeRole.LABEL_LARGE,
-                    m3Role(com.google.android.material.R.attr.colorOnPrimary,
-                            Palette.Role.ON_ACCENT), tfHan);
-            copy.setGravity(android.view.Gravity.CENTER);
-            android.graphics.drawable.GradientDrawable copyBg = new android.graphics.drawable.GradientDrawable();
-            copyBg.setColor(m3Primary());
-            copy.setBackground(copyBg);
-            copy.setOnClickListener(v -> {
-                try {
-                    final String text = shownTitle + "\n\n" + shownBody
-                            + "\n\nbuild=SpektraLab Android " + UpdateCheck.versionName(this)
-                            + "\n" + probe.describe();
-                    android.content.ClipboardManager cm =
-                            (android.content.ClipboardManager) getSystemService(
-                                    android.content.Context.CLIPBOARD_SERVICE);
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("SpektraLab", text));
-                    copy.setText("已复制");
-                } catch (Throwable t) {
-                    copy.setText("复制失败 · 请长按详情");
-                }
-            });
-            actions.addView(copy, new LinearLayout.LayoutParams(0, dp(48), 1.45f));
-            card.addView(actions, new LinearLayout.LayoutParams(-1, -2));
-
-            dialog.setContentView(card);
-            dialog.setCanceledOnTouchOutside(true);
-            dialog.show();
-            if (dialog.getWindow() != null) {
-                dialog.getWindow().setBackgroundDrawable(
-                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-                int width = Math.min(dp(358),
-                        getResources().getDisplayMetrics().widthPixels - dp(32));
-                dialog.getWindow().setLayout(width, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-                dialog.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-                dialog.getWindow().setDimAmount(0.30f);
-            }
+            addErrorHeader(card, dialog);
+            addErrorBody(card, shownTitle, shownBody);
+            addErrorActions(card, dialog, shownTitle, shownBody);
+            showErrorCardWindow(dialog, card);
         });
     }
 
