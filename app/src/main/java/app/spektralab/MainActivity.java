@@ -6109,11 +6109,28 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * The decoded RAW frame in working space, packed without a transfer
-     * function. A camera JPEG is not a stand-in: it is the camera's
-     * rendering, not this frame.
-     */
+    /** Solve the print exposure and filter pack once on open. */
+    private void solveRawSession(SpektraLabEngine.Session source) {
+        try {
+            final String solved = source.solve("both");
+            DebugSink.text("solve", solved == null ? "(null)" : solved);
+        } catch (Throwable se) {
+            DebugSink.text("solve-failed", String.valueOf(se));
+        }
+    }
+
+    /** Publish a RAW import failure with its user-facing error code. */
+    private void reportRawImportFailure(Throwable t) {
+        final String said = describeImportFailure(t);
+        lastImportError = said;
+        // A High-Efficiency NEF is not a preview job: name the compression
+        // this build cannot decode and leave the file alone.
+        runOnUiThread(() -> {
+            statusText.setText("RAW加载失败 " + SpkError.shortForm(said));
+            showErrorSnackbar("RAW 加载失败", said);
+        });
+    }
+
     /** Publish the decoded RAW size and offer the native-size retry. */
     private void applyRawDimensions(SpektraLabEngine.Session source, Uri uri) {
         // Get dimensions from session
@@ -6162,6 +6179,11 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    /**
+     * The decoded RAW frame in working space, packed without a transfer
+     * function. A camera JPEG is not a stand-in: it is the camera's
+     * rendering, not this frame.
+     */
     private Bitmap decodeRawPreview(SpektraLabEngine.Session source) {
         Bitmap rawView = null;
         try {
@@ -6297,25 +6319,12 @@ public class MainActivity extends AppCompatActivity {
                     // filter pack the print runs on defaults and blows the
                     // highlights. The mac app makes the user press Process;
                     // this build does it once on open.
-                    try {
-                        String solved = session.solve("both");
-                        DebugSink.text("solve", solved == null ? "(null)" : solved);
-                    } catch (Throwable se) {
-                        DebugSink.text("solve-failed", String.valueOf(se));
-                    }
+                    solveRawSession(session);
                     runOnUiThread(() -> finishRawImport(reopening));
 
                     applyRawDimensions(session, uri);
                 } catch (Throwable t) {
-                    final String said = describeImportFailure(t);
-                    lastImportError = said;
-                    // A High-Efficiency NEF is not a preview job. Say what it
-                    // is (E-1108, a compression this build has no decoder for)
-                    // and what to change, and leave the file alone.
-                    runOnUiThread(() -> {
-                        statusText.setText("RAW加载失败 " + SpkError.shortForm(said));
-                        showErrorSnackbar("RAW 加载失败", said);
-                    });
+                    reportRawImportFailure(t);
                 }
             }).start();
         } catch (Throwable t) {
