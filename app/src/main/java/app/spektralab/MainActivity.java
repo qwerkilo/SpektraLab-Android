@@ -5822,6 +5822,117 @@ public class MainActivity extends AppCompatActivity {
         System.gc();
     }
 
+    /** Decode, rotate and scale one still, publishing its source size. */
+    /** Pack the decoded still into the engine's float RGB buffer, one row at a time. */
+    private void packSourcePixels() {
+        // A full int[] of 20 MP would be another 80 MB on the Java heap next
+        // to the direct buffer.
+        sourcePixels = ByteBuffer.allocateDirect(sourceWidth * sourceHeight * 3 * 4)
+                .order(ByteOrder.nativeOrder());
+        final int[] rowPixels = new int[sourceWidth];
+        for (int y = 0; y < sourceHeight; y++) {
+            sourceBitmap.getPixels(rowPixels, 0, sourceWidth, 0, y, sourceWidth, 1);
+            for (int px : rowPixels) {
+                sourcePixels.putFloat(((px >> 16) & 0xFF) / 255.0f);
+                sourcePixels.putFloat(((px >> 8) & 0xFF) / 255.0f);
+                sourcePixels.putFloat((px & 0xFF) / 255.0f);
+            }
+        }
+        sourcePixels.rewind();
+    }
+
+    /** Publish the still's comparison preview and its stage header. */
+    private void publishStillPreview(Uri uri) {
+        final float edge = Math.max(sourceWidth, sourceHeight);
+        final float preview = Math.min(1f, 1024f / edge);
+        final int pw = Math.max(1, Math.round(sourceWidth * preview));
+        final int ph = Math.max(1, Math.round(sourceHeight * preview));
+        beforeBitmap = Bitmap.createScaledBitmap(sourceBitmap, pw, ph, true);
+        // A source already within the preview edge is returned unchanged by
+        // createScaledBitmap. Recycling it here would leave CompareView
+        // holding a recycled bitmap and crash the next draw.
+        if (beforeBitmap != sourceBitmap) {
+            sourceBitmap.recycle();
+        }
+        sourceBitmap = null;
+        compare.setBefore(beforeBitmap);
+        statusText.setText("Local preview");
+        setStage(1, getFileName(uri));
+        rememberFrame(uri);
+        refreshFilmPanel();
+        setStep(1);
+    }
+
+    /** Open the engine session that owns the packed still. */
+    private void openStillSession() throws Exception {
+        ensureEngine();
+        synchronized (renderMutex) {
+            if (session != null) {
+                session.close();
+                session = null;
+            }
+        }
+        session = engine.openSession(sourcePixels, sourceWidth, sourceHeight, 3);
+    }
+
+    /** Whether the still needs the shrink dialog before it is decoded. */
+    private boolean askImportBudget(Uri uri) {
+        if (importAtNativeSize || importBudgetAccepted || suppressBudgetDialog) {
+            return false;
+        }
+        final int[] full = sniffImageSize(uri);
+        if (full == null) {
+            return false;
+        }
+        final long area = (long) full[0] * (long) full[1];
+        final int cap = maxImportPixels();
+        if (area > cap || Math.max(full[0], full[1]) > IMPORT_LONG_EDGE) {
+            showImportBudgetDialog(uri, full[0], full[1], cap);
+            return true;
+        }
+        return false;
+    }
+
+    private boolean decodeStillSource(Uri uri, boolean nativeSize, int forcedCap) {
+        final int edgeCap = nativeSize ? Integer.MAX_VALUE : IMPORT_LONG_EDGE;
+        final int capPixels = nativeSize ? Integer.MAX_VALUE
+        : (forcedCap > 0 ? forcedCap : maxImportPixels());
+        sourceBitmap = decodeImport(uri, capPixels, edgeCap);
+        if (sourceBitmap == null) {
+            // The old message here was "无法解码图片", which gave the user
+            // nothing to act on. A HEIC/HEIF this phone's decoder refuses is
+            // the common case, so the dialog carries the way out instead of
+            // describing it.
+            showActionSheet("[E-1107] 这张图本机解不开",
+            "多半是 HEIC/HEIF 或 10-bit 的图（三星、iPhone 默认存这种）。\n"
+            + "换「从文件选择」再试一次，读不到的话请先另存为 JPEG。",
+            new String[]{"从文件选择", "取消"}, which -> {
+                if (which == 0) pickRawFile();
+            });
+        return false;
+}
+sourceBitmap = applyExifRotation(uri, sourceBitmap);
+// Three ceilings in three units, and the strictest wins. The rule
+// lives in ImportBudget so the decoder and the budget dialog cannot
+// disagree about what this phone may hold.
+final long availBytes = availableMemoryBytes();
+final double k = ImportBudget.scale(sourceBitmap.getWidth(),
+sourceBitmap.getHeight(), capPixels, edgeCap, availBytes);
+if (k < 1.0) {
+    final int nw = Math.max(1, (int) Math.round(sourceBitmap.getWidth() * k));
+    final int nh = Math.max(1, (int) Math.round(sourceBitmap.getHeight() * k));
+    Bitmap scaled = Bitmap.createScaledBitmap(sourceBitmap, nw, nh, true);
+    if (scaled != sourceBitmap) sourceBitmap.recycle();
+    sourceBitmap = scaled;
+    try { DebugSink.text("import-scale", "k=" + k + " -> " + nw + "x" + nh
+            + " avail=" + availBytes); } catch (Throwable ignored) { }
+}
+sourceWidth = sourceBitmap.getWidth();
+sourceHeight = sourceBitmap.getHeight();
+refreshEdgeFormats();
+        return true;
+    }
+
     private void loadImage(Uri uri) {
         final boolean reopening = reopeningFrame;
         sourceUri = uri;
@@ -5847,16 +5958,8 @@ public class MainActivity extends AppCompatActivity {
             // that decision on the user's behalf, and it shows up later as an
             // export that is smaller than the file. The header gives the size
             // without decoding anything, so the question is free.
-            if (!importAtNativeSize && !importBudgetAccepted && !suppressBudgetDialog) {
-                final int[] full = sniffImageSize(uri);
-                if (full != null) {
-                    final long area = (long) full[0] * (long) full[1];
-                    final int cap = maxImportPixels();
-                    if (area > cap || Math.max(full[0], full[1]) > IMPORT_LONG_EDGE) {
-                        showImportBudgetDialog(uri, full[0], full[1], cap);
-                        return;
-                    }
-                }
+            if (askImportBudget(uri)) {
+                return;
             }
             importBudgetAccepted = false;
 
@@ -5871,79 +5974,15 @@ public class MainActivity extends AppCompatActivity {
             final int forcedCap = pendingCapPixels;
             pendingCapPixels = 0;
             e1001Offered = false;
-            final int capPixels = nativeSize ? Integer.MAX_VALUE
-                    : (forcedCap > 0 ? forcedCap : maxImportPixels());
-            final int edgeCap = nativeSize ? Integer.MAX_VALUE : IMPORT_LONG_EDGE;
-            sourceBitmap = decodeImport(uri, capPixels, edgeCap);
-            if (sourceBitmap == null) {
-                // The old message here was "无法解码图片", which gave the user
-                // nothing to act on. A HEIC/HEIF this phone's decoder refuses is
-                // the common case, so the dialog carries the way out instead of
-                // describing it.
-                showActionSheet("[E-1107] 这张图本机解不开",
-                        "多半是 HEIC/HEIF 或 10-bit 的图（三星、iPhone 默认存这种）。\n"
-                                + "换「从文件选择」再试一次，读不到的话请先另存为 JPEG。",
-                        new String[]{"从文件选择", "取消"}, which -> {
-                            if (which == 0) pickRawFile();
-                        });
+            if (!decodeStillSource(uri, nativeSize, forcedCap)) {
                 return;
             }
-            sourceBitmap = applyExifRotation(uri, sourceBitmap);
-            // Three ceilings in three units, and the strictest wins. The rule
-            // lives in ImportBudget so the decoder and the budget dialog cannot
-            // disagree about what this phone may hold.
-            final long availBytes = availableMemoryBytes();
-            final double k = ImportBudget.scale(sourceBitmap.getWidth(),
-                    sourceBitmap.getHeight(), capPixels, edgeCap, availBytes);
-            if (k < 1.0) {
-                final int nw = Math.max(1, (int) Math.round(sourceBitmap.getWidth() * k));
-                final int nh = Math.max(1, (int) Math.round(sourceBitmap.getHeight() * k));
-                Bitmap scaled = Bitmap.createScaledBitmap(sourceBitmap, nw, nh, true);
-                if (scaled != sourceBitmap) sourceBitmap.recycle();
-                sourceBitmap = scaled;
-                try { DebugSink.text("import-scale", "k=" + k + " -> " + nw + "x" + nh
-                        + " avail=" + availBytes); } catch (Throwable ignored) { }
-            }
-            sourceWidth = sourceBitmap.getWidth();
-            sourceHeight = sourceBitmap.getHeight();
-            refreshEdgeFormats();
 
-            // Convert a row at a time: a full int[] of 20 MP would be another
-            // 80 MB on the Java heap next to the direct buffer.
-            sourcePixels = ByteBuffer.allocateDirect(sourceWidth * sourceHeight * 3 * 4)
-                .order(ByteOrder.nativeOrder());
-            final int[] rowPixels = new int[sourceWidth];
-            for (int y = 0; y < sourceHeight; y++) {
-                sourceBitmap.getPixels(rowPixels, 0, sourceWidth, 0, y, sourceWidth, 1);
-                for (int px : rowPixels) {
-                    sourcePixels.putFloat(((px >> 16) & 0xFF) / 255.0f);
-                    sourcePixels.putFloat(((px >> 8) & 0xFF) / 255.0f);
-                    sourcePixels.putFloat((px & 0xFF) / 255.0f);
-                }
-            }
-            sourcePixels.rewind();
-            
-            final int pw = Math.max(1, Math.round(sourceWidth * Math.min(1f, 1024f / Math.max(sourceWidth, sourceHeight))));
-            final int ph = Math.max(1, Math.round(sourceHeight * Math.min(1f, 1024f / Math.max(sourceWidth, sourceHeight))));
-            beforeBitmap = Bitmap.createScaledBitmap(sourceBitmap, pw, ph, true);
-            // A source already within the preview edge is returned unchanged
-            // by createScaledBitmap. Recycling it here would leave CompareView
-            // holding a recycled bitmap and crash the next draw.
-            if (beforeBitmap != sourceBitmap) sourceBitmap.recycle();
-            sourceBitmap = null;
-            compare.setBefore(beforeBitmap);
-            statusText.setText("Local preview");
-            setStage(1, getFileName(uri));
-            rememberFrame(uri);
-            refreshFilmPanel();
-            setStep(1);
-            
-            // Create engine and session
-            ensureEngine();
-            synchronized (renderMutex) {
-                if (session != null) { session.close(); session = null; }
-            }
-            session = engine.openSession(sourcePixels, sourceWidth, sourceHeight, 3);
+            packSourcePixels();
+
+            publishStillPreview(uri);
+
+            openStillSession();
             // No parameter write here: a fresh session is stated by the render
             // that produces the picture (see `renderImage`), on the render
             // thread, so the UI never waits behind the engine's lock.
