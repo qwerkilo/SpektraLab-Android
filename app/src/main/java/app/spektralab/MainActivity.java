@@ -6114,6 +6114,54 @@ public class MainActivity extends AppCompatActivity {
      * function. A camera JPEG is not a stand-in: it is the camera's
      * rendering, not this frame.
      */
+    /** Publish the decoded RAW size and offer the native-size retry. */
+    private void applyRawDimensions(SpektraLabEngine.Session source, Uri uri) {
+        // Get dimensions from session
+        int[] dims = source.getDimensions();
+        int w = dims[0];
+        int h = dims[1];
+        sourceWidth = w;
+        sourceHeight = h;
+        try { DebugSink.text("raw-dims", "w=" + w + " h=" + h); } catch (Throwable ignored) {}
+
+        // Say when the device, not the photo, set the size. Silent
+        // downscaling reads as a bug the next time the user exports.
+        final int[] src = SpektraLabEngine.rawSourceSize();
+        final boolean shrunk = src != null && src.length == 2
+                && (long) src[0] * src[1] > (long) w * h;
+        try {
+            DebugSink.text("raw-cap", shrunk
+                    ? "source " + src[0] + "x" + src[1] + " -> session " + w + "x" + h
+                    : "not capped " + w + "x" + h);
+        } catch (Throwable ignored) {}
+
+        runOnUiThread(() -> {
+            refreshEdgeFormats();
+            setStep(1);
+            if (shrunk && !suppressBudgetDialog) {
+                // The raw has to be decoded before its size is known,
+                // so this asks afterwards -- but it still asks, and
+                // it offers the escape hatch the long-press used to
+                // hide.
+                final int rawW = src[0], rawH = src[1];
+                final String budgetMessage = "原图 " + rawW + "×" + rawH + "（" + megapixels(rawW, rawH)
+                                + " MP），这台机器一次能渲染约 "
+                                + String.format(java.util.Locale.US, "%.1f", maxImportPixels() / 1e6)
+                                + " MP，已按 " + w + "×" + h + " 导入。"
+                                + "\n\n按原尺寸导入可能渲染失败（E-1001）。";
+                        showActionSheet("原图超过本机预算", budgetMessage,
+                                new String[]{"就这样", "按原尺寸重来"}, which -> {
+                                    if (which == 1) {
+                                        importAtNativeSize = true;
+                                        retryingNativeSize = true;
+                                        loadRawImage(uri);
+                                    }
+                                });
+            }
+            statusText.setText("RAW metadata loaded");
+        });
+    }
+
     private Bitmap decodeRawPreview(SpektraLabEngine.Session source) {
         Bitmap rawView = null;
         try {
@@ -6257,50 +6305,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                     runOnUiThread(() -> finishRawImport(reopening));
 
-                    // Get dimensions from session
-                    int[] dims = session.getDimensions();
-                    int w = dims[0];
-                    int h = dims[1];
-                    sourceWidth = w;
-                    sourceHeight = h;
-                    try { DebugSink.text("raw-dims", "w=" + w + " h=" + h); } catch (Throwable ignored) {}
-
-                    // Say when the device, not the photo, set the size. Silent
-                    // downscaling reads as a bug the next time the user exports.
-                    final int[] src = SpektraLabEngine.rawSourceSize();
-                    final boolean shrunk = src != null && src.length == 2
-                            && (long) src[0] * src[1] > (long) w * h;
-                    try {
-                        DebugSink.text("raw-cap", shrunk
-                                ? "source " + src[0] + "x" + src[1] + " -> session " + w + "x" + h
-                                : "not capped " + w + "x" + h);
-                    } catch (Throwable ignored) {}
-
-                    runOnUiThread(() -> {
-                        refreshEdgeFormats();
-                        setStep(1);
-                        if (shrunk && !suppressBudgetDialog) {
-                            // The raw has to be decoded before its size is known,
-                            // so this asks afterwards -- but it still asks, and
-                            // it offers the escape hatch the long-press used to
-                            // hide.
-                            final int rawW = src[0], rawH = src[1];
-                            final String budgetMessage = "原图 " + rawW + "×" + rawH + "（" + megapixels(rawW, rawH)
-                                            + " MP），这台机器一次能渲染约 "
-                                            + String.format(java.util.Locale.US, "%.1f", maxImportPixels() / 1e6)
-                                            + " MP，已按 " + w + "×" + h + " 导入。"
-                                            + "\n\n按原尺寸导入可能渲染失败（E-1001）。";
-                                    showActionSheet("原图超过本机预算", budgetMessage,
-                                            new String[]{"就这样", "按原尺寸重来"}, which -> {
-                                                if (which == 1) {
-                                                    importAtNativeSize = true;
-                                                    retryingNativeSize = true;
-                                                    loadRawImage(uri);
-                                                }
-                                            });
-                        }
-                        statusText.setText("RAW metadata loaded");
-                    });
+                    applyRawDimensions(session, uri);
                 } catch (Throwable t) {
                     final String said = describeImportFailure(t);
                     lastImportError = said;
