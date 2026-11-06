@@ -3,7 +3,7 @@ package app.spektralab.ui.widget;
 import android.graphics.Bitmap;
 import android.view.View;
 import app.spektralab.Palette;
-import app.spektralab.ScanSample;
+import app.spektralab.core.ScanSample;
 
 /**
  * Scan inspect's draggable line and its touch/keyboard surface.

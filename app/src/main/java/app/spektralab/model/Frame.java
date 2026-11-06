@@ -5,7 +5,7 @@ import android.net.Uri;
 
 import app.spektralab.FrameLookSession;
 import app.spektralab.Look;
-import app.spektralab.ScanSample;
+import app.spektralab.core.ScanSample;
 
 /**
  * One photograph opened in this session, kept so the strip under the canvas

@@ -1,4 +1,4 @@
-package app.spektralab;
+package app.spektralab.core;
 
 /**
  * One read-only sample from a preview row, for Scan inspect.
@@ -75,11 +75,19 @@ public final class ScanSample {
      * clamped to 0..1 and NaN falls back to the centre.
      */
     public static ScanSample at(int[] row, int width, float fraction) {
-        if (row == null || width <= 0 || row.length < width) return NONE;
+        if (row == null || width <= 0 || row.length < width) {
+            return NONE;
+        }
         float f = fraction;
-        if (Float.isNaN(f)) f = DEFAULT_FRACTION;
-        if (f < 0f) f = 0f;
-        if (f > 1f) f = 1f;
+        if (Float.isNaN(f)) {
+            f = DEFAULT_FRACTION;
+        }
+        if (f < 0f) {
+            f = 0f;
+        }
+        if (f > 1f) {
+            f = 1f;
+        }
         final int index = Math.round(f * (width - 1));
         final int pixel = row[Math.max(0, Math.min(width - 1, index))];
         final int r = (pixel >> 16) & 0xFF;
@@ -133,7 +141,9 @@ public final class ScanSample {
 
     /** The sampled pixel as one line of real channel values. */
     public String rgbText() {
-        if (!available) return UNAVAILABLE_LABEL;
+        if (!available) {
+            return UNAVAILABLE_LABEL;
+        }
         return "R " + red + "  G " + green + "  B " + blue;
     }
 
@@ -151,7 +161,9 @@ public final class ScanSample {
 
     /** Readout text for accessibility: numbers, or the honest unavailable state. */
     public String description() {
-        if (!available) return "扫描采样不可用";
+        if (!available) {
+            return "扫描采样不可用";
+        }
         if (!hasWavelength()) {
             return "扫描采样 " + rgbText() + "，没有主波长";
         }
@@ -162,9 +174,13 @@ public final class ScanSample {
         final int max = Math.max(r, Math.max(g, b));
         final int min = Math.min(r, Math.min(g, b));
         final int chroma = max - min;
-        if (max == 0 || chroma < MIN_CHROMA) return NO_WAVELENGTH;
+        if (max == 0 || chroma < MIN_CHROMA) {
+            return NO_WAVELENGTH;
+        }
         final double saturation = chroma / (double) max;
-        if (saturation < MIN_SATURATION) return NO_WAVELENGTH;
+        if (saturation < MIN_SATURATION) {
+            return NO_WAVELENGTH;
+        }
 
         double hue;
         if (max == r) {
@@ -174,8 +190,12 @@ public final class ScanSample {
         } else {
             hue = 60.0 * (((r - g) / (double) chroma) + 4.0);
         }
-        if (hue < 0.0) hue += 360.0;
-        if (hue > HUE_ANCHORS[HUE_ANCHORS.length - 1]) return NO_WAVELENGTH;
+        if (hue < 0.0) {
+            hue += 360.0;
+        }
+        if (hue > HUE_ANCHORS[HUE_ANCHORS.length - 1]) {
+            return NO_WAVELENGTH;
+        }
 
         double nm = NM_ANCHORS[NM_ANCHORS.length - 1];
         for (int i = 1; i < HUE_ANCHORS.length; ++i) {
