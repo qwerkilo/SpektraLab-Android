@@ -3202,6 +3202,8 @@ card.setOnClickListener(v -> {
                 new LinearLayout.LayoutParams(-1, -2));
 
         buildOpticsStrip(panel);
+        // The readout must exist before bindActiveOptics writes into it.
+        panel.addView(buildOpticsReadout(), new LinearLayout.LayoutParams(-1, -2));
         buildOpticsSlider(panel);
 
         // The two choices the engine models separately from the 22 numbers.
