@@ -1,5 +1,7 @@
 package app.spektralab;
 
+import app.spektralab.core.SpectrumCurve;
+
 /**
  * Pure JVM contract for the film panel's curve: the plot is built from the
  * shipped samples only. Gaps stay gaps, nulls are never zero, the value range

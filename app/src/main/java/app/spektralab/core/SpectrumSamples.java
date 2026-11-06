@@ -1,7 +1,5 @@
 package app.spektralab.core;
 
-import app.spektralab.SpectrumCurve;
-
 /**
  * The spectral samples a shipped stock carries, if any.
  *
