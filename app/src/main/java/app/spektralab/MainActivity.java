@@ -1000,6 +1000,159 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    /** Build the stage frame and its Compare and Scan layers. */
+    private android.widget.FrameLayout createStage() {
+android.widget.FrameLayout stage = new android.widget.FrameLayout(this);
+stageView = stage;
+stage.setBackgroundColor(palette.color(Palette.Role.STAGE));
+stage.setClipChildren(false);
+stage.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
+        updateStageReadoutWidths());
+
+compare = new CompareView(this,
+        m3Role(com.google.android.material.R.attr.colorOutline, Palette.Role.LINE),
+        m3Surface(), m3Primary());
+compare.setVisibility(View.GONE);
+stage.addView(compare, new android.widget.FrameLayout.LayoutParams(-1, -1));
+
+// Scan inspect draws over the picture but under the corner readouts and
+// the shelf handle. It handles touches only while the mode is on; when
+// it is off, CompareView keeps the divider and the long-press hold.
+scanOverlay = new ScanOverlayView(this, palette, compare, this::onScanSample);
+scanOverlay.setVisibility(View.GONE);
+stage.addView(scanOverlay, new android.widget.FrameLayout.LayoutParams(-1, -1));
+
+        return stage;
+    }
+
+    /** The empty-stage import control. */
+    private void addStageEmptyState(android.widget.FrameLayout stage) {
+LinearLayout empty = new LinearLayout(this);
+empty.setOrientation(LinearLayout.VERTICAL);
+empty.setGravity(android.view.Gravity.CENTER);
+empty.setPadding(dp(16), dp(16), dp(16), dp(16));
+// One control, in the middle of the frame. The index line, the NO IMAGE
+// headline and the "select a RAW or JPEG" subtitle said the same thing
+// three times over, in three type sizes, and only the last of them
+// could be acted on.
+LinearLayout load = new LinearLayout(this);
+load.setOrientation(LinearLayout.HORIZONTAL);
+load.setGravity(android.view.Gravity.CENTER);
+load.setBackground(pressableFill(Palette.Role.SURFACE_ELEVATED));
+load.setPadding(dp(18), 0, dp(18), 0);
+load.setOnClickListener(v -> showImportMenu());
+// At 2.0× the centred pill runs into the PRINT EXPOSURE readout at the
+// stage's right edge; bias it left rather than shrinking the label.
+if (veryLargeText()) {
+    load.setTranslationX(-dp(44));
+}
+load.addView(m3Label("选择照片",
+        veryLargeText() ? M3Tokens.TypeRole.LABEL_MEDIUM : M3Tokens.TypeRole.LABEL_LARGE,
+        m3Primary(), tfHan));
+ArrowView loadArrow = new ArrowView(this, palette.color(Palette.Role.ACCENT));
+LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(14), dp(14));
+arrowLp.leftMargin = dp(8);
+load.addView(loadArrow, arrowLp);
+empty.addView(load, new LinearLayout.LayoutParams(-2, dp(48)));
+stage.addView(empty, new android.widget.FrameLayout.LayoutParams(-1, -1));
+emptyState = empty;
+    }
+
+    /** The RAW-loaded placeholder under the stage. */
+    private void addStageRawState(android.widget.FrameLayout stage) {
+LinearLayout raw = new LinearLayout(this);
+raw.setOrientation(LinearLayout.VERTICAL);
+raw.setGravity(android.view.Gravity.CENTER);
+raw.setPadding(dp(24), dp(16), dp(24), dp(16));
+raw.setVisibility(View.GONE);
+TextView rawTitle = label("RAW LOADED", 34, palette.color(Palette.Role.STAGE_INK), tfDisplay);
+rawTitle.setLetterSpacing(-0.055f);
+raw.addView(rawTitle);
+rawName = label("", 9, palette.color(Palette.Role.STAGE_INK), tfHan);
+rawName.setAlpha(0.7f);
+rawName.setLineSpacing(dp(4), 1f);
+rawName.setGravity(android.view.Gravity.CENTER);
+LinearLayout.LayoutParams rawNameLp = new LinearLayout.LayoutParams(-2, -2);
+rawNameLp.topMargin = dp(13);
+raw.addView(rawName, rawNameLp);
+stage.addView(raw, new android.widget.FrameLayout.LayoutParams(-1, -1));
+rawState = raw;
+    }
+
+    /** The rendering overlay label. */
+    private void addStageBusyLabel(android.widget.FrameLayout stage) {
+busyLabel = label("RENDERING", 18, palette.color(Palette.Role.STAGE_INK), tfDisplay);
+busyLabel.setLetterSpacing(0.14f);
+busyLabel.setGravity(android.view.Gravity.CENTER);
+busyLabel.setBackgroundColor(palette.color(Palette.Role.STAGE_BUSY));
+busyLabel.setVisibility(View.GONE);
+stage.addView(busyLabel, new android.widget.FrameLayout.LayoutParams(-1, -1));
+    }
+
+    /** The shelf handle in the stage's bottom-left corner. */
+    private void addShelfHandle(android.widget.FrameLayout stage) {
+shelfHandle = buildShelfHandle();
+android.widget.FrameLayout.LayoutParams handleLp = new android.widget.FrameLayout.LayoutParams(
+        dp(62), dp(62), android.view.Gravity.BOTTOM | android.view.Gravity.START);
+handleLp.leftMargin = dp(12);
+handleLp.bottomMargin = dp(12);
+stage.addView(shelfHandle, handleLp);
+    }
+
+    /** The preview and export progress bars. */
+    private void addStageProgress(android.widget.FrameLayout stage) {
+
+android.widget.FrameLayout jobs = new android.widget.FrameLayout(this);
+progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+progressBar.setIndeterminate(true);
+progressBar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(
+        palette.color(Palette.Role.STAGE_INK)));
+progressBar.setVisibility(View.GONE);
+jobs.addView(progressBar, new android.widget.FrameLayout.LayoutParams(-1, -1));
+exportProgressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+exportProgressBar.setIndeterminate(true);
+exportProgressBar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(
+        palette.color(Palette.Role.STAGE_INK)));
+exportProgressBar.setVisibility(View.GONE);
+jobs.addView(exportProgressBar, new android.widget.FrameLayout.LayoutParams(-1, -1));
+stage.addView(jobs, new android.widget.FrameLayout.LayoutParams(-1, dp(2), android.view.Gravity.BOTTOM));
+    }
+
+    /** Keep TalkBack on the scan line after its toggle. */
+    private void wireScanTraversal() {
+if (scanToggleChip != null) {
+    scanToggleChip.setId(View.generateViewId());
+    scanOverlay.setId(View.generateViewId());
+    scanOverlay.setAccessibilityTraversalAfter(scanToggleChip.getId());
+}
+    }
+
+    /** Build the four-tab control deck that owns the panel. */
+    private void buildControlDeck() {
+controls = new LinearLayout(this);
+controls.setOrientation(LinearLayout.VERTICAL);
+controls.setBackgroundColor(m3Background());
+
+panelHolder = new LinearLayout(this);
+panelHolder.setOrientation(LinearLayout.VERTICAL);
+panelHolder.setPadding(dp(16), 0, dp(16), dp(PANEL_BOTTOM_DP));
+panelHolder.addView(scrollablePanel(buildFilmPanel()),
+        new LinearLayout.LayoutParams(-1, -1));
+panelHolder.addView(scrollablePanel(buildOpticsPanel()),
+        new LinearLayout.LayoutParams(-1, -1));
+panelHolder.addView(scrollablePanel(buildFormatPanel()),
+        new LinearLayout.LayoutParams(-1, -1));
+panelHolder.addView(scrollablePanel(buildEdgePanel()),
+        new LinearLayout.LayoutParams(-1, -1));
+for (int i = 0; i < 4; ++i) {
+    panels[i] = panelHolder.getChildAt(i);
+}
+
+controls.addView(buildTabs(), new LinearLayout.LayoutParams(-1, dp(TABS_HEIGHT_DP)));
+controls.addView(panelHolder, new LinearLayout.LayoutParams(-1, dp(PANEL_HEIGHT_DP)));
+body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
+    }
+
            private void buildUi() {
         if (tfBody == null) {
             loadUiFonts();
@@ -1049,112 +1202,15 @@ public class MainActivity extends AppCompatActivity {
         mainCol.setBackgroundColor(m3Background());
         body.addView(mainCol, new LinearLayout.LayoutParams(-1, 0, 1f));
 
-        android.widget.FrameLayout stage = new android.widget.FrameLayout(this);
-        stageView = stage;
-        stage.setBackgroundColor(palette.color(Palette.Role.STAGE));
-        stage.setClipChildren(false);
-        stage.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
-                updateStageReadoutWidths());
-
-        compare = new CompareView(this,
-                m3Role(com.google.android.material.R.attr.colorOutline, Palette.Role.LINE),
-                m3Surface(), m3Primary());
-        compare.setVisibility(View.GONE);
-        stage.addView(compare, new android.widget.FrameLayout.LayoutParams(-1, -1));
-
-        // Scan inspect draws over the picture but under the corner readouts and
-        // the shelf handle. It handles touches only while the mode is on; when
-        // it is off, CompareView keeps the divider and the long-press hold.
-        scanOverlay = new ScanOverlayView(this, palette, compare, this::onScanSample);
-        scanOverlay.setVisibility(View.GONE);
-        stage.addView(scanOverlay, new android.widget.FrameLayout.LayoutParams(-1, -1));
-
-        LinearLayout empty = new LinearLayout(this);
-        empty.setOrientation(LinearLayout.VERTICAL);
-        empty.setGravity(android.view.Gravity.CENTER);
-        empty.setPadding(dp(16), dp(16), dp(16), dp(16));
-        // One control, in the middle of the frame. The index line, the NO IMAGE
-        // headline and the "select a RAW or JPEG" subtitle said the same thing
-        // three times over, in three type sizes, and only the last of them
-        // could be acted on.
-        LinearLayout load = new LinearLayout(this);
-        load.setOrientation(LinearLayout.HORIZONTAL);
-        load.setGravity(android.view.Gravity.CENTER);
-        load.setBackground(pressableFill(Palette.Role.SURFACE_ELEVATED));
-        load.setPadding(dp(18), 0, dp(18), 0);
-        load.setOnClickListener(v -> showImportMenu());
-        // At 2.0× the centred pill runs into the PRINT EXPOSURE readout at the
-        // stage's right edge; bias it left rather than shrinking the label.
-        if (veryLargeText()) {
-            load.setTranslationX(-dp(44));
-        }
-        load.addView(m3Label("选择照片",
-                veryLargeText() ? M3Tokens.TypeRole.LABEL_MEDIUM : M3Tokens.TypeRole.LABEL_LARGE,
-                m3Primary(), tfHan));
-        ArrowView loadArrow = new ArrowView(this, palette.color(Palette.Role.ACCENT));
-        LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(14), dp(14));
-        arrowLp.leftMargin = dp(8);
-        load.addView(loadArrow, arrowLp);
-        empty.addView(load, new LinearLayout.LayoutParams(-2, dp(48)));
-        stage.addView(empty, new android.widget.FrameLayout.LayoutParams(-1, -1));
-        emptyState = empty;
-
-        LinearLayout raw = new LinearLayout(this);
-        raw.setOrientation(LinearLayout.VERTICAL);
-        raw.setGravity(android.view.Gravity.CENTER);
-        raw.setPadding(dp(24), dp(16), dp(24), dp(16));
-        raw.setVisibility(View.GONE);
-        TextView rawTitle = label("RAW LOADED", 34, palette.color(Palette.Role.STAGE_INK), tfDisplay);
-        rawTitle.setLetterSpacing(-0.055f);
-        raw.addView(rawTitle);
-        rawName = label("", 9, palette.color(Palette.Role.STAGE_INK), tfHan);
-        rawName.setAlpha(0.7f);
-        rawName.setLineSpacing(dp(4), 1f);
-        rawName.setGravity(android.view.Gravity.CENTER);
-        LinearLayout.LayoutParams rawNameLp = new LinearLayout.LayoutParams(-2, -2);
-        rawNameLp.topMargin = dp(13);
-        raw.addView(rawName, rawNameLp);
-        stage.addView(raw, new android.widget.FrameLayout.LayoutParams(-1, -1));
-        rawState = raw;
-
-        busyLabel = label("RENDERING", 18, palette.color(Palette.Role.STAGE_INK), tfDisplay);
-        busyLabel.setLetterSpacing(0.14f);
-        busyLabel.setGravity(android.view.Gravity.CENTER);
-        busyLabel.setBackgroundColor(palette.color(Palette.Role.STAGE_BUSY));
-        busyLabel.setVisibility(View.GONE);
-        stage.addView(busyLabel, new android.widget.FrameLayout.LayoutParams(-1, -1));
-
+        final android.widget.FrameLayout stage = createStage();
+        addStageEmptyState(stage);
+        addStageRawState(stage);
+        addStageBusyLabel(stage);
         addStageReadouts(stage);
         addScanControls(stage);
-        // TalkBack reaches the scan line after the chip that turns it on,
-        // even though the overlay was added before the corner controls.
-        if (scanToggleChip != null) {
-            scanToggleChip.setId(View.generateViewId());
-            scanOverlay.setId(View.generateViewId());
-            scanOverlay.setAccessibilityTraversalAfter(scanToggleChip.getId());
-        }
-
-        shelfHandle = buildShelfHandle();
-        android.widget.FrameLayout.LayoutParams handleLp = new android.widget.FrameLayout.LayoutParams(
-                dp(62), dp(62), android.view.Gravity.BOTTOM | android.view.Gravity.START);
-        handleLp.leftMargin = dp(12);
-        handleLp.bottomMargin = dp(12);
-        stage.addView(shelfHandle, handleLp);
-
-        android.widget.FrameLayout jobs = new android.widget.FrameLayout(this);
-        progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        progressBar.setIndeterminate(true);
-        progressBar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(
-                palette.color(Palette.Role.STAGE_INK)));
-        progressBar.setVisibility(View.GONE);
-        jobs.addView(progressBar, new android.widget.FrameLayout.LayoutParams(-1, -1));
-        exportProgressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        exportProgressBar.setIndeterminate(true);
-        exportProgressBar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(
-                palette.color(Palette.Role.STAGE_INK)));
-        exportProgressBar.setVisibility(View.GONE);
-        jobs.addView(exportProgressBar, new android.widget.FrameLayout.LayoutParams(-1, -1));
-        stage.addView(jobs, new android.widget.FrameLayout.LayoutParams(-1, dp(2), android.view.Gravity.BOTTOM));
+        wireScanTraversal();
+        addShelfHandle(stage);
+        addStageProgress(stage);
 
         mainCol.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
         mainCol.addView(buildReadoutStrip(),
@@ -1162,30 +1218,13 @@ public class MainActivity extends AppCompatActivity {
         mainCol.addView(buildSourceBar(),
                 new LinearLayout.LayoutParams(-1, dp(SOURCE_HEIGHT_DP)));
 
-        controls = new LinearLayout(this);
-        controls.setOrientation(LinearLayout.VERTICAL);
-        controls.setBackgroundColor(m3Background());
-
-        panelHolder = new LinearLayout(this);
-        panelHolder.setOrientation(LinearLayout.VERTICAL);
-        panelHolder.setPadding(dp(16), 0, dp(16), dp(PANEL_BOTTOM_DP));
-        panelHolder.addView(scrollablePanel(buildFilmPanel()),
-                new LinearLayout.LayoutParams(-1, -1));
-        panelHolder.addView(scrollablePanel(buildOpticsPanel()),
-                new LinearLayout.LayoutParams(-1, -1));
-        panelHolder.addView(scrollablePanel(buildFormatPanel()),
-                new LinearLayout.LayoutParams(-1, -1));
-        panelHolder.addView(scrollablePanel(buildEdgePanel()),
-                new LinearLayout.LayoutParams(-1, -1));
-        for (int i = 0; i < 4; ++i) {
-            panels[i] = panelHolder.getChildAt(i);
-        }
-
-        controls.addView(buildTabs(), new LinearLayout.LayoutParams(-1, dp(TABS_HEIGHT_DP)));
-        controls.addView(panelHolder, new LinearLayout.LayoutParams(-1, dp(PANEL_HEIGHT_DP)));
-        body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
+        buildControlDeck();
         applyResponsiveLayout(ConsoleLayout.isWide(currentWidthDp()), currentWidthDp());
+        finishUiBuild();
+    }
 
+    /** Load or restyle the catalogue and land on the first tab. */
+    private void finishUiBuild() {
         // A theme rebuild must not re-read the catalogue while a render may be
         // running. Only the first build loads it; later builds restyle the
         // panel from the records already in memory.
