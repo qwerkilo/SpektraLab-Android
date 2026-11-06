@@ -194,7 +194,7 @@ public class MainActivity extends AppCompatActivity {
         try { nativeDir = getApplicationInfo().nativeLibraryDir; } catch (Throwable ignored) {}
         try { SpektraLabEngine.prepare(nativeDir); } catch (Throwable e) { lastImportError = describe(e); }
         try { DebugSink.text("app-start", "buildInfo=" + SpektraLabEngine.buildInfo()); } catch (Throwable ignored) {}
-        
+
         buildUi();
         uiReady = true;
 
@@ -6474,7 +6474,7 @@ refreshEdgeFormats();
                 showSnackbar("[E-1107] 暂不支持 " + unsupported + " 格式");
                 return;
             }
-            
+
             if (isRawFile) {
                 loadRawImage(uri);
                 return;
@@ -6835,6 +6835,88 @@ refreshEdgeFormats();
         return rawView;
     }
 
+    /** Clear the previous frame state and return the RAW path, or null. */
+    private String prepareRawImport(Uri uri) {
+            String filePath = getFilePathFromUri(uri);
+            rawFilePath = filePath;
+            if (filePath == null) {
+                showSnackbar("无法获取RAW文件路径");
+                return null;
+            }
+
+    statusText.setText("Decoding RAW…");
+    // **The same two things the JPEG path does, for the same reasons**
+    // — and this path had none of them, which is why a RAW import kept
+    // the previous photograph everywhere except the little source
+    // thumbnail:
+    //   · compare.clear() drops `CompareView.after`, the previous
+    //     render, which nothing else ever clears;
+    //   · the last render and the optics lock are reset below.
+    if (compare != null) {
+        compare.clear();
+    }
+    lastRenderedBitmap = null;
+    setOpticsUnlocked(false);
+    setStage(2, getFileName(uri));
+
+        return filePath;
+    }
+
+    /** Run the RAW decode, solve and preview off the UI thread. */
+    private void startRawImportThread(String filePath, String importParams, boolean reopening, Uri uri) {
+        new Thread(() -> importRawOnWorker(filePath, importParams, reopening, uri)).start();
+    }
+
+    /** The worker half of a RAW import. */
+    private void importRawOnWorker(String filePath, String importParams, boolean reopening, Uri uri) {
+        try {
+            ensureEngine();
+            // Under the render lock: closing a session out from under
+            // a render is a native crash, not an exception.
+            synchronized (renderMutex) {
+                if (session != null) { session.close(); session = null; }
+            }
+
+            session = openRawForImport(filePath);
+            // **The session's own parameters, which this path never sent.**
+            // `openRawSession` carries the film, the paper and the decode
+            // colour space; it does not carry grain, halation, glare, the
+            // format or the rebate. The Look was snapshotted on the UI
+            // thread, so `solve` below meters with the same values the
+            // first preview will render.
+            if (importParams != null) {
+                session.setParams(importParams);
+            }
+
+            // The raw itself is the honest "before" side; see decodeRawPreview.
+            final Bitmap preview = decodeRawPreview(session);
+            final boolean hasPreview = preview != null;
+            if (!hasPreview) {
+                // The canvas is not allowed to be blank for no reason.
+                // A session that opened but produced no source frame is
+                // a bug, and it has to say so rather than look like a
+                // photo that failed to load.
+                try { DebugSink.text("raw-view", "no source frame for the canvas"); }
+                catch (Throwable ignored) { }
+                runOnUiThread(() -> statusText.setText("RAW 已载入，原图预览未生成"));
+            }
+            if (hasPreview) {
+                runOnUiThread(() -> applyRawPreview(preview, uri));
+            }
+
+            // "Process" (配光): without a solved print exposure and
+            // filter pack the print runs on defaults and blows the
+            // highlights. The mac app makes the user press Process;
+            // this build does it once on open.
+            solveRawSession(session);
+            runOnUiThread(() -> finishRawImport(reopening));
+
+            applyRawDimensions(session, uri);
+        } catch (Throwable t) {
+            reportRawImportFailure(t);
+        }
+    }
+
     private void loadRawImage(Uri uri) {
         final boolean reopening = reopeningFrame;
         // The Look the RAW session must carry, snapshotted here on the UI
@@ -6844,82 +6926,17 @@ refreshEdgeFormats();
                 ? null
                 : snapshotFor(live(), live().filmStock, PREVIEW_LONG_EDGE).params;
         try {
-            String filePath = getFilePathFromUri(uri);
-            rawFilePath = filePath;
+            final String filePath = prepareRawImport(uri);
             if (filePath == null) {
-                showSnackbar("无法获取RAW文件路径");
                 return;
             }
-            
-            statusText.setText("Decoding RAW…");
-            // **The same two things the JPEG path does, for the same reasons**
-            // — and this path had none of them, which is why a RAW import kept
-            // the previous photograph everywhere except the little source
-            // thumbnail:
-            //   · compare.clear() drops `CompareView.after`, the previous
-            //     render, which nothing else ever clears;
-            //   · the last render and the optics lock are reset below.
-            if (compare != null) {
-                compare.clear();
-            }
-            lastRenderedBitmap = null;
-            setOpticsUnlocked(false);
-            setStage(2, getFileName(uri));
-
-            new Thread(() -> {
-                try {
-                    ensureEngine();
-                    // Under the render lock: closing a session out from under
-                    // a render is a native crash, not an exception.
-                    synchronized (renderMutex) {
-                        if (session != null) { session.close(); session = null; }
-                    }
-                    
-                    session = openRawForImport(filePath);
-                    // **The session's own parameters, which this path never sent.**
-                    // `openRawSession` carries the film, the paper and the decode
-                    // colour space; it does not carry grain, halation, glare, the
-                    // format or the rebate. The Look was snapshotted on the UI
-                    // thread, so `solve` below meters with the same values the
-                    // first preview will render.
-                    if (importParams != null) {
-                        session.setParams(importParams);
-                    }
-
-                    // The raw itself is the honest "before" side; see decodeRawPreview.
-                    final Bitmap preview = decodeRawPreview(session);
-                    final boolean hasPreview = preview != null;
-                    if (!hasPreview) {
-                        // The canvas is not allowed to be blank for no reason.
-                        // A session that opened but produced no source frame is
-                        // a bug, and it has to say so rather than look like a
-                        // photo that failed to load.
-                        try { DebugSink.text("raw-view", "no source frame for the canvas"); }
-                        catch (Throwable ignored) { }
-                        runOnUiThread(() -> statusText.setText("RAW 已载入，原图预览未生成"));
-                    }
-                    if (hasPreview) {
-                        runOnUiThread(() -> applyRawPreview(preview, uri));
-                    }
-
-                    // "Process" (配光): without a solved print exposure and
-                    // filter pack the print runs on defaults and blows the
-                    // highlights. The mac app makes the user press Process;
-                    // this build does it once on open.
-                    solveRawSession(session);
-                    runOnUiThread(() -> finishRawImport(reopening));
-
-                    applyRawDimensions(session, uri);
-                } catch (Throwable t) {
-                    reportRawImportFailure(t);
-                }
-            }).start();
+            startRawImportThread(filePath, importParams, reopening, uri);
         } catch (Throwable t) {
             lastImportError = describeImportFailure(t);
             showErrorSnackbar("RAW 加载失败", lastImportError);
         }
     }
-    
+
     /**
      * A failure the user has to be able to read and copy.
      *
@@ -7079,7 +7096,7 @@ refreshEdgeFormats();
             return 0;
         }
     }
-    
+
     private String getFileName(Uri uri) {
         String result = null;
         if (uri.getScheme().equals("content")) {
@@ -7101,7 +7118,7 @@ refreshEdgeFormats();
         }
         return result;
     }
-    
+
     private String getFilePathFromUri(Uri uri) {
         // For content:// URIs, we need to copy to a temp file
         if (uri.getScheme().equals("content")) {
