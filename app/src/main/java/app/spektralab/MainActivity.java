@@ -4368,6 +4368,22 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                     syncDatePage();
                     commitRebate();
                 }), new LinearLayout.LayoutParams(-1, -2));
+
+        dateCornerValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(edgeChoiceRow("日期角位", dateCornerValue,
+                DateBack.CORNERS, () -> live().dateCorner, id -> {
+                    live().dateCorner = id;
+                    syncDatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
+
+        dateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateControls.addView(edgeChoiceRow("日期样式", dateStyleValue,
+                DateBack.STYLES, () -> live().dateStyle, id -> {
+                    live().dateStyle = id;
+                    syncDatePage();
+                    commitRebate();
+                }), new LinearLayout.LayoutParams(-1, -2));
     }
 
     /** The capture-data and second-frame text fields. */
