@@ -42,6 +42,7 @@ import app.spektralab.ui.widget.EdgeBackdrop;
 import app.spektralab.ui.widget.GuideView;
 import app.spektralab.ui.widget.ScanOverlayView;
 import app.spektralab.ui.widget.SnackbarHost;
+import app.spektralab.ui.widget.SpectrumCurveView;
 import app.spektralab.ui.widget.SpectralRail;
 import app.spektralab.ui.widget.ToolGlyph;
 import com.google.android.material.appbar.AppBarLayout;

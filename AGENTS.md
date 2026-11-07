@@ -37,7 +37,7 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `FrameLookSession.java` — the live per-Frame `Look` plus undo. The Activity holds only the current session; `look()` is read-only, edits go through `edit`/`record`. Never add a second copy of a Look value.
 - `RenderSnapshot.java` — one UI-thread snapshot of the Look, engine JSON, stock, long edge and view-adjust. Preview, export and RAW import build it once; workers must not re-read live state.
 - `StockCatalogue.java` — the single store for film/print entries. The Activity exposes read-only views; do not add a parallel list.
-- `ui/widget/` — extracted custom views (`SpectralRail`, `ToolGlyph`, `ArrowView`, `GuideView`, `EdgeBackdrop`, `SnackbarHost`, `CompareView`, `ScanOverlayView`). New views go here.
+- `ui/widget/` — extracted custom views (`SpectralRail`, `ToolGlyph`, `ArrowView`, `GuideView`, `EdgeBackdrop`, `SnackbarHost`, `CompareView`, `ScanOverlayView`, `SpectrumCurveView`). New views go here.
 - `core/` — framework-free rules and format helpers. `model/` — immutable records (`FilmStock`, `Frame`). `ui/` — presentation state (`UiState`, `ThemeMode`). The root package keeps the composition root and the remaining domain seams (`Look`, `GateScale`, `OpticsDelta`, `Palette`, `M3Tokens`, `UpdateGate`, `SpkError`).
 - `SpektraLabEngine.java` — JNI facade; loads bundled `.so` by absolute path, no `static {}` loader. `spektralab_jni.cpp` — session/render/export; `spektralab_raw_jni.cpp` — LibRaw decode. The engine is not in this repo; only `patches/engine-android.patch` and `docs/tiling.md` are.
 
