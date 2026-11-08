@@ -69,6 +69,12 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+        }
+    }
+
     sourceSets {
         main {
             manifest.srcFile 'src/main/AndroidManifest.xml'
@@ -77,6 +83,11 @@ android {
             assets.srcDirs = ['src/main/assets', "$buildDir/generated/base/assets",
                                "$buildDir/generated/stockAssets"]
             jniLibs.srcDirs = ["$buildDir/generated/base/jniLibs"]
+        }
+        // The plain *Check programs are compiled by checkJvmCompile, not by
+        // AGP's unit-test compiler: they use desktop APIs and a main runner.
+        test {
+            java.exclude '**/*Check.java'
         }
     }
 
@@ -95,6 +106,8 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.core:core:1.13.1'
     implementation 'com.google.android.material:material:1.12.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.17'
     // The `*Check` classes run on the JVM, where android.jar's org.json is a
     // stub. The real reference implementation lets the Look JSON contract be
     // exercised as json, not as a hand-built map.
@@ -113,7 +126,7 @@ afterEvaluate {
 
     def checkJvmCompile = tasks.register('checkJvmCompile', JavaCompile) {
         dependsOn debugCompile
-        source = fileTree('src/test/java') { include '**/*.java' }
+        source = fileTree('src/test/java') { include '**/*Check.java' }
         classpath = files(configurations.checkJson,
                 debugCompile.get().destinationDirectory,
                 debugCompile.get().classpath)
@@ -212,6 +225,10 @@ tasks.register('generateStockCatalog') {
 tasks.matching { it.name == 'mergeDebugAssets' || it.name == 'mergeDebugJniLibFolders' }
         .configureEach { dependsOn tasks.named('stageBase') }
 tasks.matching { it.name == 'mergeDebugAssets' }
+        .configureEach { dependsOn tasks.named('generateStockCatalog') }
+// Lint reads the merged assets directly, so it needs the generated catalogue
+// even when it runs without the packaging tasks.
+tasks.matching { it.name.startsWith('lint') || it.name.endsWith('LintReportModel') }
         .configureEach { dependsOn tasks.named('generateStockCatalog') }
 /**
  * Android 15/16 devices with 16 KB pages reject an APK whose uncompressed

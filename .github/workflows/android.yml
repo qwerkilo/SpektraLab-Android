@@ -32,19 +32,26 @@ jobs:
         with:
           packages: 'platforms;android-36 build-tools;36.0.0'
 
-      - name: Pure checks and lint
-        shell: pwsh
-        run: |
-          python app/build/check-manifest.py
-          python app/build/test-gen-stock-catalog.py
-          .\gradlew.bat checkstyleGovernance checkJvm lintDebug --no-daemon
-
       - name: Fetch the donor APK
         shell: pwsh
         run: |
           $base = Join-Path $env:RUNNER_TEMP 'SpektraLab-donor.apk'
           Invoke-WebRequest -Uri 'https://github.com/SAINTTaiYi/SpektraLab-Android/releases/download/v1.5.0e/SpektraLab-1.5.0e-arm64-v8a.apk' -OutFile $base
           Add-Content -Path $env:GITHUB_ENV -Value "BASE_APK=$base" -Encoding utf8
+          New-Item -ItemType Directory -Force -Path app\build | Out-Null
+          Copy-Item $base app\build\SpektraLab-1.5.0e-qa.apk -Force
+
+      - name: Checks and lint
+        shell: pwsh
+        run: |
+          python app/build/check-manifest.py
+          python app/build/test-gen-stock-catalog.py
+          .\gradlew.bat checkstyleGovernance checkJvm lintDebug --no-daemon
+
+      - name: JUnit and Robolectric
+        shell: pwsh
+        run: |
+          .\gradlew.bat testDebugUnitTest "-PbaseApk=$env:BASE_APK" --no-daemon
 
       - name: Release or CI signing key
         shell: pwsh

@@ -1,13 +1,15 @@
 # Test matrix
 
-The project has no JUnit or instrumentation suite. Checks are plain `main` classes
-under `app/src/test/java/app/spektralab/`, plus three Python checks. Run them with
-the Gradle commands in `AGENTS.md`; the manual matrix is
+The project has no instrumentation suite. Pure checks are plain `main` classes
+under `app/src/test/java/app/spektralab/`, plus three Python checks. Activity
+wiring is covered by JUnit 4 + Robolectric (`PanelRowsTest`). Run them with the
+Gradle commands in `AGENTS.md`; the manual matrix is
 `docs/testing/manual-device-checklist.md`.
 
 | Type | Covered by | What is pinned |
 |---|---|---|
 | Normal | `ConsoleLayoutCheck`, `FilmBrandCheck`, `GateScaleCheck`, `OpticsDeltaCheck`, `PaletteCheck`, `ScanSampleCheck`, `SpectrumCurveCheck`, `SpectrumSamplesCheck`, `ThemeModeCheck` | Width decision, brand shelf, gate/scale pairing, slider deltas, palette contrast, scan samples, spectra, theme round-trip |
+| UI wiring | `PanelRowsTest` (JUnit 4 + Robolectric, SDK 35) | Date back corner/style rows and the Optics readout survive tab navigation |
 | Boundary | `ConsoleLayoutCheck` (320/360/390/480/599/600/800 dp), `OpticsDeltaCheck` (min/max), `ScanSampleCheck` (clamp, 0/1), `SafeFileNameCheck` (`.`, `..`, empty, NUL), `GateScaleCheck` (frame aspect) | Edges do not spill into the next state or crash |
 | Exception | `SpectrumCurveCheck` (null, NaN, gaps, ragged rows), `SpectrumSamplesCheck`, `ScanSampleCheck` (null/short/zero width), `SafeFileNameCheck`, `SpkErrorCheck`, `ReleaseUrlCheck` | Missing or hostile input degrades to an explicit unavailable/fallback state |
 | Permission | `app/build/check-manifest.py` (29 checks), `app/build/check-apk.py`, manual checklist | Only `READ_EXTERNAL_STORAGE` (maxSdk 32) + `INTERNET`; one exported launcher; cleartext loopback only; backup off; Gradle and manifest SDK agree; merged APK target 36 |
@@ -17,7 +19,8 @@ the Gradle commands in `AGENTS.md`; the manual matrix is
 ## Not covered automatically
 
 - `MainActivity` layout, gestures, and Frame switching: no instrumentation
-  runner; the manual checklist covers the brand-filter reset and pinning.
+  runner; Robolectric covers panel-row construction only, and the manual
+  checklist covers the rest.
 - Native decode/render/export: owned by the out-of-tree engine; device checks
   cover the user-visible path.
 - Runtime permission grants: the app uses the system picker and asks for no
