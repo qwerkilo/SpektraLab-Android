@@ -1,5 +1,7 @@
-package app.spektralab;
+package app.spektralab.ui.widget;
 
+import app.spektralab.M3Tokens;
+import app.spektralab.Palette;
 import app.spektralab.core.ScanSample;
 import app.spektralab.core.SpectrumCurve;
 
@@ -27,7 +29,7 @@ import com.google.android.material.color.MaterialColors;
  * wavelength endpoints use the label-small role. The spectral R/G/B stay the
  * measured Palette colours and never enter the scheme.
  */
-final class SpectrumCurveView extends View {
+public final class SpectrumCurveView extends View {
     private static final M3Tokens.TypeRole LABEL_ROLE = M3Tokens.TypeRole.LABEL_SMALL;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -47,7 +49,7 @@ final class SpectrumCurveView extends View {
     private ValueAnimator revealAnimator;
     private float reveal = 1f;
 
-    SpectrumCurveView(Context context, Palette palette, Typeface labelTypeface) {
+    public SpectrumCurveView(Context context, Palette palette, Typeface labelTypeface) {
         super(context);
         density = getResources().getDisplayMetrics().density;
         lineColor = MaterialColors.getColor(context,
@@ -91,8 +93,8 @@ final class SpectrumCurveView extends View {
      * curve object (a render-state refresh) never replays the reveal, and a
      * zero duration shows the whole plot at once for reduced motion.
      */
-    void setCurve(SpectrumCurve curve, String seriesLabel, String emptyLabel,
-                  int durationMs) {
+    public void setCurve(SpectrumCurve curve, String seriesLabel, String emptyLabel,
+                         int durationMs) {
         final SpectrumCurve next = curve == null ? SpectrumCurve.unavailable() : curve;
         final boolean same = next == this.curve;
         this.curve = next;
@@ -133,17 +135,21 @@ final class SpectrumCurveView extends View {
      * with no dominant wavelength clears the mark instead of parking it at the
      * picture position, which is a different axis.
      */
-    void setScanMark(boolean visible, ScanSample sample) {
+    public void setScanMark(boolean visible, ScanSample sample) {
         final ScanSample next = sample == null ? ScanSample.unavailable() : sample;
         final boolean show = visible && next.hasWavelength();
-        if (scanMarkVisible == show && scanSample == next) return;
+        if (scanMarkVisible == show && scanSample == next) {
+            return;
+        }
         scanMarkVisible = show;
         scanSample = next;
         invalidate();
     }
 
     private void cancelReveal() {
-        if (revealAnimator == null) return;
+        if (revealAnimator == null) {
+            return;
+        }
         revealAnimator.cancel();
         revealAnimator.removeAllUpdateListeners();
         revealAnimator = null;
@@ -157,64 +163,85 @@ final class SpectrumCurveView extends View {
     }
 
     @Override protected void onDraw(Canvas canvas) {
-        final float w = getWidth(), h = getHeight();
+        final float w = getWidth();
+        final float h = getHeight();
         final float pad = dp(8);
-        // The MaterialCardView behind this view owns the surface, its radius,
-        // and its ripple; the plot draws only its own ink.
-        paint.setStyle(Paint.Style.FILL);
-        applyLabelStyle(paint);
-        paint.setColor(mutedColor);
-        paint.setAlpha(255);
-
         final boolean available = curve.available();
-        final String caption = available
-                ? seriesLabel + " \u00b7 " + curve.sampleCount() + " SMP"
-                : "SPECTRUM";
-        final float captionBaseline = pad + labelSizePx;
-        canvas.drawText(caption, pad, captionBaseline, paint);
-
-        if (available) {
-            float legendRight = w - pad;
-            for (int channel = curve.channelCount() - 1; channel >= 0; --channel) {
-                final String label = SpectrumCurve.channelLabel(channel);
-                final float labelWidth = paint.measureText(label);
-                paint.setColor(seriesColors[channel]);
-                canvas.drawText(label, legendRight - labelWidth, captionBaseline, paint);
-                legendRight -= labelWidth + dp(6);
-            }
-        }
+        final float captionBaseline = drawCaption(canvas, w, pad, available);
 
         final float top = captionBaseline + dp(6);
         final float bottom = Math.max(top + dp(1), h - labelSizePx - dp(6));
         final float left = pad;
         final float right = w - pad;
-        final float plotWidth = right - left;
-        final float plotHeight = bottom - top;
 
+        drawGrid(canvas, left, top, right, bottom);
+        if (!available) {
+            drawUnavailable(canvas, w, pad, top, bottom);
+            return;
+        }
+        drawSeries(canvas, left, top, right, bottom);
+        drawRevealHead(canvas, left, top, right, bottom);
+        drawScanMark(canvas, left, top, right, bottom);
+        drawAxis(canvas, left, right, h);
+    }
+
+    /** The stock label and the R/G/B legend; returns the caption baseline. */
+    private float drawCaption(Canvas canvas, float w, float pad, boolean available) {
+        paint.setStyle(Paint.Style.FILL);
+        applyLabelStyle(paint);
+        paint.setColor(mutedColor);
+        paint.setAlpha(255);
+        final String caption = available
+                ? seriesLabel + " \u00b7 " + curve.sampleCount() + " SMP"
+                : "SPECTRUM";
+        final float baseline = pad + labelSizePx;
+        canvas.drawText(caption, pad, baseline, paint);
+        if (available) {
+            drawLegend(canvas, w, pad, baseline);
+        }
+        return baseline;
+    }
+
+    private void drawLegend(Canvas canvas, float w, float pad, float baseline) {
+        float legendRight = w - pad;
+        for (int channel = curve.channelCount() - 1; channel >= 0; --channel) {
+            final String label = SpectrumCurve.channelLabel(channel);
+            final float labelWidth = paint.measureText(label);
+            paint.setColor(seriesColors[channel]);
+            canvas.drawText(label, legendRight - labelWidth, baseline, paint);
+            legendRight -= labelWidth + dp(6);
+        }
+    }
+
+    private void drawGrid(Canvas canvas, float left, float top, float right, float bottom) {
         paint.setLetterSpacing(0);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(Math.max(1f, density * 0.5f));
         paint.setColor(lineColor);
         paint.setAlpha(64);
+        final float height = bottom - top;
         for (int i = 0; i <= 3; ++i) {
-            final float y = top + plotHeight * i / 3f;
+            final float y = top + height * i / 3f;
             canvas.drawLine(left, y, right, y, paint);
         }
         paint.setAlpha(255);
+    }
 
-        if (!available) {
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(mutedColor);
-            applyLabelStyle(paint);
-            final float textWidth = paint.measureText(emptyLabel);
-            canvas.drawText(emptyLabel, Math.max(pad, (w - textWidth) * 0.5f),
-                    (top + bottom) * 0.5f + labelSizePx * 0.35f, paint);
-            return;
-        }
+    private void drawUnavailable(Canvas canvas, float w, float pad, float top, float bottom) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(mutedColor);
+        applyLabelStyle(paint);
+        final float textWidth = paint.measureText(emptyLabel);
+        canvas.drawText(emptyLabel, Math.max(pad, (w - textWidth) * 0.5f),
+                (top + bottom) * 0.5f + labelSizePx * 0.35f, paint);
+    }
 
+    private void drawSeries(Canvas canvas, float left, float top, float right, float bottom) {
         paint.setStrokeWidth(dp(1.1f));
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
+        final float plotWidth = right - left;
+        final float plotHeight = bottom - top;
 
         canvas.save();
         canvas.clipRect(left, top, left + plotWidth * reveal, bottom + dp(2));
@@ -222,72 +249,92 @@ final class SpectrumCurveView extends View {
             paint.setColor(seriesColors[channel]);
             final int runs = curve.runCount(channel);
             for (int run = 0; run < runs; ++run) {
-                final int length = curve.runLength(channel, run);
-                path.reset();
-                int points = 0;
-                float lastX = left, lastY = bottom;
-                for (int point = 0; point < length; ++point) {
-                    final double xFraction = curve.fractionAtNm(
-                            curve.nmAt(channel, run, point));
-                    final double yFraction = curve.normalizedAt(channel, run, point);
-                    if (Double.isNaN(xFraction) || Double.isNaN(yFraction)) continue;
-                    final float x = left + (float) xFraction * plotWidth;
-                    final float y = bottom - (float) yFraction * plotHeight;
-                    lastX = x;
-                    lastY = y;
-                    if (points == 0) path.moveTo(x, y);
-                    else path.lineTo(x, y);
-                    points++;
-                }
-                if (points == 1) {
-                    // A single measured point stays a dot: never a zero-length line.
-                    paint.setStyle(Paint.Style.FILL);
-                    canvas.drawCircle(lastX, lastY, dp(1.4f), paint);
-                    paint.setStyle(Paint.Style.STROKE);
-                } else if (points > 1) {
-                    canvas.drawPath(path, paint);
-                }
+                drawRun(canvas, channel, run, left, bottom, plotWidth, plotHeight);
             }
         }
         canvas.restore();
+    }
 
-        // A plotter head while the trace is being revealed. It disappears at
-        // rest, so the finished curve carries no extra chrome.
-        if (reveal < 1f) {
-            final float head = left + reveal * plotWidth;
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(Math.max(1f, density * 0.5f));
-            paint.setColor(scanColor);
-            paint.setAlpha(90);
-            canvas.drawLine(head, top - dp(2), head, bottom + dp(2), paint);
-            paint.setAlpha(255);
-        }
-
-        // Scan inspect's sampled wavelength, mapped onto the shipped series'
-        // own wavelength axis. No wavelength means no mark.
-        if (scanMarkVisible) {
-            final double fraction = curve.fractionForSample(scanSample);
-            if (!Double.isNaN(fraction)) {
-                final float x = left + (float) fraction * plotWidth;
-                paint.setStyle(Paint.Style.STROKE);
-                paint.setStrokeWidth(Math.max(1f, density));
-                paint.setColor(scanColor);
-                paint.setAlpha(210);
-                canvas.drawLine(x, top - dp(2), x, bottom + dp(2), paint);
-                paint.setStyle(Paint.Style.FILL);
-                canvas.drawCircle(x, top - dp(2), dp(1.6f), paint);
-                paint.setAlpha(255);
+    /** One unbroken run: a line for two points, a dot for one, nothing for none. */
+    private void drawRun(Canvas canvas, int channel, int run,
+                         float left, float bottom, float plotWidth, float plotHeight) {
+        final int length = curve.runLength(channel, run);
+        path.reset();
+        int points = 0;
+        float lastX = left;
+        float lastY = bottom;
+        for (int point = 0; point < length; ++point) {
+            final double xFraction = curve.fractionAtNm(curve.nmAt(channel, run, point));
+            final double yFraction = curve.normalizedAt(channel, run, point);
+            if (Double.isNaN(xFraction) || Double.isNaN(yFraction)) {
+                continue;
             }
+            final float x = left + (float) xFraction * plotWidth;
+            final float y = bottom - (float) yFraction * plotHeight;
+            lastX = x;
+            lastY = y;
+            if (points == 0) {
+                path.moveTo(x, y);
+            } else {
+                path.lineTo(x, y);
+            }
+            points++;
         }
+        if (points == 1) {
+            // A single measured point stays a dot: never a zero-length line.
+            paint.setStyle(Paint.Style.FILL);
+            canvas.drawCircle(lastX, lastY, dp(1.4f), paint);
+            paint.setStyle(Paint.Style.STROKE);
+        } else if (points > 1) {
+            canvas.drawPath(path, paint);
+        }
+    }
 
+    /** A plotter head while the trace is being revealed; absent at rest. */
+    private void drawRevealHead(Canvas canvas, float left, float top,
+                                float right, float bottom) {
+        if (reveal >= 1f) {
+            return;
+        }
+        final float head = left + reveal * (right - left);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(1f, density * 0.5f));
+        paint.setColor(scanColor);
+        paint.setAlpha(90);
+        canvas.drawLine(head, top - dp(2), head, bottom + dp(2), paint);
+        paint.setAlpha(255);
+    }
+
+    /** Scan inspect's wavelength on the series' own axis; no wavelength, no mark. */
+    private void drawScanMark(Canvas canvas, float left, float top,
+                              float right, float bottom) {
+        if (!scanMarkVisible) {
+            return;
+        }
+        final double fraction = curve.fractionForSample(scanSample);
+        if (Double.isNaN(fraction)) {
+            return;
+        }
+        final float x = left + (float) fraction * (right - left);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(1f, density));
+        paint.setColor(scanColor);
+        paint.setAlpha(210);
+        canvas.drawLine(x, top - dp(2), x, bottom + dp(2), paint);
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawCircle(x, top - dp(2), dp(1.6f), paint);
+        paint.setAlpha(255);
+    }
+
+    private void drawAxis(Canvas canvas, float left, float right, float h) {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(mutedColor);
         applyLabelStyle(paint);
         final String lo = formatNm(curve.minNm());
         final String hi = formatNm(curve.maxNm()) + " nm";
-        final float axisBaseline = h - dp(4);
-        canvas.drawText(lo, left, axisBaseline, paint);
-        canvas.drawText(hi, right - paint.measureText(hi), axisBaseline, paint);
+        final float baseline = h - dp(4);
+        canvas.drawText(lo, left, baseline, paint);
+        canvas.drawText(hi, right - paint.measureText(hi), baseline, paint);
     }
 
     private void applyLabelStyle(Paint p) {
