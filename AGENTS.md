@@ -1,6 +1,6 @@
 # SpektraLab for Android
 
-Unofficial Android port of the SpektraLab film/paper simulation engine (Vulkan). Java UI + JNI over an **out-of-tree C++ engine**. Gradle is the primary build; the Termux scripts are the legacy path. There is no JUnit or instrumentation suite: verification is pure JVM `*Check` programs, static gates, and a physical device.
+Unofficial Android port of the SpektraLab film/paper simulation engine (Vulkan). Java UI + JNI over an **out-of-tree C++ engine**. Gradle is the primary build; the Termux scripts are the legacy path. Pure JVM checks run with `checkJvm`; Activity wiring uses JUnit 4 + Robolectric via `testDebugUnitTest`. There is no instrumentation suite.
 
 ## Build (Gradle)
 
@@ -21,12 +21,14 @@ Legacy Termux build, only when rebuilding native code: `build-libs-raw.sh` (once
 
 ```powershell
 .\gradlew.bat checkstyleGovernance checkJvm lintDebug
+.\gradlew.bat testDebugUnitTest "-PbaseApk=<donor.apk>"
 python app/build/check-manifest.py
 python app/build/test-gen-stock-catalog.py
 python app/build/check-apk.py <apk>    # after assemble/align16k
 ```
 
 - `checkJvm` compiles the `*Check.java` programs against the real debug classpath and runs each one from the repo root. A new check needs `checkJvm --rerun-tasks`, or Gradle may report the task up to date and skip it.
+- `testDebugUnitTest` runs the JUnit 4 + Robolectric tests in `src/test/java` (currently `PanelRowsTest`, SDK 35). AGP's unit-test compiler excludes `*Check.java`; those desktop-style programs stay on `checkJvm`.
 - `checkstyleGovernance` enforces the Alibaba-style subset on `core/**`, `model/**`, `ui/**` and `MainActivity`. Do not exclude a file to make a change pass; move code to its owning package.
 - `check-manifest.py` and `check-apk.py` pin target SDK, permissions, exports, cleartext and backup.
 - Device checks: install, then watch logcat tags `SpektraLabJNI` and `SpektraLabRAW`. `DebugSink` posts diagnostics to `127.0.0.1:8770`; driver telemetry goes to `report.workshop.skin`. Manual matrix: `docs/testing/manual-device-checklist.md`.

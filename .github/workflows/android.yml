@@ -46,6 +46,11 @@ jobs:
           Invoke-WebRequest -Uri 'https://github.com/SAINTTaiYi/SpektraLab-Android/releases/download/v1.5.0e/SpektraLab-1.5.0e-arm64-v8a.apk' -OutFile $base
           Add-Content -Path $env:GITHUB_ENV -Value "BASE_APK=$base" -Encoding utf8
 
+      - name: JUnit and Robolectric
+        shell: pwsh
+        run: |
+          .\gradlew.bat testDebugUnitTest "-PbaseApk=$env:BASE_APK" --no-daemon
+
       - name: Release or CI signing key
         shell: pwsh
         env:
