@@ -13,7 +13,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ScrollView;
-import android.widget.ProgressBar;
 import android.widget.RadioGroup;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
@@ -62,6 +61,7 @@ import com.google.android.material.color.MaterialColors;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.navigation.NavigationBarView;
 import com.google.android.material.navigationrail.NavigationRailView;
+import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.google.android.material.radiobutton.MaterialRadioButton;
 import com.google.android.material.slider.Slider;
 import com.google.android.material.snackbar.Snackbar;
@@ -133,8 +133,8 @@ public class MainActivity extends AppCompatActivity {
     /** What the import put on the stage: the frame before any film. */
     private Bitmap beforeBitmap;
     private TextView statusText;
-    private ProgressBar progressBar;
-    private ProgressBar exportProgressBar;
+    private LinearProgressIndicator progressBar;
+    private LinearProgressIndicator exportProgressBar;
     private final List<StockCatalogue.Stock> filmCatalogue = new ArrayList<>();
     private final List<StockCatalogue.Stock> printCatalogue = new ArrayList<>();
     private final List<String> filmIds = stockIds(filmCatalogue);
@@ -1165,18 +1165,20 @@ stage.addView(shelfHandle, handleLp);
     private void addStageProgress(android.widget.FrameLayout stage) {
 
 android.widget.FrameLayout jobs = new android.widget.FrameLayout(this);
-progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+progressBar = new LinearProgressIndicator(this);
 progressBar.setIndeterminate(true);
-progressBar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(
-        palette.color(Palette.Role.STAGE_INK)));
+progressBar.setTrackThickness(dp(2));
+progressBar.setIndicatorColor(palette.color(Palette.Role.STAGE_INK));
+progressBar.setTrackColor(android.graphics.Color.TRANSPARENT);
 progressBar.setVisibility(View.GONE);
-jobs.addView(progressBar, new android.widget.FrameLayout.LayoutParams(-1, -1));
-exportProgressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+jobs.addView(progressBar, new android.widget.FrameLayout.LayoutParams(-1, dp(2)));
+exportProgressBar = new LinearProgressIndicator(this);
 exportProgressBar.setIndeterminate(true);
-exportProgressBar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(
-        palette.color(Palette.Role.STAGE_INK)));
+exportProgressBar.setTrackThickness(dp(2));
+exportProgressBar.setIndicatorColor(palette.color(Palette.Role.STAGE_INK));
+exportProgressBar.setTrackColor(android.graphics.Color.TRANSPARENT);
 exportProgressBar.setVisibility(View.GONE);
-jobs.addView(exportProgressBar, new android.widget.FrameLayout.LayoutParams(-1, -1));
+jobs.addView(exportProgressBar, new android.widget.FrameLayout.LayoutParams(-1, dp(2)));
 stage.addView(jobs, new android.widget.FrameLayout.LayoutParams(-1, dp(2), android.view.Gravity.BOTTOM));
     }
 
