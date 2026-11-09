@@ -41,6 +41,40 @@ jobs:
       - name: Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Cache the Gradle distribution
+        id: gradle-dist
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/gradle-8.7
+          key: gradle-8.7-bin
+
+      - name: Provision Gradle
+        if: steps.gradle-dist.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'gradle-8.7-bin.zip'
+          $ok = $false
+          for ($i = 1; $i -le 4 -and -not $ok; $i++) {
+            & gh release download v8.7.0 --repo gradle/gradle-distributions `
+              --pattern 'gradle-8.7-bin.zip' --output $zip --clobber
+            if (Test-Path $zip) {
+              Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP -Force
+              if (Test-Path (Join-Path $env:RUNNER_TEMP 'gradle-8.7\bin\gradle.bat')) {
+                $ok = $true
+                break
+              }
+            }
+            Write-Host "Gradle download attempt $i failed; retrying"
+            Start-Sleep -Seconds (5 * $i)
+          }
+          if (-not $ok) { throw 'Gradle distribution download failed after 4 attempts' }
+
+      - name: Add Gradle to PATH
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:RUNNER_TEMP 'gradle-8.7\bin')
+
       - name: Cache donor APK
         id: donor
         uses: actions/cache@v4
@@ -82,7 +116,7 @@ jobs:
         run: |
           python app/build/check-manifest.py
           python app/build/test-gen-stock-catalog.py
-          .\gradlew.bat checkstyleGovernance checkJvm lintDebug testDebugUnitTest --no-daemon
+          gradle checkstyleGovernance checkJvm lintDebug testDebugUnitTest --no-daemon
 
       - name: Release or CI signing key
         shell: pwsh
@@ -114,7 +148,7 @@ jobs:
       - name: Assemble and gate the 16 KB APK
         shell: pwsh
         run: |
-          .\gradlew.bat align16k --no-daemon
+          gradle align16k --no-daemon
 
       - name: Verify the APK signature
         shell: pwsh
