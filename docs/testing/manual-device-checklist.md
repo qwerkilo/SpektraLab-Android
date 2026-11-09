@@ -13,6 +13,7 @@ Android version, and Theme mode.
 - [ ] Save a preset from a developed Frame, change two sliders, apply it: the Look returns, one undo step appears, and the canvas renders once.
 - [ ] Share a preset to another app, copy the JSON back, import it: the preset appears in the list and applies.
 - [ ] Import a JPEG and a RAW: the JPEG starts with 测光 off, the RAW with 保护高光; choosing 平均 renders once and survives undo/frame switch.
+- [ ] Tap the SPECTRUM readout cell: the histogram appears over the stage without a new render, follows later renders, and hides on a second tap.
 - [ ] From a file manager, "open with" offers no SpektraLab image entry (the dead `VIEW` filter is gone); use the in-app picker.
 - [ ] `adb shell dumpsys package app.spektralab` shows only `READ_EXTERNAL_STORAGE` (maxSdk 32) and `INTERNET`.
 - [ ] `adb shell cmd netpolicy` is not needed; the app only reaches HTTPS endpoints and the loopback debug sink.

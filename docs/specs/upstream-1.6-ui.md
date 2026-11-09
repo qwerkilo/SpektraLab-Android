@@ -49,9 +49,10 @@ form until art exists.
 ### Phase 4 — colour, metering, histogram
 
 Seven metering modes are implemented: the choice lives in the Frame's Look and
-is written as `auto_exposure` / `auto_exposure_method`. Hue-correction wiring,
-a histogram overlay toggle on the readout strip, and the preview gamut choice
-are `04b`; they need their own display and engine contracts.
+is written as `auto_exposure` / `auto_exposure_method`. The histogram overlay is
+implemented too: the spectrum readout cell toggles it and `core/Histogram` bins
+the displayed bitmap without a render. Hue-correction wiring and the preview
+gamut choice remain in `04b`; they need their own engine/display contracts.
 
 ## Test seams
 

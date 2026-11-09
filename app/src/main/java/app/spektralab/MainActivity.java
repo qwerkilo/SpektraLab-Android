@@ -42,6 +42,7 @@ import app.spektralab.ui.widget.ArrowView;
 import app.spektralab.ui.widget.CompareView;
 import app.spektralab.ui.widget.EdgeBackdrop;
 import app.spektralab.ui.widget.GuideView;
+import app.spektralab.ui.widget.HistogramView;
 import app.spektralab.ui.widget.ScanOverlayView;
 import app.spektralab.ui.widget.SnackbarHost;
 import app.spektralab.ui.widget.SpectrumCurveView;
@@ -127,6 +128,8 @@ public class MainActivity extends AppCompatActivity {
     private ByteBuffer sourcePixels;
     private int sourceWidth, sourceHeight;
     private CompareView compare;
+    private HistogramView histogram;
+    private boolean histogramOn;
     /** What the import put on the stage: the frame before any film. */
     private Bitmap beforeBitmap;
     private TextView statusText;
@@ -1065,6 +1068,18 @@ scanOverlay = new ScanOverlayView(this, palette, compare, this::onScanSample);
 scanOverlay.setVisibility(View.GONE);
 stage.addView(scanOverlay, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
+histogram = new HistogramView(this);
+histogram.setVisibility(histogramOn ? View.VISIBLE : View.GONE);
+if (histogramOn && lastRenderedBitmap != null) {
+    histogram.setBitmap(lastRenderedBitmap);
+}
+final android.widget.FrameLayout.LayoutParams histogramLp =
+        new android.widget.FrameLayout.LayoutParams(dp(132), dp(64));
+histogramLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+histogramLp.topMargin = dp(8);
+histogramLp.rightMargin = dp(8);
+stage.addView(histogram, histogramLp);
+
         return stage;
     }
 
@@ -1658,6 +1673,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             readoutSpectrumUnit = unit;
             readoutSpectrumDetail = detail;
             readoutSpectrumCell = cell;
+            cell.setClickable(true);
+            cell.setFocusable(true);
+            cell.setContentDescription("光谱读数，点按显示或隐藏直方图");
+            cell.setOnClickListener(v -> toggleHistogram());
         }
         return cell;
     }
@@ -1677,6 +1696,25 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
      * Film, print, and exposure are the three values the ticket names; the
      * spectrum cell only reports samples the catalogue actually carries.
      */
+    /** Keep the optional histogram tied to what the canvas is showing. */
+    private void updateHistogram(Bitmap bitmap) {
+        if (histogramOn && histogram != null) {
+            histogram.setBitmap(bitmap);
+        }
+    }
+
+    /** Show or hide the stage histogram; it never triggers a render. */
+    private void toggleHistogram() {
+        histogramOn = !histogramOn;
+        if (histogram != null) {
+            histogram.setVisibility(histogramOn ? View.VISIBLE : View.GONE);
+            if (histogramOn) {
+                histogram.setBitmap(showingOriginal ? beforeBitmap : lastRenderedBitmap);
+            }
+        }
+        showSnackbar(histogramOn ? "直方图已显示" : "直方图已隐藏", Snackbar.LENGTH_SHORT);
+    }
+
     private void refreshReadoutStrip() {
         final String exposure = OpticsDelta.valueText(
                 optics.get(OpticsDelta.Param.EXPOSURE));
@@ -7139,6 +7177,7 @@ refreshEdgeFormats();
     /** Put a decoded RAW frame on the canvas before its first print. */
     private void applyRawPreview(Bitmap preview, Uri uri) {
         beforeBitmap = preview;
+        updateHistogram(preview);
         compare.setBefore(preview);
         setStage(1, getFileName(uri));
         rememberFrame(uri);
@@ -8063,6 +8102,7 @@ refreshEdgeFormats();
                 return;
             }
             lastRenderedBitmap = bmp;
+            updateHistogram(bmp);
             compare.setAfter(bmp);
             setStage(1, null);
         });
@@ -8276,6 +8316,7 @@ refreshEdgeFormats();
         setStage(1, null);
         setStep(2);
         lastRenderedBitmap = bmp;
+        updateHistogram(bmp);
         setOpticsUnlocked(true);
         setOriginalVisual(false);
         refreshFilmPanel();
