@@ -1,6 +1,7 @@
 # Prism Table console
 
-Status: `ready-for-agent`
+Status: `in-progress` — slices 1 (shell) and 2 (dock) are implemented; the
+device polish matrix in slice 3 is still open.
 
 The selected liquid-glass direction for the M3 console. Prism Table keeps the
 Prism HUD's full-bleed photograph, circular exposure readout and bottom sheet,
@@ -70,3 +71,19 @@ simulated surface.
    as a glass sheet, and reorder the controls column without changing `setTab`.
 3. **Polish + device pass.** Light/dark, 390 dp and ≥600 dp, large text, and the
    no-extra-render checks. Capture `prism-*.png` in `prototypes/shots/`.
+
+## Implemented
+
+- `app/src/main/java/app/spektralab/ui/GlassStyle.java` owns the radii, alpha,
+  outline and elevation tokens; `GlassStyleCheck` keeps them in range.
+- `MainActivity.buildUi()` adds the top bar as a `FrameLayout` overlay after the
+  stage/body, so the photograph runs under the bar without a page row.
+- The 2×2 readout table and source strip are floating glass cards; the panel is
+  a glass sheet above a bottom tab dock (`CONTROLS_OPEN_DP` includes the 8 dp
+  shell pad).
+- On the ≥600 dp rail layout the sheet reserves the bar's height at the top of
+  the control column so its heading never sits under the overlay.
+- Device evidence: `prototypes/shots/prism-phone-light.png`,
+  `prism-phone-dark.png`, `prism-wide.png`.
+- Checks: `checkstyleGovernance`, `checkJvm` (including `GlassStyleCheck`),
+  `lintDebug`, `testDebugUnitTest` (including the Prism dock order assertion).

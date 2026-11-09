@@ -131,6 +131,20 @@ public final class PanelRowsTest {
                 exposure, histogram.getParent());
     }
 
+    @Test
+    public void prismShellFloatsTheBarAndDocksTheTabs() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        final ViewGroup root = (ViewGroup) privateView(activity, "uiRoot");
+        assertTrue("the floating bar must be the last root child",
+                root.getChildAt(root.getChildCount() - 1)
+                        instanceof com.google.android.material.appbar.AppBarLayout);
+        final ViewGroup controls = (ViewGroup) privateView(activity, "controls");
+        org.junit.Assert.assertSame("the sheet must sit above the tabs",
+                privateView(activity, "panelHolder"), controls.getChildAt(0));
+        org.junit.Assert.assertSame("the tab dock must be the last control child",
+                privateView(activity, "tabLayout"), controls.getChildAt(1));
+    }
+
     private static View privateView(MainActivity activity, String field)
             throws Exception {
         final java.lang.reflect.Field declared = MainActivity.class.getDeclaredField(field);

@@ -34,6 +34,7 @@ import app.spektralab.core.SpectrumSamples;
 import app.spektralab.core.StockNames;
 import app.spektralab.core.ImportBudget;
 import app.spektralab.model.FilmStock;
+import app.spektralab.ui.GlassStyle;
 import app.spektralab.ui.ThemeMode;
 import app.spektralab.ui.UiState;
 import app.spektralab.model.Frame;
@@ -461,6 +462,10 @@ public class MainActivity extends AppCompatActivity {
     private int[] livePixels;
     private final List<View> formatCards = new ArrayList<>();
     private static final int TOP_APP_BAR_HEIGHT_DP = 64;
+    /** The floating Prism top bar sits 8 dp below the status bar. */
+    private static final int TOP_BAR_MARGIN_DP = 8;
+    /** Stage readouts start below the floating bar, never under it. */
+    private static final int STAGE_TOP_CLEARANCE_DP = 78;
     private static final int READOUT_HEIGHT_DP = 52;
     private static final int SOURCE_HEIGHT_DP = 54;
     private static final int TABS_HEIGHT_DP = 48;
@@ -469,12 +474,14 @@ public class MainActivity extends AppCompatActivity {
      *  height; the section head, paper row, and brand row are all 48 dp targets.
      *  336 leaves 8 dp for the panel's bottom breathing room. */
     private static final int PANEL_HEIGHT_DP = 336;
+    private static final int CONTROL_SHELL_PAD_DP = 8;
     private static final int PAPER_ROW_HEIGHT_DP = 48;
     private static final int FILM_METRICS_HEIGHT_DP = 36;
     /** Breathing room above the gesture bar; the root also carries the inset. */
     private static final int PANEL_BOTTOM_DP = 8;
-    private static final int CONTROLS_OPEN_DP = PANEL_HEIGHT_DP + TABS_HEIGHT_DP;
-    private static final int CONTROLS_CLOSED_DP = TABS_HEIGHT_DP;
+    private static final int CONTROLS_OPEN_DP =
+            PANEL_HEIGHT_DP + TABS_HEIGHT_DP + CONTROL_SHELL_PAD_DP;
+    private static final int CONTROLS_CLOSED_DP = TABS_HEIGHT_DP + CONTROL_SHELL_PAD_DP;
     /** Android's minimum touch target for a primary control. */
     private static final int MIN_TOUCH_DP = 48;
     private static final int SLIDER_HEIGHT_DP = 48;
@@ -597,6 +604,25 @@ public class MainActivity extends AppCompatActivity {
     /** A control colour role, with the Palette only as the pre-theme fallback. */
     private int m3Role(int attr, Palette.Role fallback) {
         return MaterialColors.getColor(this, attr, palette.color(fallback));
+    }
+
+    /**
+     * The Prism Table glass surface: a translucent M3 surface with a specular
+     * outline. Android has no backdrop blur for arbitrary in-Activity views, so
+     * this is a deliberate simulated glass, not a claimed window blur.
+     */
+    private android.graphics.drawable.Drawable glassSurface(int radiusDp) {
+        final int surface = m3Surface();
+        final android.graphics.drawable.GradientDrawable glass =
+                new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                        new int[] {
+                                withAlpha(surface, GlassStyle.SURFACE_START_ALPHA),
+                                withAlpha(surface, GlassStyle.SURFACE_END_ALPHA) });
+        glass.setCornerRadius(dp(radiusDp));
+        glass.setStroke(Math.max(1, dp(1)),
+                withAlpha(m3OutlineVariant(), GlassStyle.OUTLINE_ALPHA));
+        return glass;
     }
 
     /** A two-state colour for a real checkable control (checked, then default). */
@@ -821,9 +847,15 @@ public class MainActivity extends AppCompatActivity {
         // the page colour would otherwise run on below the panel and read as
         // an unfinished half-column. The film curve then takes the rest of the
         // rail on the default tab instead of leaving its lower half empty.
-        final int rail = wide ? m3Surface() : m3Background();
-        controls.setBackgroundColor(rail);
-        panelHolder.setBackgroundColor(rail);
+        controls.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        panelHolder.setBackground(glassSurface(GlassStyle.SHEET_RADIUS_DP));
+        panelHolder.setClipToOutline(true);
+        panelHolder.setElevation(dp(GlassStyle.SHEET_ELEVATION_DP));
+        // On a wide window the floating bar spans the page; keep the control
+        // column's own heading below it. On the phone the sheet is already
+        // below the stage, so it only needs its normal breathing room.
+        panelHolder.setPadding(dp(16), dp(wide ? TOP_APP_BAR_HEIGHT_DP + 8 : 8),
+                dp(16), dp(PANEL_BOTTOM_DP));
         applyFilmCurveHeight(wide);
         updateStageReadoutWidths();
     }
@@ -1190,11 +1222,15 @@ if (scanToggleChip != null) {
     private void buildControlDeck() {
 controls = new LinearLayout(this);
 controls.setOrientation(LinearLayout.VERTICAL);
-controls.setBackgroundColor(m3Background());
+controls.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+controls.setPadding(dp(8), 0, dp(8), dp(CONTROL_SHELL_PAD_DP));
 
 panelHolder = new LinearLayout(this);
 panelHolder.setOrientation(LinearLayout.VERTICAL);
-panelHolder.setPadding(dp(16), 0, dp(16), dp(PANEL_BOTTOM_DP));
+panelHolder.setBackground(glassSurface(GlassStyle.SHEET_RADIUS_DP));
+panelHolder.setClipToOutline(true);
+panelHolder.setElevation(dp(GlassStyle.SHEET_ELEVATION_DP));
+panelHolder.setPadding(dp(16), dp(8), dp(16), dp(PANEL_BOTTOM_DP));
 panelHolder.addView(scrollablePanel(buildFilmPanel()),
         new LinearLayout.LayoutParams(-1, -1));
 panelHolder.addView(scrollablePanel(buildOpticsPanel()),
@@ -1207,8 +1243,10 @@ for (int i = 0; i < 4; ++i) {
     panels[i] = panelHolder.getChildAt(i);
 }
 
-controls.addView(buildTabs(), new LinearLayout.LayoutParams(-1, dp(TABS_HEIGHT_DP)));
+// The Prism Table dock sits at the bottom, under the sheet, so the panel
+// comes first in the column. setTab() still owns the panel swap.
 controls.addView(panelHolder, new LinearLayout.LayoutParams(-1, dp(PANEL_HEIGHT_DP)));
+controls.addView(buildTabs(), new LinearLayout.LayoutParams(-1, dp(TABS_HEIGHT_DP)));
 body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
     }
 
@@ -1240,13 +1278,9 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         snackbarLp.bottomMargin = dp(8);
         root.addView(snackbarHost, snackbarLp);
 
-        // The Console shell: a header on the page, then the photograph as a
-        // full-bleed stage, its instrument readout strip, the source strip,
-        // and the four tabs that own the panel. Below the tablet breakpoint
-        // those two groups stack; at or above it they become two columns.
-        app.addView(buildTopAppBar(),
-                new LinearLayout.LayoutParams(-1, dp(TOP_APP_BAR_HEIGHT_DP)));
-
+        // The Console shell: the photograph is the page, with the floating
+        // Prism top bar over it. Below the tablet breakpoint the stage and
+        // controls stack; at or above it they become two columns.
         body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setBackgroundColor(m3Background());
@@ -1272,14 +1306,35 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         addStageProgress(stage);
 
         mainCol.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
-        mainCol.addView(buildReadoutStrip(),
-                new LinearLayout.LayoutParams(-1, -2));
-        mainCol.addView(buildSourceBar(),
-                new LinearLayout.LayoutParams(-1, dp(SOURCE_HEIGHT_DP)));
+
+        final LinearLayout.LayoutParams readoutLp =
+                new LinearLayout.LayoutParams(-1, -2);
+        readoutLp.setMargins(dp(10), dp(8), dp(10), 0);
+        mainCol.addView(buildReadoutStrip(), readoutLp);
+
+        final LinearLayout.LayoutParams sourceLp =
+                new LinearLayout.LayoutParams(-1, dp(SOURCE_HEIGHT_DP));
+        sourceLp.setMargins(dp(10), dp(6), dp(10), dp(8));
+        mainCol.addView(buildSourceBar(), sourceLp);
 
         buildControlDeck();
+        attachFloatingTopBar(root);
+
         applyResponsiveLayout(ConsoleLayout.isWide(currentWidthDp()), currentWidthDp());
         finishUiBuild();
+    }
+
+    /** Add the Prism top bar above the stage without consuming a page row. */
+    private void attachFloatingTopBar(android.widget.FrameLayout root) {
+        final View topBar = buildTopAppBar();
+        final android.widget.FrameLayout.LayoutParams lp =
+                new android.widget.FrameLayout.LayoutParams(
+                        -1, dp(TOP_APP_BAR_HEIGHT_DP),
+                        android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL);
+        lp.leftMargin = dp(TOP_BAR_MARGIN_DP);
+        lp.rightMargin = dp(TOP_BAR_MARGIN_DP);
+        lp.topMargin = dp(TOP_BAR_MARGIN_DP);
+        root.addView(topBar, lp);
     }
 
     /** Load or restyle the catalogue and land on the first tab. */
@@ -1400,8 +1455,12 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         final AppBarLayout appBar = new AppBarLayout(this);
         appBar.setElevation(0);
         appBar.setLiftOnScroll(false);
+        appBar.setBackgroundColor(android.graphics.Color.TRANSPARENT);
 
         final MaterialToolbar toolbar = new MaterialToolbar(this);
+        toolbar.setBackground(glassSurface(GlassStyle.TOP_BAR_RADIUS_DP));
+        toolbar.setElevation(dp(GlassStyle.TOP_BAR_ELEVATION_DP));
+        toolbar.setClipToOutline(true);
         toolbar.setTitle(typed("SpektraLab", tfDisplay));
         // At very large text the wordmark and the two actions compete for one
         // 48 dp row; the subtitle is the first thing to go so the name and
@@ -1567,7 +1626,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
     private View buildReadoutStrip() {
         LinearLayout outer = new LinearLayout(this);
         outer.setOrientation(LinearLayout.VERTICAL);
-        outer.setBackgroundColor(m3Surface());
+        outer.setBackground(glassSurface(GlassStyle.READOUT_RADIUS_DP));
+        outer.setClipToOutline(true);
+        outer.setElevation(dp(GlassStyle.CARD_ELEVATION_DP));
+        outer.setPadding(dp(2), dp(2), dp(2), dp(2));
         outer.setMinimumHeight(dp(READOUT_HEIGHT_DP));
         outer.addView(hairline(m3OutlineVariant()),
                 new LinearLayout.LayoutParams(-1, dp(1)));
@@ -1853,7 +1915,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         infoLp.leftMargin = dp(14);
         // Keep the file name clear of the exposure block in the other corner.
         infoLp.rightMargin = dp(122);
-        infoLp.topMargin = dp(10);
+        infoLp.topMargin = dp(STAGE_TOP_CLEARANCE_DP);
         stage.addView(info, infoLp);
 
     }
@@ -1898,7 +1960,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         android.widget.FrameLayout.LayoutParams exposureLp = new android.widget.FrameLayout.LayoutParams(
                 -2, -2, android.view.Gravity.TOP | android.view.Gravity.END);
         exposureLp.rightMargin = dp(34);
-        exposureLp.topMargin = dp(8);
+        exposureLp.topMargin = dp(STAGE_TOP_CLEARANCE_DP - 4);
         stage.addView(exposure, exposureLp);
 
     }
@@ -1977,7 +2039,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
                 new android.widget.FrameLayout.LayoutParams(
                         -2, -2, android.view.Gravity.TOP | android.view.Gravity.START);
         toggleLp.leftMargin = dp(14);
-        toggleLp.topMargin = dp(34);
+        toggleLp.topMargin = dp(STAGE_TOP_CLEARANCE_DP + 42);
         stage.addView(chip, toggleLp);
 
     }
@@ -2180,7 +2242,9 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
     private View buildSourceBar() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.VERTICAL);
-        bar.setBackgroundColor(m3Surface());
+        bar.setBackground(glassSurface(GlassStyle.SOURCE_RADIUS_DP));
+        bar.setClipToOutline(true);
+        bar.setElevation(dp(GlassStyle.CARD_ELEVATION_DP));
         sourceBar = bar;
         bar.addView(hairline(m3OutlineVariant()),
                 new LinearLayout.LayoutParams(-1, dp(1)));
@@ -5331,6 +5395,10 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         tabLayout = new TabLayout(this);
         tabLayout.setTabMode(TabLayout.MODE_FIXED);
         tabLayout.setTabGravity(TabLayout.GRAVITY_FILL);
+        tabLayout.setBackground(glassSurface(GlassStyle.DOCK_RADIUS_DP));
+        tabLayout.setClipToOutline(true);
+        tabLayout.setElevation(dp(GlassStyle.SHEET_ELEVATION_DP));
+        tabLayout.setSelectedTabIndicatorHeight(dp(2));
         tabLayout.setSelectedTabIndicatorColor(MaterialColors.getColor(this,
                 com.google.android.material.R.attr.colorPrimary,
                 palette.color(Palette.Role.ACCENT)));

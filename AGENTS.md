@@ -44,6 +44,8 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `core/` — framework-free rules and format helpers (`Metering`, `HueCorrection`, `Histogram`, `LivePreviewGate`, …). `model/` — immutable records (`FilmStock`, `Frame`). `ui/` — presentation state (`UiState`, `ThemeMode`). The root package keeps the composition root and the remaining domain seams (`Look`, `GateScale`, `OpticsDelta`, `Palette`, `M3Tokens`, `UpdateGate`, `SpkError`).
 - `SpektraLabEngine.java` — JNI facade; loads bundled `.so` by absolute path, no `static {}` loader. `spektralab_jni.cpp` — session/render/export; `spektralab_raw_jni.cpp` — LibRaw decode. The engine is not in this repo; only `patches/engine-android.patch` and `docs/tiling.md` are.
 
+- `ui/GlassStyle.java` — Prism Table glass radii, alpha, outline and elevation tokens, guarded by `GlassStyleCheck`.
+
 ## Material 3 components
 
 Prefer Material Components over framework widgets for every control and chrome surface: `MaterialToolbar` + `AppBarLayout`, `TabLayout`, `NavigationRailView` / `NavigationBarView`, `MaterialButton`, `MaterialCardView`, `Chip` / `ChipGroup`, `Slider`, `MaterialSwitch`, `MaterialRadioButton`, `MaterialAlertDialogBuilder`, `BottomSheetDialog`, `Snackbar`, `LinearProgressIndicator`, and `TextInputLayout` / `TextInputEditText`. Style text through `m3Label` / `mixedM3Label` / `applyTypeRole`, and colours through `m3Role` / `m3Primary` / `Palette.Role`; never hardcode a colour or text size.

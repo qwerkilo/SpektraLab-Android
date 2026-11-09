@@ -25,4 +25,5 @@ The state line under the switcher shows the direction, theme, film, exposure, gr
 `ui-prototype.html` keeps the first round (Darkroom / Contact Sheet / Instrument).
 `ui-instrument.html` keeps the Instrument round (Console / Ledger / Scan).
 
-The winning direction gets rewritten into `MainActivity.java`; this folder stays out of production.
+The winning direction is implemented in the real M3 console via
+`docs/specs/prism-table-console.md`; this folder stays out of production.
