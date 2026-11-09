@@ -185,6 +185,10 @@ public final class LookRestatementCheck {
         eq("true", meteredJpeg.optString("auto_exposure"));
         eq("protect_highlights", meteredJpeg.optString("auto_exposure_method"));
 
+        final org.json.JSONObject p3 = parse(LookRestatement.json(
+                look, new LookRestatement.Context(false, 1024, false, "EDGE", "", "Display P3")));
+        eq("Display P3", p3.optString("output_color_space"));
+
         final org.json.JSONObject slide = parse(LookRestatement.json(
                 look, new LookRestatement.Context(false, 2048, true, "EDGE", "")));
         eq("true", slide.optString("scan_film"));

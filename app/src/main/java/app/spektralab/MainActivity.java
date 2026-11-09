@@ -202,6 +202,8 @@ public class MainActivity extends AppCompatActivity {
         try { SpektraLabEngine.prepare(nativeDir); } catch (Throwable e) { lastImportError = describe(e); }
         try { DebugSink.text("app-start", "buildInfo=" + SpektraLabEngine.buildInfo()); } catch (Throwable ignored) {}
 
+        previewSpace = getSharedPreferences("console", MODE_PRIVATE)
+                .getString("preview_space", "sRGB");
         buildUi();
         uiReady = true;
 
@@ -235,6 +237,8 @@ public class MainActivity extends AppCompatActivity {
      */
     private static final String THEME_PREFS = "theme";
     private ThemeMode themeMode = ThemeMode.LIGHT;
+    /** The preview bitmap's declared colour space; export always uses sRGB. */
+    private String previewSpace = "sRGB";
     private Palette palette = Palette.light();
     /** Which stage surface is showing, captured so a theme rebuild can restore it. */
     private int stageMode = 0;
@@ -1697,6 +1701,18 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
      * Film, print, and exposure are the three values the ticket names; the
      * spectrum cell only reports samples the catalogue actually carries.
      */
+    /** Declare the preview's colour space; sRGB is what an untagged bitmap is. */
+    private void tagPreviewSpace(Bitmap bitmap) {
+        if (bitmap == null || android.os.Build.VERSION.SDK_INT < 29
+                || !"Display P3".equals(previewSpace)) {
+            return;
+        }
+        try {
+            bitmap.setColorSpace(android.graphics.ColorSpace.get(
+                    android.graphics.ColorSpace.Named.DISPLAY_P3));
+        } catch (Throwable ignored) { }
+    }
+
     /** Keep the optional histogram tied to what the canvas is showing. */
     private void updateHistogram(Bitmap bitmap) {
         if (histogramOn && histogram != null) {
@@ -3602,6 +3618,20 @@ card.setOnClickListener(v -> {
             renderImage();
         });
         root.addView(hueButton, new LinearLayout.LayoutParams(-1, dp(48)));
+        final MaterialButton gamutButton = actionButton(
+                mixedText("预览色域 · " + previewSpace),
+                "预览色域：只影响屏幕，导出始终使用 sRGB");
+        gamutButton.setOnClickListener(v -> showChoiceSheet("预览色域 / GAMUT",
+                "只影响屏幕显示；导出的 JPEG/TIFF 始终使用 sRGB",
+                java.util.Arrays.asList("sRGB", "Display P3"),
+                "Display P3".equals(previewSpace) ? 1 : 0, picked -> {
+                    previewSpace = picked == 1 ? "Display P3" : "sRGB";
+                    getSharedPreferences("console", MODE_PRIVATE).edit()
+                            .putString("preview_space", previewSpace).apply();
+                    gamutButton.setText(mixedText("预览色域 · " + previewSpace));
+                    renderImage();
+                }));
+        root.addView(gamutButton, new LinearLayout.LayoutParams(-1, dp(48)));
 
         final ChipGroup groups = new ChipGroup(this);
         groups.setSingleSelection(true);
@@ -7476,7 +7506,7 @@ refreshEdgeFormats();
         // control.
         final String importParams = live().filmStock == null
                 ? null
-                : snapshotFor(live(), live().filmStock, PREVIEW_LONG_EDGE).params;
+                : snapshotFor(live(), live().filmStock, PREVIEW_LONG_EDGE, false).params;
         try {
             final String filePath = prepareRawImport(uri);
             if (filePath == null) {
@@ -7992,14 +8022,16 @@ refreshEdgeFormats();
      * one and not the other was invisible until a file disagreed with the
      * screen. There is now one string, built in one place.
      */
-    private RenderSnapshot snapshotFor(Look look, String stock, int longEdge) {
+    private RenderSnapshot snapshotFor(Look look, String stock, int longEdge,
+                                       boolean forExport) {
         return RenderSnapshot.of(look, stock, longEdge,
                 new LookRestatement.Context(
                         isRawFile,
                         longEdge,
                         isPositiveFilm(stock),
                         edgeTextFor(stock),
-                        look.dateOn ? defaultImprintDate() : ""));
+                        look.dateOn ? defaultImprintDate() : "",
+                        forExport ? "sRGB" : previewSpace));
     }
 
     /*
@@ -8036,7 +8068,7 @@ refreshEdgeFormats();
             setOriginalVisual(false);
         }
         try {
-            liveSnapshot = snapshotFor(captureLook(), live().filmStock, LIVE_LONG_EDGE);
+            liveSnapshot = snapshotFor(captureLook(), live().filmStock, LIVE_LONG_EDGE, false);
         } catch (Throwable t) {
             try { DebugSink.text("live", "snapshot failed " + describe(t)); } catch (Throwable ignored) { }
             return;
@@ -8130,6 +8162,7 @@ refreshEdgeFormats();
                 return;
             }
             lastRenderedBitmap = bmp;
+            tagPreviewSpace(bmp);
             updateHistogram(bmp);
             compare.setAfter(bmp);
             setStage(1, null);
@@ -8218,7 +8251,7 @@ refreshEdgeFormats();
         updateUndoAction();
         // The view layer is a process-global native pass, so snapshot its
         // values with the Look and send them under the render lock.
-        final RenderSnapshot snapshot = snapshotFor(renderLook, renderedStock, PREVIEW_LONG_EDGE);
+        final RenderSnapshot snapshot = snapshotFor(renderLook, renderedStock, PREVIEW_LONG_EDGE, false);
         final double[] viewAdjust = snapshot.viewAdjust;
         // Snapshot the whole Look here, on the UI thread: the render thread gets
         // one finished string and never reads a control or a Frame.
@@ -8344,6 +8377,7 @@ refreshEdgeFormats();
         setStage(1, null);
         setStep(2);
         lastRenderedBitmap = bmp;
+        tagPreviewSpace(bmp);
         updateHistogram(bmp);
         setOpticsUnlocked(true);
         setOriginalVisual(false);
@@ -8623,7 +8657,7 @@ refreshEdgeFormats();
         // switch or a slider drag during a long export must not move the file.
         final String exportStock = live().filmStock;
         final Look exportLook = captureLook();
-        final RenderSnapshot exportSnapshot = snapshotFor(exportLook, exportStock, PREVIEW_LONG_EDGE);
+        final RenderSnapshot exportSnapshot = snapshotFor(exportLook, exportStock, PREVIEW_LONG_EDGE, true);
         final double[] exportViewAdjust = exportSnapshot.viewAdjust;
         final String exportParams = exportSnapshot.params;
         final String rawExportPath = isRawFile ? (rawFilePath == null ? "" : rawFilePath) : null;

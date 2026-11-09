@@ -31,14 +31,22 @@ public final class LookRestatement {
         public final boolean positiveFilm;
         public final String edgePrint;
         public final String defaultDateText;
+        /** The engine output space; the preview may be Display P3, export sRGB. */
+        public final String outputSpace;
 
         public Context(boolean raw, int longEdge, boolean positiveFilm,
                        String edgePrint, String defaultDateText) {
+            this(raw, longEdge, positiveFilm, edgePrint, defaultDateText, "sRGB");
+        }
+
+        public Context(boolean raw, int longEdge, boolean positiveFilm,
+                       String edgePrint, String defaultDateText, String outputSpace) {
             this.raw = raw;
             this.longEdge = longEdge;
             this.positiveFilm = positiveFilm;
             this.edgePrint = edgePrint == null ? "" : edgePrint;
             this.defaultDateText = defaultDateText == null ? "" : defaultDateText;
+            this.outputSpace = "Display P3".equals(outputSpace) ? "Display P3" : "sRGB";
         }
     }
 
@@ -72,7 +80,7 @@ public final class LookRestatement {
             "{\"film_stock\":\"%s\",\"print_stock\":\"%s\",\"scan_film\":%s,"
             + "\"input_color_space\":\"%s\",\"input_cctf_decoding\":%s,\"auto_exposure\":%s,"
             + "\"auto_exposure_method\":\"%s\","
-            + "\"output_color_space\":\"sRGB\",\"preview_long_edge\":%d,"
+            + "\"output_color_space\":\"%s\",\"preview_long_edge\":%d,"
             + "\"print_exposure\":%.2f,\"grain_amount\":%.3f,\"grain_sublayers_active\":%s,"
             + "\"halation_amount\":%.3f,\"halation_boost_ev\":%.2f,"
             + "\"halation_scatter_amount\":%.3f,"
@@ -111,6 +119,7 @@ public final class LookRestatement {
             context.raw ? "false" : "true",
             (!meter.isEmpty() || context.raw) ? "true" : "false",
             escape(meter.isEmpty() ? "balanced" : meter),
+            context.outputSpace,
             context.longEdge,
             look.printExposure, grainAmount(look),
             monochrome ? "false" : "true",

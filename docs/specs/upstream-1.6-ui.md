@@ -53,8 +53,9 @@ is written as `auto_exposure` / `auto_exposure_method`. The histogram overlay is
 implemented too: the spectrum readout cell toggles it and `core/Histogram` bins
 the displayed bitmap without a render. Hue correction is implemented as the
 view sheet's `胶片原色` toggle; `core/HueCorrection` pins the seven untrusted
-stocks and writes `hue_correction` into the delta. The preview gamut choice
-remains in `04b`; it needs its own display contract.
+stocks and writes `hue_correction` into the delta. The preview gamut is
+implemented: the view sheet chooses sRGB or Display P3, preview bitmaps are
+tagged on API 29+, and export forces sRGB through `snapshotFor(..., true)`.
 
 ## Test seams
 

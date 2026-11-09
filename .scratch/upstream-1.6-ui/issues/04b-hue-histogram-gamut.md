@@ -1,6 +1,6 @@
 # 04b — Hue, histogram and preview gamut
 
-Status: `partly implemented` (histogram and hue done; gamut pending)
+Status: `implemented` (device pass pending)
 Blocked by: 04.
 
 ## Scope
@@ -12,12 +12,9 @@ Blocked by: 04.
 - Histogram overlay computed from the displayed bitmap only. **Done**: the
   spectrum readout cell toggles a 132×64 dp overlay; the bins come from
   `core/Histogram` and never trigger a render.
-- Preview gamut choice; export keeps the selected values.
-
-## Remaining
-
-- Preview gamut needs a display/export contract; do not add a second colour
-  pipeline just for the canvas.
+- Preview gamut choice; export keeps the selected values. **Done**: the view
+  sheet chooses sRGB or Display P3; the preview bitmap is tagged on API 29+,
+  and `snapshotFor(..., true)` forces sRGB for export.
 
 
 ## Acceptance
