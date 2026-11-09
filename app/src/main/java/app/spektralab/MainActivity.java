@@ -5348,7 +5348,16 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                 }
                 if (event.getActionMasked() == android.view.MotionEvent.ACTION_UP) {
                     v.performClick();
+                    // The listener consumes UP, so the TabView never clears
+                    // its own pressed state; clear the ripple here or the
+                    // state layer stays under the selected tab.
+                    v.setPressed(false);
+                    v.jumpDrawablesToCurrentState();
                     return true;
+                }
+                if (event.getActionMasked() == android.view.MotionEvent.ACTION_CANCEL) {
+                    v.setPressed(false);
+                    v.jumpDrawablesToCurrentState();
                 }
                 return false;
             });
