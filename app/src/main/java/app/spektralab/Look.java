@@ -113,6 +113,74 @@ public final class Look {
         return fromJson(toJson());
     }
 
+    /** Replace every field in this Look with another's values. */
+    void copyFrom(Look other) {
+        if (other == null) {
+            return;
+        }
+        final Look c = other.copy();
+        filmStock = c.filmStock;
+        printStock = c.printStock;
+        printExposure = c.printExposure;
+        grainAmount = c.grainAmount;
+        halationAmount = c.halationAmount;
+        glareAmount = c.glareAmount;
+        filmFormatMm = c.filmFormatMm;
+        highlightRoom = c.highlightRoom;
+        shadowRoom = c.shadowRoom;
+        halationBoost = c.halationBoost;
+        halationScatter = c.halationScatter;
+        lensBlur = c.lensBlur;
+        yFilter = c.yFilter;
+        mFilter = c.mFilter;
+        filterScale = c.filterScale;
+        preflash = c.preflash;
+        edgeFog = c.edgeFog;
+        edgeLeaks = c.edgeLeaks;
+        frameNumber = c.frameNumber;
+        halationOn = c.halationOn;
+        grainOn = c.grainOn;
+        couplersOn = c.couplersOn;
+        antihalationRemoved = c.antihalationRemoved;
+        scannerWhite = c.scannerWhite;
+        scannerBlack = c.scannerBlack;
+        edrOn = c.edrOn;
+        shadowRolloff = c.shadowRolloff;
+        maxLift = c.maxLift;
+        cameraFilter = c.cameraFilter;
+        sceneNorm = c.sceneNorm;
+        edgeMode = c.edgeMode;
+        edgeGate = c.edgeGate;
+        edgeHoles = c.edgeHoles;
+        edgeCarrier = c.edgeCarrier;
+        datePlacement = c.datePlacement;
+        dateCorner = c.dateCorner;
+        dateStyle = c.dateStyle;
+        dateInsetX = c.dateInsetX;
+        dateInsetY = c.dateInsetY;
+        edgeFNumber = c.edgeFNumber;
+        dateSize = c.dateSize;
+        dateEv = c.dateEv;
+        edgeTextOn = c.edgeTextOn;
+        dataText = c.dataText;
+        dateTextB = c.dateTextB;
+        dateText = c.dateText;
+        cameraSeed = c.cameraSeed;
+        frameSeed = c.frameSeed;
+        overscanOn = c.overscanOn;
+        dateOn = c.dateOn;
+        overscanFormat = c.overscanFormat;
+        view = c.view.copy();
+        geometryTurns = c.geometryTurns;
+        geometryRotation = c.geometryRotation;
+        geometryCropX = c.geometryCropX;
+        geometryCropY = c.geometryCropY;
+        geometryCropW = c.geometryCropW;
+        geometryCropH = c.geometryCropH;
+        geometryFlipH = c.geometryFlipH;
+        geometryFlipV = c.geometryFlipV;
+    }
+
     /** The Look as the keys the app has always saved; every field is present. */
     JSONObject toJson() {
         final JSONObject o = new JSONObject();

@@ -41,6 +41,13 @@ public final class PanelRowsTest {
     }
 
     @Test
+    public void filmPanelKeepsThePresetAction() {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "胶片");
+        assertShown(activity, "预设");
+    }
+
+    @Test
     public void themeSwitchKeepsTheOpenEdgePage() {
         final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
         click(activity, "边框");

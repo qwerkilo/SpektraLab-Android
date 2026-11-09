@@ -38,9 +38,13 @@ after the current file. No new engine entry points.
 
 ### Phase 3 — presets and film cards
 
-Save/apply a compact Look JSON, share/import it through the clipboard or a
-file, and show a film card's cover. Presets must be optional and must not
-change the Look of a Frame until Apply.
+Save/apply a compact Look JSON, share/import it through the clipboard, and show
+a film card's cover. Presets must be optional and must not change the Look of a
+Frame until Apply.
+
+Presets are implemented. Film covers are `03b` and blocked: the repository has
+no cover art and the catalogue has no cover field, so the card keeps its text
+form until art exists.
 
 ### Phase 4 — colour, metering, histogram
 

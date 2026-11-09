@@ -485,6 +485,9 @@ public class MainActivity extends AppCompatActivity {
     private static final String PROMO_PREFS = "promo";
     private static final String PROMO_SEEN_CODE = "qq_group_seen_code";
     private static final String PROMO_MUTED = "qq_group_muted";
+    private static final String PRESET_PREFS = "look_presets";
+    private static final String PRESET_KEY = "list";
+    private static final int PRESET_LIMIT = 12;
 
     private static final String[] TAB_NAMES = {"胶片", "光学", "尺度", "边框"};
     private static final String[] TAB_ENGLISH = {"FILM", "OPTICS", "SCALE", "EDGE"};
@@ -2602,6 +2605,11 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
     }
 
     private View sectionHead(String title, String actionLabel, Runnable action, Runnable reset) {
+        return sectionHead(title, actionLabel, action, reset, null);
+    }
+
+    private View sectionHead(String title, String actionLabel, Runnable action,
+                             Runnable reset, Runnable presets) {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -2614,6 +2622,11 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(android.view.Gravity.END);
+        if (presets != null) {
+            MaterialButton presetView = m3TextButton("预设", "预设：保存、套用或分享",
+                    m3Primary(), presets);
+            actions.addView(presetView, new LinearLayout.LayoutParams(-2, dp(48)));
+        }
         if (actionLabel != null && action != null) {
             MaterialButton actionView = m3TextButton(actionLabel, actionLabel,
                     m3Primary(), action);
@@ -2746,7 +2759,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.addView(sectionHead("FILM STOCK / 胶片",
-                        "全部胶片", this::showFilmPicker, this::resetFilmPanel),
+                        "全部胶片", this::showFilmPicker, this::resetFilmPanel,
+                        this::showPresetsPanel),
                 new LinearLayout.LayoutParams(-1, -2));
 
         buildFilmBrandRow(panel);
@@ -3205,6 +3219,168 @@ card.setOnClickListener(v -> {
                         pickFilmChip(filmIds.get(index));
                     }
                 });
+    }
+
+    /** Save, apply, share and import named Looks. */
+    private void showPresetsPanel() {
+        final org.json.JSONArray presets = readPresets();
+        final java.util.List<String> labels = new java.util.ArrayList<>();
+        labels.add("保存当前预设");
+        for (int i = 0; i < presets.length(); ++i) {
+            final LookPreset preset = LookPreset.fromJson(presets.optJSONObject(i));
+            if (preset != null) {
+                labels.add(preset.name().isEmpty() ? "未命名预设" : preset.name());
+            }
+        }
+        labels.add("从剪贴板导入");
+        showActionSheet("预设", "只保存 Look，不保存照片；应用会写入当前帧并渲染一次",
+                labels.toArray(new String[0]), which -> {
+                    if (which == 0) {
+                        saveCurrentPreset();
+                    } else if (which == labels.size() - 1) {
+                        importPresetFromClipboard();
+                    } else {
+                        showPresetActions(presets.optJSONObject(which - 1));
+                    }
+                });
+    }
+
+    private void showPresetActions(org.json.JSONObject json) {
+        final LookPreset preset = LookPreset.fromJson(json);
+        if (preset == null) {
+            return;
+        }
+        showActionSheet(preset.name(), "应用会写入当前帧并渲染一次",
+                new String[]{"应用", "分享 JSON", "删除"}, which -> {
+                    if (which == 0) {
+                        applyPreset(preset);
+                    } else if (which == 1) {
+                        sharePreset(preset);
+                    } else if (which == 2) {
+                        deletePreset(preset.name());
+                    }
+                });
+    }
+
+    private void saveCurrentPreset() {
+        if (live().filmStock == null) {
+            showSnackbar("先选一张胶片，再保存预设");
+            return;
+        }
+        askText("保存预设", "", name -> {
+            final String trimmed = name == null ? "" : name.trim();
+            if (trimmed.isEmpty()) {
+                showSnackbar("预设需要名字");
+                return;
+            }
+            storePreset(new LookPreset(trimmed, captureLook()));
+            showSnackbar("已保存预设：" + trimmed);
+        });
+    }
+
+    private void applyPreset(LookPreset preset) {
+        if (session == null || currentSession == null) {
+            showSnackbar("先导入照片");
+            return;
+        }
+        if (preset == null || preset.look().filmStock == null) {
+            showSnackbar("这个预设没有胶片");
+            return;
+        }
+        final Look next = preset.look();
+        currentSession.edit(look -> look.copyFrom(next));
+        optics = currentSession.look();
+        applyLook(optics);
+        refreshReadoutStrip();
+        refreshPaperLabel();
+        syncToggleRows();
+        syncDateDetail();
+        updateUndoAction();
+        renderImage();
+    }
+
+    private void sharePreset(LookPreset preset) {
+        final Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT, preset.toJson().toString());
+        startActivity(Intent.createChooser(send, "分享预设"));
+    }
+
+    private void importPresetFromClipboard() {
+        try {
+            final android.content.ClipboardManager clipboard =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard == null || !clipboard.hasPrimaryClip()
+                    || clipboard.getPrimaryClip() == null
+                    || clipboard.getPrimaryClip().getItemCount() == 0) {
+                showSnackbar("剪贴板里没有预设");
+                return;
+            }
+            final String text = clipboard.getPrimaryClip().getItemAt(0)
+                    .coerceToText(this).toString();
+            final org.json.JSONObject json = new org.json.JSONObject(text);
+            LookPreset preset = LookPreset.fromJson(json);
+            if (preset == null) {
+                preset = new LookPreset("剪贴板", Look.fromJson(json));
+            }
+            if (preset.look().filmStock == null) {
+                showSnackbar("剪贴板不是有效的预设");
+                return;
+            }
+            storePreset(preset);
+            showSnackbar("已导入预设：" + preset.name());
+        } catch (Throwable t) {
+            showSnackbar("预设解析失败：" + describe(t));
+        }
+    }
+
+    private void storePreset(LookPreset preset) {
+        final org.json.JSONArray current = readPresets();
+        final org.json.JSONArray next = new org.json.JSONArray();
+        boolean replaced = false;
+        for (int i = 0; i < current.length(); ++i) {
+            final LookPreset old = LookPreset.fromJson(current.optJSONObject(i));
+            if (old != null && old.name().equals(preset.name())) {
+                if (!replaced) {
+                    next.put(preset.toJson());
+                    replaced = true;
+                }
+            } else if (old != null) {
+                next.put(old.toJson());
+            }
+        }
+        if (!replaced && next.length() < PRESET_LIMIT) {
+            next.put(preset.toJson());
+        }
+        writePresets(next);
+    }
+
+    private void deletePreset(String name) {
+        final org.json.JSONArray current = readPresets();
+        final org.json.JSONArray next = new org.json.JSONArray();
+        for (int i = 0; i < current.length(); ++i) {
+            final LookPreset old = LookPreset.fromJson(current.optJSONObject(i));
+            if (old != null && !old.name().equals(name)) {
+                next.put(old.toJson());
+            }
+        }
+        writePresets(next);
+        showSnackbar("已删除预设：" + name);
+    }
+
+    private org.json.JSONArray readPresets() {
+        final String raw = getSharedPreferences(PRESET_PREFS, MODE_PRIVATE)
+                .getString(PRESET_KEY, "[]");
+        try {
+            return new org.json.JSONArray(raw);
+        } catch (Throwable ignored) {
+            return new org.json.JSONArray();
+        }
+    }
+
+    private void writePresets(org.json.JSONArray presets) {
+        getSharedPreferences(PRESET_PREFS, MODE_PRIVATE).edit()
+                .putString(PRESET_KEY, presets.toString()).apply();
     }
 
     private void showPaperPicker() {
