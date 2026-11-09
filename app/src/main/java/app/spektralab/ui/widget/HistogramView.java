@@ -15,6 +15,8 @@ import app.spektralab.core.Histogram;
 public final class HistogramView extends View {
 
     private static final int[] CHANNELS = {0xCCE05A5A, 0xCC5FBF6A, 0xCC5B7BE0};
+    /** Cap the sampled pixels so a live preview frame stays cheap to bin. */
+    private static final int MAX_SAMPLES = 160_000;
 
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
@@ -40,9 +42,20 @@ public final class HistogramView extends View {
         }
         final int w = bitmap.getWidth();
         final int h = bitmap.getHeight();
-        final int[] pixels = new int[w * h];
-        bitmap.getPixels(pixels, 0, w, 0, 0, w, h);
-        bins = Histogram.of(pixels, w, h);
+        final int step = Math.max(1, (int) Math.ceil(
+                Math.sqrt((double) w * h / MAX_SAMPLES)));
+        final int sw = (w + step - 1) / step;
+        final int sh = (h + step - 1) / step;
+        final int[] sample = new int[sw * sh];
+        final int[] row = new int[w];
+        for (int sy = 0, y = 0; y < h; y += step, ++sy) {
+            bitmap.getPixels(row, 0, w, 0, y, w, 1);
+            final int base = sy * sw;
+            for (int sx = 0, x = 0; x < w; x += step, ++sx) {
+                sample[base + sx] = row[x];
+            }
+        }
+        bins = Histogram.of(sample, sw, sh);
         max = Histogram.max(bins);
         invalidate();
     }

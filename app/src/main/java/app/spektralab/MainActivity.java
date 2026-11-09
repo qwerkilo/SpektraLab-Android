@@ -1073,6 +1073,7 @@ scanOverlay.setVisibility(View.GONE);
 stage.addView(scanOverlay, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
 histogram = new HistogramView(this);
+histogram.setContentDescription("RGB 直方图");
 histogram.setVisibility(histogramOn ? View.VISIBLE : View.GONE);
 if (histogramOn && lastRenderedBitmap != null) {
     histogram.setBitmap(lastRenderedBitmap);
@@ -1683,6 +1684,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             cell.setFocusable(true);
             cell.setContentDescription("光谱读数，点按显示或隐藏直方图");
             cell.setOnClickListener(v -> toggleHistogram());
+            syncHistogramAccessibility();
         }
         return cell;
     }
@@ -1721,6 +1723,15 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         }
     }
 
+    /** Keep the spectrum cell's accessible label in sync with the overlay state. */
+    private void syncHistogramAccessibility() {
+        if (readoutSpectrumCell == null) {
+            return;
+        }
+        readoutSpectrumCell.setContentDescription("光谱读数，直方图"
+                + (histogramOn ? "已显示" : "已隐藏") + "，点按切换");
+    }
+
     /** Show or hide the stage histogram; it never triggers a render. */
     private void toggleHistogram() {
         histogramOn = !histogramOn;
@@ -1730,6 +1741,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
                 histogram.setBitmap(showingOriginal ? beforeBitmap : lastRenderedBitmap);
             }
         }
+        syncHistogramAccessibility();
         showSnackbar(histogramOn ? "直方图已显示" : "直方图已隐藏", Snackbar.LENGTH_SHORT);
     }
 
