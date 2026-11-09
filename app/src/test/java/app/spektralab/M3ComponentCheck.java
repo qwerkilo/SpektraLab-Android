@@ -40,8 +40,12 @@ public final class M3ComponentCheck {
                 !violations("new android.widget.Button(c);").isEmpty());
         ok("the scanner catches a framework EditText",
                 !violations("new EditText(c);").isEmpty());
+        ok("the scanner catches a framework ProgressBar",
+                !violations("new ProgressBar(c);").isEmpty());
         ok("MaterialButton is not a violation",
                 violations("new MaterialButton(c);").isEmpty());
+        ok("LinearProgressIndicator is not a violation",
+                violations("new LinearProgressIndicator(c);").isEmpty());
         ok("free-text dialogs use TextInputEditText",
                 count(source, MATERIAL_TEXT_FIELD) >= 2);
 
