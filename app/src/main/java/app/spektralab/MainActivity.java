@@ -24,6 +24,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
 import app.spektralab.core.FilmBrand;
+import app.spektralab.core.HueCorrection;
 import app.spektralab.core.ImageFormat;
 import app.spektralab.core.LivePreviewGate;
 import app.spektralab.core.Metering;
@@ -3565,6 +3566,14 @@ card.setOnClickListener(v -> {
      * labelled slider per field. Values live in {@code optics.view}, so the
      * Frame switch and undo see them with the rest of the Look.
      */
+    /** The hue toggle names the state, not the action. */
+    private String hueToggleText() {
+        if (HueCorrection.fixed(live().filmStock)) {
+            return "胶片原色 · 固定";
+        }
+        return live().hueCorrection > 0.5f ? "胶片原色 · 开" : "胶片原色 · 关";
+    }
+
     private void showViewAdjustSheet() {
         final BottomSheetDialog dialog = new BottomSheetDialog(this);
         final LinearLayout root = new LinearLayout(this);
@@ -3574,6 +3583,25 @@ card.setOnClickListener(v -> {
         root.addView(m3Label("视图调整 / VIEW", M3Tokens.TypeRole.TITLE_MEDIUM,
                 m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
                 tfDisplay));
+
+        final MaterialButton hueButton = actionButton(
+                mixedText(hueToggleText()), "胶片原色：关闭或启用该胶片的色相校正");
+        hueButton.setOnClickListener(v -> {
+            if (HueCorrection.fixed(live().filmStock)) {
+                showSnackbar("这只胶片的色相校正由配置文件固定，不能关闭");
+                return;
+            }
+            if (currentSession != null) {
+                currentSession.edit(look -> look.hueCorrection =
+                        look.hueCorrection > 0.5f ? 0f : 1f);
+                optics = currentSession.look();
+            } else {
+                optics.hueCorrection = optics.hueCorrection > 0.5f ? 0f : 1f;
+            }
+            hueButton.setText(mixedText(hueToggleText()));
+            renderImage();
+        });
+        root.addView(hueButton, new LinearLayout.LayoutParams(-1, dp(48)));
 
         final ChipGroup groups = new ChipGroup(this);
         groups.setSingleSelection(true);

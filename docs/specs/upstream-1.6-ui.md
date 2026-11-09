@@ -51,8 +51,10 @@ form until art exists.
 Seven metering modes are implemented: the choice lives in the Frame's Look and
 is written as `auto_exposure` / `auto_exposure_method`. The histogram overlay is
 implemented too: the spectrum readout cell toggles it and `core/Histogram` bins
-the displayed bitmap without a render. Hue-correction wiring and the preview
-gamut choice remain in `04b`; they need their own engine/display contracts.
+the displayed bitmap without a render. Hue correction is implemented as the
+view sheet's `胶片原色` toggle; `core/HueCorrection` pins the seven untrusted
+stocks and writes `hue_correction` into the delta. The preview gamut choice
+remains in `04b`; it needs its own display contract.
 
 ## Test seams
 

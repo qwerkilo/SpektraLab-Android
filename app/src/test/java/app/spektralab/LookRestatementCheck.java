@@ -51,6 +51,7 @@ public final class LookRestatementCheck {
                 "halation_active", "antihalation_removed", "grain_active",
                 "dir_couplers_active", "scanner_white_correction",
                 "scanner_black_correction", "extended_dynamic_range", "camera_filter",
+                "hue_correction",
                 "scene_latitude_active", "scene_latitude_norm",
                 "scene_latitude_highlight_knee", "scene_latitude_highlight_room",
                 "scene_latitude_shadow_knee", "scene_latitude_shadow_room",
@@ -140,6 +141,7 @@ public final class LookRestatementCheck {
                 LookRestatement.json(look, context(false, false, "EDGE", "")));
 
         eq("w25", json.optString("camera_filter"));
+        near("hue_correction", 1.0, json.optDouble("hue_correction"));
         eq("max", json.optString("scene_latitude_norm"));
         // The slider says protection; the engine wants the room left over.
         near("scene_latitude_highlight_room", OpticsDelta.highlightRoomWire(1.5f),

@@ -65,6 +65,8 @@ public final class LookRestatement {
         final float highlight = look.get(OpticsDelta.Param.HIGHLIGHT_ROOM);
         final float shadow = look.get(OpticsDelta.Param.SHADOW_ROOM);
         final String meter = app.spektralab.core.Metering.sanitize(look.meterMethod);
+        final float hue = app.spektralab.core.HueCorrection.wire(
+                look.filmStock, look.hueCorrection);
 
         return String.format(Locale.US,
             "{\"film_stock\":\"%s\",\"print_stock\":\"%s\",\"scan_film\":%s,"
@@ -78,6 +80,7 @@ public final class LookRestatement {
             + "\"dir_couplers_active\":%s,\"scanner_white_correction\":%s,"
             + "\"scanner_black_correction\":%s,\"extended_dynamic_range\":%s,"
             + "\"camera_filter\":\"%s\","
+            + "\"hue_correction\":%.3f,"
             + "\"scene_latitude_active\":%s,\"scene_latitude_norm\":\"%s\","
             + "\"scene_latitude_highlight_knee\":1.0,"
             + "\"scene_latitude_highlight_room\":%.2f,\"scene_latitude_shadow_knee\":-2.0,"
@@ -122,6 +125,7 @@ public final class LookRestatement {
             look.scannerBlack > 0.5f ? "true" : "false",
             look.edrOn > 0.5f ? "true" : "false",
             OpticsDelta.CameraFilter.fromWire(look.cameraFilter).wire,
+            hue,
             OpticsDelta.sceneLatitudeActive(highlight, shadow) ? "true" : "false",
             OpticsDelta.ProtectionNorm.fromWire(look.sceneNorm).wire,
             OpticsDelta.highlightRoomWire(highlight),
