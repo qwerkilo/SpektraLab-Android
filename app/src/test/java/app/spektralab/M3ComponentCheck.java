@@ -22,7 +22,7 @@ public final class M3ComponentCheck {
             "\\bnew\\s+(?:android\\.widget\\.)?"
             + "(Button|CheckBox|RadioButton|Switch|SeekBar|EditText|Spinner|"
             + "ImageButton|ToggleButton|RatingBar|NumberPicker|AutoCompleteTextView|"
-            + "CheckedTextView)\\b");
+            + "CheckedTextView|ProgressBar)\\b");
     private static final String MATERIAL_TEXT_FIELD =
             "new com.google.android.material.textfield.TextInputEditText(";
 
