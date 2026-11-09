@@ -5338,6 +5338,11 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             tab.view.setOnTouchListener((v, event) -> {
                 if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
                     lastTabTouchAt = android.os.SystemClock.uptimeMillis();
+                    return false;
+                }
+                if (event.getActionMasked() == android.view.MotionEvent.ACTION_UP) {
+                    v.performClick();
+                    return true;
                 }
                 return false;
             });
@@ -7305,7 +7310,7 @@ refreshEdgeFormats();
         // still shows 原图 and renders nothing until a chip is picked.
         final String filmField = live().filmStock == null ? ""
                 : String.format("\"film_stock\":\"%s\",", live().filmStock);
-        final String params = String.format(
+        final String params = String.format(java.util.Locale.US,
                 "{%s\"print_stock\":\"%s\",\"input_color_space\":\"ProPhoto RGB\","
                         + "\"input_cctf_decoding\":false,\"output_color_space\":\"sRGB\","
                         + "\"print_exposure\":%.2f,\"preview_long_edge\":2048}",
@@ -8920,7 +8925,7 @@ refreshEdgeFormats();
         final long fRender = renderMs;
         final long bytes = tmp.exists() ? tmp.length() : 0;
         final String sizeLabel = bytes > 0
-                ? String.format("%.1f MB", bytes / 1048576.0) : "?";
+                ? String.format(java.util.Locale.getDefault(), "%.1f MB", bytes / 1048576.0) : "?";
         runOnUiThread(() -> {
             applyExportResult(outUri, mime, canvas, fw, fh,
                     fRender, secs, sizeLabel, tiff, dng);

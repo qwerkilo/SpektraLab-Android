@@ -179,7 +179,7 @@ public final class ViewAdjust {
     JSONObject toJson() {
         final JSONObject out = new JSONObject();
         try {
-            for (Field field : Field.values()) out.put(field.name().toLowerCase(), field.get(this));
+            for (Field field : Field.values()) out.put(field.name().toLowerCase(java.util.Locale.ROOT), field.get(this));
             final JSONArray hue = new JSONArray(), sat = new JSONArray(), lum = new JSONArray();
             for (int i = 0; i < 4; ++i) {
                 hue.put(cbHue[i]);
@@ -197,8 +197,9 @@ public final class ViewAdjust {
     void load(JSONObject o) {
         if (o == null) return;
         for (Field field : Field.values()) {
-            if (o.has(field.name().toLowerCase())) {
-                field.set(this, (float) o.optDouble(field.name().toLowerCase(), field.defaultValue));
+            if (o.has(field.name().toLowerCase(java.util.Locale.ROOT))) {
+                field.set(this, (float) o.optDouble(field.name().toLowerCase(java.util.Locale.ROOT),
+                        field.defaultValue));
             }
         }
         readArray(o.optJSONArray("cb_hue"), cbHue);
