@@ -22,7 +22,8 @@
 - 同步上游 1.6.0e 的原生核心、JNI 与引擎 facade
 - 带入 58/77 MP 渲染、RAW 缓存、崩溃与诊断链修复
 - 保留 M3 控制台：双主题、动态色、视图调整、构图、每帧撤销、画布缩放、Scan inspect
-- 上游的 live preview、批量导入导出、hue 与 58/77 MP 界面仍待移植到 M3 控制台
+- 已移植 live preview、批量导入/导出、命名预设、测光、色相校正、直方图与预览色域
+- 上游 58/77 MP 的控制界面仍待移植；原生渲染能力已在
 
 `1.4.4-m3a` 是当前稳定下载，包含 1.4.4 分带渲染、解码白平衡、加性光晕、导出元数据、
 RAW 修复，以及启动器图标修复。
@@ -42,6 +43,9 @@ RAW 修复，以及启动器图标修复。
 | 构图 | 旋转、裁切、翻转，预览与导出共用同一组 geometry 参数 |
 | 扫描检视 | 可拖动扫描线，显示 RGB 与波长估计；不改变 Look |
 | 撤销 | 每帧独立 Look 历史，M3 顶栏「撤销」 |
+| 批量 | 相册/文件管理器多选导入；逐帧导出 JPEG / TIFF / DNG |
+| 预设 | 命名保存、套用、分享 JSON、剪贴板导入 |
+| 检视 | 测光方式、胶片原色、直方图、sRGB / Display P3 预览 |
 
 ## 安装
 
@@ -199,9 +203,10 @@ The stable build carries upstream 1.4.4 banded rendering, decode white balance,
 additive halation, export metadata, RAW fixes, and the M3 Console (view adjust,
 composition, per-Frame undo, Scan inspect, dynamic colour, phone tabs / wide
 navigation rail). The preview source tracks the upstream 1.6.0e native core:
-58/77 MP rendering, a RAW decode cache, and the crash/diagnostics fixes. Upstream
-live preview, batch import/export, hue and the 58/77 MP controls are not yet
-ported to the M3 Console.
+58/77 MP rendering, a RAW decode cache, and the crash/diagnostics fixes. Live
+preview, batch import/export, named presets, metering, hue correction, histogram
+and the preview gamut are ported to the M3 Console; the upstream 58/77 MP
+controls are the remaining M3 follow-up.
 
 Build with `./gradlew assembleDebug` (requires JDK 17, SDK 36, and a donor
 `app/build/SpektraLab-1.6.0e-qa.apk` or `-PbaseApk=<path>`), then `./gradlew align16k`
