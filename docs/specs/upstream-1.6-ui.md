@@ -1,0 +1,63 @@
+# Upstream 1.6.0e UI port
+
+Status: `in progress` (phase 1). Tracker: local tickets under
+`.scratch/upstream-1.6-ui/issues/`. Decision record: ADR-0007. Vocabulary:
+`GLOSSARY.md`.
+
+## Goal
+
+Expose the 1.6.0e UI capabilities inside the Material 3 Console without
+replacing the Console's Frame/Look/undo model. The native contract is already
+merged (ADR-0007); this spec covers the app layer.
+
+## Non-goals
+
+- Replacing the M3 Console with upstream's `MainActivity`.
+- New engine work or a stable-channel release.
+- Presets or batch migration for existing Frames beyond what the user asks.
+
+## Phases
+
+### Phase 1 — live preview and canvas
+
+While a slider is moving, render one small frame (`LIVE_LONG_EDGE` 800) through
+`renderBegin("live", true)` so the engine can reprint from the cached negative.
+Requests coalesce, at most one frame per 90 ms. A full render, an import or a
+Frame change invalidates every live frame in flight. Live frames never record
+undo, persist, or change the busy state.
+
+Seam: `app.spektralab.core.LivePreviewGate` (pure JVM) plus
+`LivePreviewGateCheck`. Activity wiring may be covered by Robolectric later.
+
+### Phase 2 — batch import and export
+
+Multi-select import appends Frames; batch export runs the existing
+`RenderSnapshot`/export path sequentially with one cancelable progress sheet.
+No new engine entry points.
+
+### Phase 3 — presets and film cards
+
+Save/apply a compact Look JSON, share/import it through the clipboard or a
+file, and show a film card's cover. Presets must be optional and must not
+change the Look of a Frame until Apply.
+
+### Phase 4 — colour, metering, histogram
+
+Seven metering modes, hue-correction wiring, a histogram overlay toggle on the
+readout strip, and the preview gamut choice. These are display/parameter
+changes; export must use the same values as preview.
+
+## Test seams
+
+- `checkJvm`: `LivePreviewGateCheck`, `LookCheck`, `RenderSnapshotCheck`, and
+  new pure preset/metering checks.
+- `testDebugUnitTest`: panel rows and theme/frame state, as they exist today.
+- Device: one slider drag shows frames without a full render each move; release
+  lands the 2048 px preview; a full export is not overwritten by a live frame.
+
+## Acceptance
+
+- No render on a theme rebuild, tab change, Scan toggle or Compare gesture.
+- One full render after a slider release; live frames are dropped once the full
+  render starts.
+- Phase 2–4 keep the M3 layout and the per-Frame Look/undo behavior.

@@ -8,7 +8,7 @@ Gradle commands in `AGENTS.md`; the manual matrix is
 
 | Type | Covered by | What is pinned |
 |---|---|---|
-| Normal | `ConsoleLayoutCheck`, `FilmBrandCheck`, `GateScaleCheck`, `OpticsDeltaCheck`, `PaletteCheck`, `ScanSampleCheck`, `SpectrumCurveCheck`, `SpectrumSamplesCheck`, `ThemeModeCheck` | Width decision, brand shelf, gate/scale pairing, slider deltas, palette contrast, scan samples, spectra, theme round-trip |
+| Normal | `ConsoleLayoutCheck`, `FilmBrandCheck`, `GateScaleCheck`, `OpticsDeltaCheck`, `PaletteCheck`, `ScanSampleCheck`, `SpectrumCurveCheck`, `SpectrumSamplesCheck`, `ThemeModeCheck`, `LivePreviewGateCheck` | Width decision, brand shelf, gate/scale pairing, slider deltas, palette contrast, scan samples, spectra, theme round-trip, live-frame coalescing |
 | UI wiring | `PanelRowsTest` (JUnit 4 + Robolectric, SDK 35) | Date back corner/style rows, the Optics readout, and the open Edge page across a theme switch |
 | Boundary | `ConsoleLayoutCheck` (320/360/390/480/599/600/800 dp), `OpticsDeltaCheck` (min/max), `ScanSampleCheck` (clamp, 0/1), `SafeFileNameCheck` (`.`, `..`, empty, NUL), `GateScaleCheck` (frame aspect) | Edges do not spill into the next state or crash |
 | Exception | `SpectrumCurveCheck` (null, NaN, gaps, ragged rows), `SpectrumSamplesCheck`, `ScanSampleCheck` (null/short/zero width), `SafeFileNameCheck`, `SpkErrorCheck`, `ReleaseUrlCheck` | Missing or hostile input degrades to an explicit unavailable/fallback state |

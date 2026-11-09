@@ -25,6 +25,7 @@ import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
 import app.spektralab.core.FilmBrand;
 import app.spektralab.core.ImageFormat;
+import app.spektralab.core.LivePreviewGate;
 import app.spektralab.core.SafeFileName;
 import app.spektralab.core.PrintTarget;
 import app.spektralab.core.ScanSample;
@@ -435,6 +436,18 @@ public class MainActivity extends AppCompatActivity {
      *  one follow-up render when the current one lands. */
     private volatile boolean pendingRender = false;
     private static final int PREVIEW_LONG_EDGE = 2048;
+    /** Live frames are small enough to finish inside a drag; full render follows. */
+    private static final int LIVE_LONG_EDGE = 800;
+    /** One live frame at most this often; requests in between coalesce. */
+    private static final long LIVE_MIN_GAP_MS = 90;
+    private final LivePreviewGate liveGate = new LivePreviewGate();
+    private final Object liveLock = new Object();
+    private volatile RenderSnapshot liveSnapshot;
+    private volatile boolean liveWanted;
+    private volatile boolean liveStopped;
+    private Thread liveThread;
+    private long liveLastStart;
+    private int[] livePixels;
     private final List<View> formatCards = new ArrayList<>();
     private static final int TOP_APP_BAR_HEIGHT_DP = 64;
     private static final int READOUT_HEIGHT_DP = 52;
@@ -2423,6 +2436,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         if (index == currentFrame) {
             currentFrame = -1;
             currentSession = null;
+            cancelLivePreview();
             optics = new Look();
             lastRenderedBitmap = null;
             scanVisible = false;
@@ -3171,7 +3185,9 @@ card.setOnClickListener(v -> {
             // once; keyboard, switch access, and TalkBack changes coalesce so
             // a held arrow key does not queue a render per key. The guard at
             // the top keeps a Look restore and a chip rebind silent.
-            if (!trackingOpticsTouch) {
+            if (trackingOpticsTouch) {
+                requestLivePreview();
+            } else {
                 scheduleOpticsCommit(slider);
             }
         });
@@ -3442,6 +3458,7 @@ card.setOnClickListener(v -> {
                 if (!fromUser) {
                     return;
                 }
+                requestLivePreview();
                 viewAdjustHandler.removeCallbacks(viewAdjustCommit);
                 viewAdjustHandler.postDelayed(viewAdjustCommit, 180);
             });
@@ -4645,6 +4662,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             }
             apply.accept(value);
             if (!syncingRebate) {
+                requestLivePreview();
                 slider.removeCallbacks(rebateCommit);
                 slider.postDelayed(rebateCommit, OPTICS_COMMIT_DELAY_MS);
             }
@@ -6417,6 +6435,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
 
     /** Reset the live Look session and Scan state before decoding an import. */
     private void prepareImportState(boolean reopening) {
+        cancelLivePreview();
         // A new import works out its own imprint date; the previous frame's
         // cached text must not travel with the new Source.
         defaultDateText = null;
@@ -7579,7 +7598,169 @@ refreshEdgeFormats();
      * scene-referred and keeps the meter.
      */
 
+    /**
+     * A control moved. Ask the live thread for one small frame.
+     *
+     * <p>Requests coalesce: the thread draws at most one frame per
+     * {@link #LIVE_MIN_GAP_MS} and always uses the newest snapshot. Nothing is
+     * recorded, persisted, or sent to the engine on this call -- the UI thread
+     * only takes the Look and its parameters.
+     */
+    private void requestLivePreview() {
+        if (liveStopped || isFinishing() || session == null || live().filmStock == null) {
+            return;
+        }
+        // A full render owns the engine until it lands; its result is about to
+        // replace whatever a live frame could draw now.
+        if (rendering) {
+            return;
+        }
+        if (showingOriginal) {
+            showingOriginal = false;
+            setOriginalVisual(false);
+        }
+        try {
+            liveSnapshot = snapshotFor(captureLook(), live().filmStock, LIVE_LONG_EDGE);
+        } catch (Throwable t) {
+            try { DebugSink.text("live", "snapshot failed " + describe(t)); } catch (Throwable ignored) { }
+            return;
+        }
+        liveGate.request();
+        liveWanted = true;
+        ensureLiveThread();
+        synchronized (liveLock) {
+            liveLock.notifyAll();
+        }
+    }
+
+    private void ensureLiveThread() {
+        if (liveThread != null) {
+            return;
+        }
+        liveThread = new Thread(this::liveLoop, "live-preview");
+        liveThread.setDaemon(true);
+        liveThread.start();
+    }
+
+    /** Drop a live frame that has not painted yet, and every frame in flight. */
+    private void cancelLivePreview() {
+        liveGate.cancel();
+        liveWanted = false;
+        liveSnapshot = null;
+    }
+
+    /** Stop the daemon before the session is torn down. */
+    private void stopLivePreview() {
+        liveStopped = true;
+        liveWanted = false;
+        synchronized (liveLock) {
+            liveLock.notifyAll();
+        }
+        if (liveThread != null) {
+            liveThread.interrupt();
+            liveThread = null;
+        }
+    }
+
+    private void liveLoop() {
+        while (!liveStopped) {
+            synchronized (liveLock) {
+                while (!liveWanted && !liveStopped) {
+                    try { liveLock.wait(); } catch (InterruptedException e) { return; }
+                }
+            }
+            if (liveStopped) {
+                return;
+            }
+            // Let the gesture settle for a moment: requests that arrive during
+            // the sleep fold into the frame that follows.
+            final long since = System.currentTimeMillis() - liveLastStart;
+            if (since < LIVE_MIN_GAP_MS) {
+                try {
+                    Thread.sleep(LIVE_MIN_GAP_MS - since);
+                } catch (InterruptedException e) {
+                    return;
+                }
+            }
+            liveWanted = false;
+            if (!liveGate.consume()) {
+                continue;
+            }
+            final RenderSnapshot snapshot = liveSnapshot;
+            if (snapshot == null || rendering || session == null) {
+                continue;
+            }
+            liveLastStart = System.currentTimeMillis();
+            drawLivePreview(snapshot, liveGate.generation(), liveGate.fullGeneration(),
+                    currentFrame);
+        }
+    }
+
+    /**
+     * One reprint at {@link #LIVE_LONG_EDGE}. The snapshot was taken on the UI
+     * thread; the worker neither reads a control nor writes the Look.
+     */
+    private void drawLivePreview(RenderSnapshot snapshot, int generation,
+                                 int fullGeneration, int frame) {
+        final Bitmap bmp = renderLiveFrame(snapshot, generation, fullGeneration);
+        if (bmp == null) {
+            return;
+        }
+        runOnUiThread(() -> {
+            if (!uiReady || liveStopped || rendering || session == null
+                    || compare == null
+                    || frame != currentFrame
+                    || !liveGate.accepts(generation, fullGeneration)) {
+                return;
+            }
+            lastRenderedBitmap = bmp;
+            compare.setAfter(bmp);
+            setStage(1, null);
+        });
+    }
+
+    /** The native half of a live frame; null when the request is already stale. */
+    private Bitmap renderLiveFrame(RenderSnapshot snapshot, int generation,
+                                  int fullGeneration) {
+        synchronized (renderMutex) {
+            if (session == null || !liveGate.accepts(generation, fullGeneration)) {
+                return null;
+            }
+            try {
+                SpektraLabEngine.setViewAdjust(snapshot.viewAdjust);
+                session.setParams(snapshot.params);
+                final int[] dims = session.renderBegin("live", true);
+                final int w = dims[0], h = dims[1];
+                if (w <= 0 || h <= 0) {
+                    throw new RuntimeException("empty live frame");
+                }
+                if (livePixels == null || livePixels.length < w * h) {
+                    livePixels = new int[w * h];
+                }
+                final int copied = session.copyArgbRange(livePixels, 0, h);
+                if (copied != w * h) {
+                    throw new RuntimeException("live copy " + copied + "/" + (w * h));
+                }
+                final Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                bmp.setPixels(livePixels, 0, w, 0, 0, w, h);
+                session.renderEnd();
+                try { DebugSink.text("live", "frame " + w + "x" + h); }
+                catch (Throwable ignored) { }
+                return bmp;
+            } catch (Throwable t) {
+                try { session.renderEnd(); } catch (Throwable ignored) { }
+                try { DebugSink.text("live", "fail " + describe(t)); }
+                catch (Throwable ignored) { }
+                return null;
+            }
+        }
+    }
+
     private void renderImage() {
+        // The full pass owns the canvas from here: a live frame still in flight
+        // must not land on top of the result the user waited for.
+        cancelLivePreview();
+        liveGate.fullRenderStarted();
         // Every branch says something. The foot is one thin line, too quiet to
         // carry "nothing happened"; failures need to be readable.
         if (session == null) {
@@ -8324,6 +8505,7 @@ refreshEdgeFormats();
         }
         currentSnackbar = null;
         snackbarHost = null;
+        stopLivePreview();
         // Session *and* engine go down under the same lock the render runs
         // under: a render that is mid-`renderBegin` is holding device buffers
         // owned by this engine, and tearing it down outside the lock is the
