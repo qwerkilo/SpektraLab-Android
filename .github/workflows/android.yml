@@ -40,6 +40,8 @@ jobs:
 
       - name: Gradle cache
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
 
       - name: Cache donor APK
         id: donor
@@ -82,7 +84,7 @@ jobs:
         run: |
           python app/build/check-manifest.py
           python app/build/test-gen-stock-catalog.py
-          .\gradlew.bat checkstyleGovernance checkJvm lintDebug testDebugUnitTest --no-daemon
+          gradle checkstyleGovernance checkJvm lintDebug testDebugUnitTest --no-daemon
 
       - name: Release or CI signing key
         shell: pwsh
@@ -114,7 +116,7 @@ jobs:
       - name: Assemble and gate the 16 KB APK
         shell: pwsh
         run: |
-          .\gradlew.bat align16k --no-daemon
+          gradle align16k --no-daemon
 
       - name: Verify the APK signature
         shell: pwsh
