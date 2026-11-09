@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nav_film">胶片</string>
+    <string name="nav_optics">光学</string>
+    <string name="nav_scale">尺度</string>
+    <string name="nav_edge">边框</string>
+</resources>
