@@ -5153,18 +5153,23 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
 
     /** The date text and the capture-data line are free text, not numbers. */
     private void askText(String title, String initial, java.util.function.Consumer<String> onValue) {
-        final android.widget.EditText input = new android.widget.EditText(this);
+        final com.google.android.material.textfield.TextInputLayout field =
+                new com.google.android.material.textfield.TextInputLayout(this);
+        field.setBoxBackgroundMode(
+                com.google.android.material.textfield.TextInputLayout.BOX_BACKGROUND_OUTLINE);
+        final com.google.android.material.textfield.TextInputEditText input =
+                new com.google.android.material.textfield.TextInputEditText(this);
         input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
         input.setText(initial == null ? "" : initial);
         input.setSelectAllOnFocus(true);
         input.setSingleLine(false);
         input.setMinLines(1);
         input.setMaxLines(3);
-        final int pad = dp(16);
-        input.setPadding(pad, dp(8), pad, dp(8));
+        field.addView(input, new com.google.android.material.textfield.TextInputLayout.LayoutParams(
+                -1, -2));
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle(title)
-                .setView(input)
+                .setView(field)
                 .setNegativeButton("取消", null)
                 .setPositiveButton("确定", (dialog, which) ->
                         onValue.accept(input.getText().toString()))
@@ -5173,16 +5178,21 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
 
     /** The seeds are arbitrary ints, so they ask for a number rather than a slider. */
     private void askSeed(String title, int initial, java.util.function.IntConsumer onValue) {
-        final android.widget.EditText input = new android.widget.EditText(this);
+        final com.google.android.material.textfield.TextInputLayout field =
+                new com.google.android.material.textfield.TextInputLayout(this);
+        field.setBoxBackgroundMode(
+                com.google.android.material.textfield.TextInputLayout.BOX_BACKGROUND_OUTLINE);
+        final com.google.android.material.textfield.TextInputEditText input =
+                new com.google.android.material.textfield.TextInputEditText(this);
         input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
         input.setText(String.valueOf(initial));
         input.setSelectAllOnFocus(true);
         input.setSingleLine(true);
-        final int pad = dp(16);
-        input.setPadding(pad, dp(8), pad, dp(8));
+        field.addView(input, new com.google.android.material.textfield.TextInputLayout.LayoutParams(
+                -1, -2));
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle(title)
-                .setView(input)
+                .setView(field)
                 .setNegativeButton("取消", null)
                 .setPositiveButton("确定", (dialog, which) -> {
                     try {

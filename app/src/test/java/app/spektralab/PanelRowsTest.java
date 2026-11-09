@@ -62,6 +62,48 @@ public final class PanelRowsTest {
     }
 
     @Test
+    public void textDialogsUseMaterialInput() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        final java.lang.reflect.Method askText = MainActivity.class.getDeclaredMethod(
+                "askText", String.class, String.class, java.util.function.Consumer.class);
+        askText.setAccessible(true);
+        askText.invoke(activity, "标题", "", (java.util.function.Consumer<String>) value -> { });
+        assertMaterialInput("askText");
+
+        final java.lang.reflect.Method askSeed = MainActivity.class.getDeclaredMethod(
+                "askSeed", String.class, int.class, java.util.function.IntConsumer.class);
+        askSeed.setAccessible(true);
+        askSeed.invoke(activity, "种子", 1, (java.util.function.IntConsumer) value -> { });
+        assertMaterialInput("askSeed");
+    }
+
+    private static void assertMaterialInput(String caller) {
+        final android.app.Dialog dialog =
+                org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        assertNotNull("no dialog from " + caller, dialog);
+        final View root = dialog.getWindow().getDecorView();
+        assertNotNull(caller + " did not use TextInputEditText",
+                findByType(root, com.google.android.material.textfield.TextInputEditText.class));
+        dialog.dismiss();
+    }
+
+    private static View findByType(View root, Class<?> type) {
+        if (type.isInstance(root)) {
+            return root;
+        }
+        if (root instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); ++i) {
+                final View found = findByType(group.getChildAt(i), type);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    @Test
     public void filmPanelKeepsThePresetAction() {
         final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
         click(activity, "胶片");
