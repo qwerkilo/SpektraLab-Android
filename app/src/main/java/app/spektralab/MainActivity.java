@@ -2405,6 +2405,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             // A chip asked for this frame. It is already in the list; only the
             // highlight and the freshly decoded pixels changed.
             reopeningFrame = false;
+            suppressBudgetDialog = false;
             rebuildFrameChips();
             return;
         }
@@ -3283,10 +3284,12 @@ card.setOnClickListener(v -> {
     private void showPresetsPanel() {
         final org.json.JSONArray presets = readPresets();
         final java.util.List<String> labels = new java.util.ArrayList<>();
+        final java.util.List<LookPreset> parsed = new java.util.ArrayList<>();
         labels.add("保存当前预设");
         for (int i = 0; i < presets.length(); ++i) {
             final LookPreset preset = LookPreset.fromJson(presets.optJSONObject(i));
             if (preset != null) {
+                parsed.add(preset);
                 labels.add(preset.name().isEmpty() ? "未命名预设" : preset.name());
             }
         }
@@ -3298,13 +3301,12 @@ card.setOnClickListener(v -> {
                     } else if (which == labels.size() - 1) {
                         importPresetFromClipboard();
                     } else {
-                        showPresetActions(presets.optJSONObject(which - 1));
+                        showPresetActions(parsed.get(which - 1));
                     }
                 });
     }
 
-    private void showPresetActions(org.json.JSONObject json) {
-        final LookPreset preset = LookPreset.fromJson(json);
+    private void showPresetActions(LookPreset preset) {
         if (preset == null) {
             return;
         }
@@ -3331,8 +3333,8 @@ card.setOnClickListener(v -> {
                 showSnackbar("预设需要名字");
                 return;
             }
-            storePreset(new LookPreset(trimmed, captureLook()));
-            showSnackbar("已保存预设：" + trimmed);
+            final boolean stored = storePreset(new LookPreset(trimmed, captureLook()));
+            showSnackbar(stored ? "已保存预设：" + trimmed : "预设已满，最多 " + PRESET_LIMIT + " 条");
         });
     }
 
@@ -3385,14 +3387,15 @@ card.setOnClickListener(v -> {
                 showSnackbar("剪贴板不是有效的预设");
                 return;
             }
-            storePreset(preset);
-            showSnackbar("已导入预设：" + preset.name());
+            final boolean stored = storePreset(preset);
+            showSnackbar(stored ? "已导入预设：" + preset.name()
+                    : "预设已满，最多 " + PRESET_LIMIT + " 条");
         } catch (Throwable t) {
             showSnackbar("预设解析失败：" + describe(t));
         }
     }
 
-    private void storePreset(LookPreset preset) {
+    private boolean storePreset(LookPreset preset) {
         final org.json.JSONArray current = readPresets();
         final org.json.JSONArray next = new org.json.JSONArray();
         boolean replaced = false;
@@ -3407,10 +3410,14 @@ card.setOnClickListener(v -> {
                 next.put(old.toJson());
             }
         }
-        if (!replaced && next.length() < PRESET_LIMIT) {
+        if (!replaced && next.length() >= PRESET_LIMIT) {
+            return false;
+        }
+        if (!replaced) {
             next.put(preset.toJson());
         }
         writePresets(next);
+        return true;
     }
 
     private void deletePreset(String name) {
@@ -6977,6 +6984,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             }
         }
         session = engine.openSession(sourcePixels, sourceWidth, sourceHeight, 3);
+        suppressBudgetDialog = false;
     }
 
     /** Whether the still needs the shrink dialog before it is decoded. */
@@ -7249,6 +7257,7 @@ refreshEdgeFormats();
         if (session == null) {
             return;
         }
+        suppressBudgetDialog = false;
         showingOriginal = true;
         lastRenderedBitmap = null;
         if (!reopening) {
