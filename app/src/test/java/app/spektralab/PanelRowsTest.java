@@ -120,6 +120,26 @@ public final class PanelRowsTest {
         assertShown(activity, "日期角位");
     }
 
+    @Test
+    public void histogramSharesTheExposureBlock() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        final View histogram = privateView(activity, "histogram");
+        final View exposureValue = privateView(activity, "stageExposureValue");
+        final ViewGroup exposure = (ViewGroup) exposureValue.getParent().getParent();
+        org.junit.Assert.assertSame(
+                "histogram must be laid out under the EV value, not over it",
+                exposure, histogram.getParent());
+    }
+
+    private static View privateView(MainActivity activity, String field)
+            throws Exception {
+        final java.lang.reflect.Field declared = MainActivity.class.getDeclaredField(field);
+        declared.setAccessible(true);
+        final View view = (View) declared.get(activity);
+        assertNotNull("no " + field, view);
+        return view;
+    }
+
     private static void clickTheme(MainActivity activity) {
         final View dark = find(activity, "DARK");
         final View light = find(activity, "LIGHT");

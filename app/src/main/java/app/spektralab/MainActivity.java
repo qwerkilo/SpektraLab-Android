@@ -1075,15 +1075,9 @@ stage.addView(scanOverlay, new android.widget.FrameLayout.LayoutParams(-1, -1));
 histogram = new HistogramView(this);
 histogram.setContentDescription("RGB 直方图");
 histogram.setVisibility(histogramOn ? View.VISIBLE : View.GONE);
-if (histogramOn && lastRenderedBitmap != null) {
-    histogram.setBitmap(lastRenderedBitmap);
+if (histogramOn) {
+    histogram.setBitmap(displayedBitmap());
 }
-final android.widget.FrameLayout.LayoutParams histogramLp =
-        new android.widget.FrameLayout.LayoutParams(dp(132), dp(64));
-histogramLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
-histogramLp.topMargin = dp(8);
-histogramLp.rightMargin = dp(8);
-stage.addView(histogram, histogramLp);
 
         return stage;
     }
@@ -1738,7 +1732,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         if (histogram != null) {
             histogram.setVisibility(histogramOn ? View.VISIBLE : View.GONE);
             if (histogramOn) {
-                histogram.setBitmap(showingOriginal ? beforeBitmap : lastRenderedBitmap);
+                histogram.setBitmap(displayedBitmap());
             }
         }
         syncHistogramAccessibility();
@@ -1894,6 +1888,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         evLp.bottomMargin = dp(3);
         exposureRow.addView(ev, evLp);
         exposure.addView(exposureRow);
+        // The histogram lives inside the exposure block so it can never draw
+        // over the EV value, at any font scale.
+        final LinearLayout.LayoutParams histogramLp =
+                new LinearLayout.LayoutParams(dp(132), dp(64));
+        histogramLp.topMargin = dp(6);
+        histogramLp.gravity = android.view.Gravity.END;
+        exposure.addView(histogram, histogramLp);
         android.widget.FrameLayout.LayoutParams exposureLp = new android.widget.FrameLayout.LayoutParams(
                 -2, -2, android.view.Gravity.TOP | android.view.Gravity.END);
         exposureLp.rightMargin = dp(34);
@@ -2072,6 +2073,11 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
      * showing, the last rendered preview otherwise. No bitmap means no scan —
      * never a mock and never a placeholder number.
      */
+    /** The bitmap the stage is showing: the Original or the last preview. */
+    private Bitmap displayedBitmap() {
+        return showingOriginal ? beforeBitmap : lastRenderedBitmap;
+    }
+
     private Bitmap scanBitmap() {
         if (stageMode != 1) {
             return null;
