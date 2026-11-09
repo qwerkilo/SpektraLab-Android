@@ -6,7 +6,7 @@ Unofficial Android port of the SpektraLab film/paper simulation engine (Vulkan).
 
 On this Windows checkout use `.\gradlew.bat`; the wrapper is committed. Gradle needs `local.properties` with `sdk.dir=F:\\android-sdk`, JDK 17 or 21, SDK 36.
 
-- `assembleDebug` stages `assets/` and `arm64-v8a` libraries from a donor APK, default `app/build/SpektraLab-1.5.0e-qa.apk`; override with `-PbaseApk=<path>`.
+- `assembleDebug` stages `assets/` and `arm64-v8a` libraries from a donor APK, default `app/build/SpektraLab-1.6.0e-qa.apk`; override with `-PbaseApk=<path>`.
 - The donor's `stock_catalog.json` is excluded on purpose. `generateStockCatalog` rebuilds it from the staged profiles, so `targetPrint` and spectral arrays match the profiles. A donor catalogue without `targetPrint` silently disables automatic paper selection.
 - Sign with `SPK_KEYSTORE`, `SPK_KS_PASS`, `SPK_KEY_PASS`, `SPK_KEY_ALIAS`. Without them Gradle uses a debug key that cannot update an installed release build.
 - For Android 15/16 (16 KB pages):
@@ -35,22 +35,32 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 
 ## Code map
 
-- `MainActivity.java` — ~8.3k lines, the composition root and programmatic `View` UI. No XML layouts. M3 theme, color roles and type attrs live in `app/src/main/res/values/*`; the rail menu is `res/menu/console_nav.xml`.
+- `MainActivity.java` — ~9.1k lines, the composition root and programmatic `View` UI. No XML layouts. M3 theme, color roles and type attrs live in `app/src/main/res/values/*`; the rail menu is `res/menu/console_nav.xml`.
 - `FrameLookSession.java` — the live per-Frame `Look` plus undo. The Activity holds only the current session; `look()` is read-only, edits go through `edit`/`record`. Never add a second copy of a Look value.
-- `RenderSnapshot.java` — one UI-thread snapshot of the Look, engine JSON, stock, long edge and view-adjust. Preview, export and RAW import build it once; workers must not re-read live state.
+- `RenderSnapshot.java` — one UI-thread snapshot of the Look, engine JSON, stock, long edge and view-adjust. Preview, export and RAW import build it once; workers must not re-read live state. Preview and export share the snapshot; export forces sRGB.
 - `StockCatalogue.java` — the single store for film/print entries. The Activity exposes read-only views; do not add a parallel list.
-- `ui/widget/` — extracted custom views (`SpectralRail`, `ToolGlyph`, `ArrowView`, `GuideView`, `EdgeBackdrop`, `SnackbarHost`, `CompareView`, `ScanOverlayView`, `SpectrumCurveView`). New views go here.
-- `core/` — framework-free rules and format helpers. `model/` — immutable records (`FilmStock`, `Frame`). `ui/` — presentation state (`UiState`, `ThemeMode`). The root package keeps the composition root and the remaining domain seams (`Look`, `GateScale`, `OpticsDelta`, `Palette`, `M3Tokens`, `UpdateGate`, `SpkError`).
+- `ui/widget/` — extracted custom views (`SpectralRail`, `ToolGlyph`, `ArrowView`, `GuideView`, `EdgeBackdrop`, `SnackbarHost`, `CompareView`, `ScanOverlayView`, `SpectrumCurveView`, `HistogramView`). New views go here. See “Material 3 components” before adding one.
+- `core/` — framework-free rules and format helpers (`Metering`, `HueCorrection`, `Histogram`, `LivePreviewGate`, …). `model/` — immutable records (`FilmStock`, `Frame`). `ui/` — presentation state (`UiState`, `ThemeMode`). The root package keeps the composition root and the remaining domain seams (`Look`, `GateScale`, `OpticsDelta`, `Palette`, `M3Tokens`, `UpdateGate`, `SpkError`).
 - `SpektraLabEngine.java` — JNI facade; loads bundled `.so` by absolute path, no `static {}` loader. `spektralab_jni.cpp` — session/render/export; `spektralab_raw_jni.cpp` — LibRaw decode. The engine is not in this repo; only `patches/engine-android.patch` and `docs/tiling.md` are.
+
+## Material 3 components
+
+Prefer Material Components over framework widgets for every control and chrome surface: `MaterialToolbar` + `AppBarLayout`, `TabLayout`, `NavigationRailView` / `NavigationBarView`, `MaterialButton`, `MaterialCardView`, `Chip` / `ChipGroup`, `Slider`, `MaterialSwitch`, `MaterialRadioButton`, `MaterialAlertDialogBuilder`, `BottomSheetDialog`, `Snackbar`, and `TextInputLayout` / `TextInputEditText`. Style text through `m3Label` / `mixedM3Label` / `applyTypeRole`, and colours through `m3Role` / `m3Primary` / `Palette.Role`; never hardcode a colour or text size.
+
+- A raw `TextView` is only a typographic surface. The two raw `EditText`s in `askText` / `askSeed` are debt: convert them to `TextInputLayout` when touched, and do not add another.
+- Custom Views in `ui/widget` are only for canvas or data visuals with no M3 equivalent (`CompareView`, `ScanOverlayView`, `SpectrumCurveView`, `HistogramView`, `SpectralRail`, decorative glyphs). A new interactive control needs an M3 component first, a 48 dp touch target, and a TalkBack role/state description.
+- Every screen must work in both themes, with dynamic colour, at 390 dp and at the ≥600 dp rail; M3 defaults must not be overridden with fixed colours.
 
 ## Traps
 
 - `spk_result.row_stride_px` is in **pixels**, 4 uint16 per pixel: `rgba16 + y * stride * 4`.
-- Imports are capped at 42 MP / 8000 long edge. The 16.7 MP dispatch ceiling is handled by the banded renderer in the 1.5.0e engine, not by the import cap.
+- Imports are capped at 42 MP / 8000 long edge. The 16.7 MP dispatch ceiling is handled by the banded renderer in the 1.6.0e engine, not by the import cap.
 - `build-engine.sh <unit>...` is incremental, but a header change needs a full rebuild; otherwise vtable/ABI skew. Both JNI units are recompiled every build on purpose; a stale `spektralab_raw_jni.o` links and breaks the first RAW open.
 - `app/build/sources.txt` is generated by `build-dex.sh`; do not edit it.
 - Reversal/slide film: `scan_film` must ride the **stock delta**, not the slider delta. The Print stock stays stored but unused while a slide is selected; preview and export must send the same value.
 - `[E-xxxx]` codes in `SpkError.java` are user-facing. Keep the number when changing the text: E-1001 binding range, E-1108 HE/HE*, E-9000 native load, E-2001/2002 update.
+- `Bitmap#setColorSpace` is API 29, not 26. Guard it with `SDK_INT >= 29`; `lintDebug` fails the build otherwise. `ColorSpace.get` alone is API 26.
+- A one-line policy added to an 80-line method trips `MethodLength`. Put the reset in the callee (for example `openStillSession`) instead of growing the caller, and do not spend its blank-line budget.
 - GitHub compares **ancestry**, not trees. Upstream syncs must be merge commits, never squash, or the fork shows as behind even when files match.
 
 ## Device: DroidMind first
@@ -68,12 +78,12 @@ Use the global `droidmind` MCP; do not start with raw `adb`.
 ## Upstreams
 
 - **Engine**: `JamesQiu2005/SpektraLab`, branch `assist/vulkan-engine-1.3.4` at `445e314`. Sync by reapplying `patches/engine-android.patch`; never merge the desktop app.
-- **Android app**: `SAINTTaiYi/SpektraLab-Android` at `1.5.0e` (`a2ffbc3`). The fork's `origin` is `qwerkilo/SpektraLab-Android`; pushing there does not update the upstream channel. The 1.5.0e native core is merged; upstream histogram/dark-theme/canvas UI remains a follow-up M3 port.
+- **Android app**: `SAINTTaiYi/SpektraLab-Android` at `1.6.0e` (`08183cd`). The fork's `origin` is `qwerkilo/SpektraLab-Android`; pushing there does not update the upstream channel. The 1.6.0e native core is merged; live preview, batch import/export, metering, hue, histogram and preview gamut are in the M3 console. Upstream 58/77 MP controls remain the follow-up M3 port.
 - On Windows, build-tools 34 `d8` crashes on `MainActivity$1.class`. Use the R8 jar in `android-sdk/cmdline-tools/latest/lib/r8.jar` with JDK 17.
 
 ## Release
 
-- Version is duplicated in `AndroidManifest.xml`, `app/build.gradle` and the channel files; `VersionCheck` fails `checkJvm` on a mismatch. Current stable: **156 / `1.4.4-m3a`** (`update.json`). Current preview: **181 / `1.5.0e-m3`** (`preview.json`).
+- Version is duplicated in `AndroidManifest.xml`, `app/build.gradle` and the channel files; `VersionCheck` fails `checkJvm` on a mismatch. Current stable: **156 / `1.4.4-m3a`** (`update.json`). Current preview: **326 / `1.6.0e-m3`** (`preview.json`).
 - `UpdateCheck` compares version **and** channel, and reads only the fork's endpoints. `ReleaseUrl` allowlists `spektralab.workshop.skin`, the update host, and the fork's GitHub release paths.
 - Stable is gated by `docs/known-issues.md`. KI-1 (>16.7 MP rebate bottom print) is fixed in the 1.4.4 engine and recorded as `Release gate: accepted`; do not reopen it without a new reproduction.
 - `[CHANNEL=preview|stable] CF_TOKEN=... ./scripts/announce.sh <code> <name> <apk|-> "note"...` writes and pushes the channel file, purges jsDelivr, uploads a stable APK to KV (24 MiB limit), and creates a GitHub Release. It targets `qwerkilo/SpektraLab-Android`; confirm the identity before announcing.

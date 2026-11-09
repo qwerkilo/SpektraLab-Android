@@ -61,6 +61,10 @@ public final class Look {
     /** Choices: lens filter, the norm, and the rebate/date layout. */
     String cameraFilter = "";
     String sceneNorm = "power";
+    /** Engine metering choice; empty means off. */
+    String meterMethod = "";
+    /** The film profile's hue correction; 1 keeps the stock's own hues. */
+    float hueCorrection = 1f;
     String edgeMode = "strip", edgeGate = "auto", edgeHoles = "white", edgeCarrier = "none";
     String datePlacement = "frame", dateCorner = "br", dateStyle = "lcd";
     /** mm from the gate's edge to the text, frame placement only. */
@@ -113,6 +117,76 @@ public final class Look {
         return fromJson(toJson());
     }
 
+    /** Replace every field in this Look with another's values. */
+    void copyFrom(Look other) {
+        if (other == null) {
+            return;
+        }
+        final Look c = other.copy();
+        filmStock = c.filmStock;
+        printStock = c.printStock;
+        printExposure = c.printExposure;
+        grainAmount = c.grainAmount;
+        halationAmount = c.halationAmount;
+        glareAmount = c.glareAmount;
+        filmFormatMm = c.filmFormatMm;
+        highlightRoom = c.highlightRoom;
+        shadowRoom = c.shadowRoom;
+        halationBoost = c.halationBoost;
+        halationScatter = c.halationScatter;
+        lensBlur = c.lensBlur;
+        yFilter = c.yFilter;
+        mFilter = c.mFilter;
+        filterScale = c.filterScale;
+        preflash = c.preflash;
+        edgeFog = c.edgeFog;
+        edgeLeaks = c.edgeLeaks;
+        frameNumber = c.frameNumber;
+        halationOn = c.halationOn;
+        grainOn = c.grainOn;
+        couplersOn = c.couplersOn;
+        antihalationRemoved = c.antihalationRemoved;
+        scannerWhite = c.scannerWhite;
+        scannerBlack = c.scannerBlack;
+        edrOn = c.edrOn;
+        shadowRolloff = c.shadowRolloff;
+        maxLift = c.maxLift;
+        cameraFilter = c.cameraFilter;
+        sceneNorm = c.sceneNorm;
+        meterMethod = c.meterMethod;
+        hueCorrection = c.hueCorrection;
+        edgeMode = c.edgeMode;
+        edgeGate = c.edgeGate;
+        edgeHoles = c.edgeHoles;
+        edgeCarrier = c.edgeCarrier;
+        datePlacement = c.datePlacement;
+        dateCorner = c.dateCorner;
+        dateStyle = c.dateStyle;
+        dateInsetX = c.dateInsetX;
+        dateInsetY = c.dateInsetY;
+        edgeFNumber = c.edgeFNumber;
+        dateSize = c.dateSize;
+        dateEv = c.dateEv;
+        edgeTextOn = c.edgeTextOn;
+        dataText = c.dataText;
+        dateTextB = c.dateTextB;
+        dateText = c.dateText;
+        cameraSeed = c.cameraSeed;
+        frameSeed = c.frameSeed;
+        overscanOn = c.overscanOn;
+        dateOn = c.dateOn;
+        overscanFormat = c.overscanFormat;
+        view = c.view.copy();
+        geometryTurns = c.geometryTurns;
+        geometryRotation = c.geometryRotation;
+        geometryCropX = c.geometryCropX;
+        geometryCropY = c.geometryCropY;
+        geometryCropW = c.geometryCropW;
+        geometryCropH = c.geometryCropH;
+        geometryFlipH = c.geometryFlipH;
+        geometryFlipV = c.geometryFlipV;
+    }
+
     /** The Look as the keys the app has always saved; every field is present. */
     JSONObject toJson() {
         final JSONObject o = new JSONObject();
@@ -124,6 +198,8 @@ public final class Look {
             }
             o.put("cfilter", cameraFilter == null ? "" : cameraFilter);
             o.put("snorm", sceneNorm == null ? "power" : sceneNorm);
+            o.put("mtr", app.spektralab.core.Metering.sanitize(meterMethod));
+            o.put("hcor", (double) hueCorrection);
             o.put("emode", edgeMode == null ? "strip" : edgeMode);
             o.put("egate", edgeGate == null ? "auto" : edgeGate);
             o.put("eholes", edgeHoles == null ? "white" : edgeHoles);
@@ -175,6 +251,8 @@ public final class Look {
         }
         l.cameraFilter = o.optString("cfilter", "");
         l.sceneNorm = o.optString("snorm", "power");
+        l.meterMethod = app.spektralab.core.Metering.sanitize(o.optString("mtr", ""));
+        l.hueCorrection = (float) o.optDouble("hcor", 1.0);
         l.edgeMode = o.optString("emode", "strip");
         l.edgeGate = o.optString("egate", "auto");
         l.edgeHoles = o.optString("eholes", "white");

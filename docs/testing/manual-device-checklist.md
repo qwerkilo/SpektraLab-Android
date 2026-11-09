@@ -8,6 +8,14 @@ Android version, and Theme mode.
 
 - [ ] Install fresh (`adb install` after `pm clear app.spektralab`) and open the app. No storage permission dialog appears; the picker still opens.
 - [ ] On Android 13+, import a JPEG and a RAW from the system picker. No `READ_EXTERNAL_STORAGE` grant is requested.
+- [ ] Multi-select three images from the picker: three chips appear, the first new chip opens, and opening the other two decodes them normally.
+- [ ] With three Frames loaded and a film on each, export all: three files appear, the canvas returns to the starting Frame, and Back stops after the current file.
+- [ ] Save a preset from a developed Frame, change two sliders, apply it: the Look returns, one undo step appears, and the canvas renders once.
+- [ ] Share a preset to another app, copy the JSON back, import it: the preset appears in the list and applies.
+- [ ] Import a JPEG and a RAW: the JPEG starts with 测光 off, the RAW with 保护高光; choosing 平均 renders once and survives undo/frame switch.
+- [ ] Tap the SPECTRUM readout cell: the histogram appears over the stage without a new render, follows later renders, and hides on a second tap.
+- [ ] Open 视图 and toggle 胶片原色 on Portra 400 and CineStill 800T: Portra renders once and keeps the choice across undo; CineStill shows the fixed-configuration message and does not change.
+- [ ] In 视图 choose 预览色域 · Display P3: the canvas re-renders and a P3-capable phone shows the wider colour; exporting still writes an sRGB file.
 - [ ] From a file manager, "open with" offers no SpektraLab image entry (the dead `VIEW` filter is gone); use the in-app picker.
 - [ ] `adb shell dumpsys package app.spektralab` shows only `READ_EXTERNAL_STORAGE` (maxSdk 32) and `INTERNET`.
 - [ ] `adb shell cmd netpolicy` is not needed; the app only reaches HTTPS endpoints and the loopback debug sink.

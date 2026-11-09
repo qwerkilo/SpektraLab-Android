@@ -41,6 +41,34 @@ public final class PanelRowsTest {
     }
 
     @Test
+    public void opticsHeaderKeepsMeterAndView() {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "光学");
+        assertShown(activity, "测光");
+        assertShown(activity, "视图");
+    }
+
+    @Test
+    public void viewSheetKeepsHueAndGamut() {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "光学");
+        click(activity, "视图");
+        final android.app.Dialog dialog =
+                org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        assertNotNull("no view sheet", dialog);
+        final View root = dialog.getWindow().getDecorView();
+        assertNotNull("no 胶片原色 in the view sheet", find(root, "胶片原色"));
+        assertNotNull("no 预览色域 in the view sheet", find(root, "预览色域"));
+    }
+
+    @Test
+    public void filmPanelKeepsThePresetAction() {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "胶片");
+        assertShown(activity, "预设");
+    }
+
+    @Test
     public void themeSwitchKeepsTheOpenEdgePage() {
         final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
         click(activity, "边框");

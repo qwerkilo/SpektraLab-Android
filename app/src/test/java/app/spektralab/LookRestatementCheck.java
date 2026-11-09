@@ -51,6 +51,7 @@ public final class LookRestatementCheck {
                 "halation_active", "antihalation_removed", "grain_active",
                 "dir_couplers_active", "scanner_white_correction",
                 "scanner_black_correction", "extended_dynamic_range", "camera_filter",
+                "hue_correction",
                 "scene_latitude_active", "scene_latitude_norm",
                 "scene_latitude_highlight_knee", "scene_latitude_highlight_room",
                 "scene_latitude_shadow_knee", "scene_latitude_shadow_room",
@@ -140,6 +141,7 @@ public final class LookRestatementCheck {
                 LookRestatement.json(look, context(false, false, "EDGE", "")));
 
         eq("w25", json.optString("camera_filter"));
+        near("hue_correction", 1.0, json.optDouble("hue_correction"));
         eq("max", json.optString("scene_latitude_norm"));
         // The slider says protection; the engine wants the room left over.
         near("scene_latitude_highlight_room", OpticsDelta.highlightRoomWire(1.5f),
@@ -167,6 +169,7 @@ public final class LookRestatementCheck {
         eq("ProPhoto RGB", raw.optString("input_color_space"));
         eq("false", raw.optString("input_cctf_decoding"));
         eq("true", raw.optString("auto_exposure"));
+        eq("balanced", raw.optString("auto_exposure_method"));
         eq("false", raw.optString("scan_film"));
 
         final org.json.JSONObject jpeg = parse(LookRestatement.json(
@@ -175,6 +178,16 @@ public final class LookRestatementCheck {
         eq("true", jpeg.optString("input_cctf_decoding"));
         eq("false", jpeg.optString("auto_exposure"));
         eq("1024", jpeg.optString("preview_long_edge"));
+
+        look.meterMethod = "protect_highlights";
+        final org.json.JSONObject meteredJpeg = parse(LookRestatement.json(
+                look, new LookRestatement.Context(false, 1024, false, "EDGE", "")));
+        eq("true", meteredJpeg.optString("auto_exposure"));
+        eq("protect_highlights", meteredJpeg.optString("auto_exposure_method"));
+
+        final org.json.JSONObject p3 = parse(LookRestatement.json(
+                look, new LookRestatement.Context(false, 1024, false, "EDGE", "", "Display P3")));
+        eq("Display P3", p3.optString("output_color_space"));
 
         final org.json.JSONObject slide = parse(LookRestatement.json(
                 look, new LookRestatement.Context(false, 2048, true, "EDGE", "")));

@@ -24,7 +24,10 @@ import androidx.core.view.ViewCompat;
 import androidx.core.widget.NestedScrollView;
 import app.spektralab.engine.SpektraLabEngine;
 import app.spektralab.core.FilmBrand;
+import app.spektralab.core.HueCorrection;
 import app.spektralab.core.ImageFormat;
+import app.spektralab.core.LivePreviewGate;
+import app.spektralab.core.Metering;
 import app.spektralab.core.SafeFileName;
 import app.spektralab.core.PrintTarget;
 import app.spektralab.core.ScanSample;
@@ -40,6 +43,7 @@ import app.spektralab.ui.widget.ArrowView;
 import app.spektralab.ui.widget.CompareView;
 import app.spektralab.ui.widget.EdgeBackdrop;
 import app.spektralab.ui.widget.GuideView;
+import app.spektralab.ui.widget.HistogramView;
 import app.spektralab.ui.widget.ScanOverlayView;
 import app.spektralab.ui.widget.SnackbarHost;
 import app.spektralab.ui.widget.SpectrumCurveView;
@@ -104,7 +108,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean e1001Offered = false;
     /** A render is in flight: one native result buffer, one renderer. */
     private volatile boolean rendering = false;
-    private SpektraLabEngine.Session session;
+    private volatile SpektraLabEngine.Session session;
     private boolean isRawFile = false;
     private String rawFilePath = null;
     /** The caps the current RAW was opened with: an export re-decodes the
@@ -125,6 +129,8 @@ public class MainActivity extends AppCompatActivity {
     private ByteBuffer sourcePixels;
     private int sourceWidth, sourceHeight;
     private CompareView compare;
+    private HistogramView histogram;
+    private boolean histogramOn;
     /** What the import put on the stage: the frame before any film. */
     private Bitmap beforeBitmap;
     private TextView statusText;
@@ -196,6 +202,8 @@ public class MainActivity extends AppCompatActivity {
         try { SpektraLabEngine.prepare(nativeDir); } catch (Throwable e) { lastImportError = describe(e); }
         try { DebugSink.text("app-start", "buildInfo=" + SpektraLabEngine.buildInfo()); } catch (Throwable ignored) {}
 
+        previewSpace = getSharedPreferences("console", MODE_PRIVATE)
+                .getString("preview_space", "sRGB");
         buildUi();
         uiReady = true;
 
@@ -229,6 +237,8 @@ public class MainActivity extends AppCompatActivity {
      */
     private static final String THEME_PREFS = "theme";
     private ThemeMode themeMode = ThemeMode.LIGHT;
+    /** The preview bitmap's declared colour space; export always uses sRGB. */
+    private String previewSpace = "sRGB";
     private Palette palette = Palette.light();
     /** Which stage surface is showing, captured so a theme rebuild can restore it. */
     private int stageMode = 0;
@@ -394,6 +404,9 @@ public class MainActivity extends AppCompatActivity {
         return bestId;
     }
             private final java.util.List<Frame> frames = new java.util.ArrayList<>();
+    private boolean batchImportRunning;
+    private boolean batchExportRunning;
+    private boolean batchExportAbort;
     private LinearLayout sourceBar, sourceRow, thumbStrip;
     /** The folded strip: a short stack of prints in the canvas's lower-left. */
     private View shelfHandle;
@@ -435,6 +448,18 @@ public class MainActivity extends AppCompatActivity {
      *  one follow-up render when the current one lands. */
     private volatile boolean pendingRender = false;
     private static final int PREVIEW_LONG_EDGE = 2048;
+    /** Live frames are small enough to finish inside a drag; full render follows. */
+    private static final int LIVE_LONG_EDGE = 800;
+    /** One live frame at most this often; requests in between coalesce. */
+    private static final long LIVE_MIN_GAP_MS = 90;
+    private final LivePreviewGate liveGate = new LivePreviewGate();
+    private final Object liveLock = new Object();
+    private volatile RenderSnapshot liveSnapshot;
+    private volatile boolean liveWanted;
+    private volatile boolean liveStopped;
+    private Thread liveThread;
+    private long liveLastStart;
+    private int[] livePixels;
     private final List<View> formatCards = new ArrayList<>();
     private static final int TOP_APP_BAR_HEIGHT_DP = 64;
     private static final int READOUT_HEIGHT_DP = 52;
@@ -469,6 +494,9 @@ public class MainActivity extends AppCompatActivity {
     private static final String PROMO_PREFS = "promo";
     private static final String PROMO_SEEN_CODE = "qq_group_seen_code";
     private static final String PROMO_MUTED = "qq_group_muted";
+    private static final String PRESET_PREFS = "look_presets";
+    private static final String PRESET_KEY = "list";
+    private static final int PRESET_LIMIT = 12;
 
     private static final String[] TAB_NAMES = {"胶片", "光学", "尺度", "边框"};
     private static final String[] TAB_ENGLISH = {"FILM", "OPTICS", "SCALE", "EDGE"};
@@ -876,6 +904,11 @@ public class MainActivity extends AppCompatActivity {
     /** System Back leaves a secondary page before it leaves the Console. */
     @Override
     public void onBackPressed() {
+        if (batchExportRunning) {
+            batchExportAbort = true;
+            showSnackbar("批量导出会在当前这张结束后停止");
+            return;
+        }
         if (activeTabIndex == 3 && edgePageIndex >= 0) {
             openEdgePage(-1);
             return;
@@ -1039,6 +1072,18 @@ stage.addView(compare, new android.widget.FrameLayout.LayoutParams(-1, -1));
 scanOverlay = new ScanOverlayView(this, palette, compare, this::onScanSample);
 scanOverlay.setVisibility(View.GONE);
 stage.addView(scanOverlay, new android.widget.FrameLayout.LayoutParams(-1, -1));
+
+histogram = new HistogramView(this);
+histogram.setVisibility(histogramOn ? View.VISIBLE : View.GONE);
+if (histogramOn && lastRenderedBitmap != null) {
+    histogram.setBitmap(lastRenderedBitmap);
+}
+final android.widget.FrameLayout.LayoutParams histogramLp =
+        new android.widget.FrameLayout.LayoutParams(dp(132), dp(64));
+histogramLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+histogramLp.topMargin = dp(8);
+histogramLp.rightMargin = dp(8);
+stage.addView(histogram, histogramLp);
 
         return stage;
     }
@@ -1633,6 +1678,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             readoutSpectrumUnit = unit;
             readoutSpectrumDetail = detail;
             readoutSpectrumCell = cell;
+            cell.setClickable(true);
+            cell.setFocusable(true);
+            cell.setContentDescription("光谱读数，点按显示或隐藏直方图");
+            cell.setOnClickListener(v -> toggleHistogram());
         }
         return cell;
     }
@@ -1652,6 +1701,37 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
      * Film, print, and exposure are the three values the ticket names; the
      * spectrum cell only reports samples the catalogue actually carries.
      */
+    /** Declare the preview's colour space; sRGB is what an untagged bitmap is. */
+    private void tagPreviewSpace(Bitmap bitmap) {
+        if (bitmap == null || android.os.Build.VERSION.SDK_INT < 29
+                || !"Display P3".equals(previewSpace)) {
+            return;
+        }
+        try {
+            bitmap.setColorSpace(android.graphics.ColorSpace.get(
+                    android.graphics.ColorSpace.Named.DISPLAY_P3));
+        } catch (Throwable ignored) { }
+    }
+
+    /** Keep the optional histogram tied to what the canvas is showing. */
+    private void updateHistogram(Bitmap bitmap) {
+        if (histogramOn && histogram != null) {
+            histogram.setBitmap(bitmap);
+        }
+    }
+
+    /** Show or hide the stage histogram; it never triggers a render. */
+    private void toggleHistogram() {
+        histogramOn = !histogramOn;
+        if (histogram != null) {
+            histogram.setVisibility(histogramOn ? View.VISIBLE : View.GONE);
+            if (histogramOn) {
+                histogram.setBitmap(showingOriginal ? beforeBitmap : lastRenderedBitmap);
+            }
+        }
+        showSnackbar(histogramOn ? "直方图已显示" : "直方图已隐藏", Snackbar.LENGTH_SHORT);
+    }
+
     private void refreshReadoutStrip() {
         final String exposure = OpticsDelta.valueText(
                 optics.get(OpticsDelta.Param.EXPOSURE));
@@ -2325,6 +2405,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             // A chip asked for this frame. It is already in the list; only the
             // highlight and the freshly decoded pixels changed.
             reopeningFrame = false;
+            suppressBudgetDialog = false;
             rebuildFrameChips();
             return;
         }
@@ -2343,6 +2424,94 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         currentFrame = frames.size() - 1;
         attachSession(frame.session());
         rebuildFrameChips();
+    }
+
+    /** File a batch selection as Frames, then open the first one. */
+    private void startBatchImport(final java.util.List<Uri> uris) {
+        if (batchImportRunning) {
+            showSnackbar("批量导入已经在跑");
+            return;
+        }
+        if (uris == null || uris.isEmpty()) {
+            return;
+        }
+        if (uris.size() == 1) {
+            loadImage(uris.get(0));
+            return;
+        }
+        batchImportRunning = true;
+        final int total = uris.size();
+        statusText.setText("正在加入 " + total + " 张照片…");
+        new Thread(() -> {
+            final Bitmap[] thumbs = new Bitmap[total];
+            try {
+                for (int i = 0; i < total; ++i) {
+                    thumbs[i] = systemThumb(uris.get(i));
+                }
+            } catch (Throwable t) {
+                runOnUiThread(() -> {
+                    batchImportRunning = false;
+                    showSnackbar("批量导入失败：" + describe(t));
+                });
+                return;
+            }
+            runOnUiThread(() -> finishBatchImport(uris, thumbs));
+        }, "batch-import").start();
+    }
+
+    /** Add the prepared selection on the UI thread; no decode happens here. */
+    private void finishBatchImport(java.util.List<Uri> uris, Bitmap[] thumbs) {
+        int added = 0;
+        int failed = 0;
+        for (int i = 0; i < uris.size(); ++i) {
+            if (addFrameOnly(uris.get(i), thumbs[i])) {
+                ++added;
+            } else {
+                ++failed;
+            }
+        }
+        batchImportRunning = false;
+        final String msg = "已加入 " + added + " 张"
+                + (failed > 0 ? "，跳过 " + failed + " 张" : "");
+        statusText.setText(msg);
+        showSnackbar(msg);
+        rebuildFrameChips();
+        if (added > 0 && currentFrame < 0 && !frames.isEmpty()) {
+            reopenFrame(frames.size() - added);
+        }
+    }
+
+    /** Register one URI without decoding it; opening the chip does the decode. */
+    private boolean addFrameOnly(Uri uri, Bitmap thumb) {
+        if (uri == null) {
+            return false;
+        }
+        final String name = getFileName(uri);
+        final String lower = name == null ? "" : name.toLowerCase(java.util.Locale.US);
+        if (ImageFormat.unsupportedRawExtension(lower) != null) {
+            return false;
+        }
+        final Frame frame = new Frame(uri, ImageFormat.isRaw(lower), name, defaultLook());
+        frame.session().look().meterMethod =
+                ImageFormat.isRaw(lower) ? "protect_highlights" : "";
+        if (thumb != null) {
+            frame.setThumb(thumb);
+        }
+        frames.add(frame);
+        return true;
+    }
+
+    /** A small system thumbnail, when the provider can make one. */
+    private Bitmap systemThumb(Uri uri) {
+        if (android.os.Build.VERSION.SDK_INT < 29) {
+            return null;
+        }
+        try {
+            return getContentResolver().loadThumbnail(uri,
+                    new android.util.Size(96, 96), null);
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     /** One chip per opened frame, newest at the right, the open one ringed. */
@@ -2423,6 +2592,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         if (index == currentFrame) {
             currentFrame = -1;
             currentSession = null;
+            cancelLivePreview();
             optics = new Look();
             lastRenderedBitmap = null;
             scanVisible = false;
@@ -2459,6 +2629,21 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         loadImage(frame.uri());
     }
 
+    /** Reopen even the frame already on screen; a batch export needs its own session. */
+    private void reopenFrameForced(int index) {
+        if (index < 0 || index >= frames.size()) {
+            return;
+        }
+        final Frame frame = frames.get(index);
+        saveLookIntoFrames();
+        saveScanStateIntoFrame();
+        currentFrame = index;
+        reopeningFrame = true;
+        suppressBudgetDialog = true;
+        rebuildFrameChips();
+        loadImage(frame.uri());
+    }
+
     private void setOriginalVisual(boolean on) {
         if (originalAction == null) {
             return;
@@ -2479,6 +2664,11 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
     }
 
     private View sectionHead(String title, String actionLabel, Runnable action, Runnable reset) {
+        return sectionHead(title, actionLabel, action, reset, null);
+    }
+
+    private View sectionHead(String title, String actionLabel, Runnable action,
+                             Runnable reset, Runnable presets) {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -2491,6 +2681,11 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(android.view.Gravity.END);
+        if (presets != null) {
+            MaterialButton presetView = m3TextButton("预设", "预设：保存、套用或分享",
+                    m3Primary(), presets);
+            actions.addView(presetView, new LinearLayout.LayoutParams(-2, dp(48)));
+        }
         if (actionLabel != null && action != null) {
             MaterialButton actionView = m3TextButton(actionLabel, actionLabel,
                     m3Primary(), action);
@@ -2623,7 +2818,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.addView(sectionHead("FILM STOCK / 胶片",
-                        "全部胶片", this::showFilmPicker, this::resetFilmPanel),
+                        "全部胶片", this::showFilmPicker, this::resetFilmPanel,
+                        this::showPresetsPanel),
                 new LinearLayout.LayoutParams(-1, -2));
 
         buildFilmBrandRow(panel);
@@ -3084,6 +3280,174 @@ card.setOnClickListener(v -> {
                 });
     }
 
+    /** Save, apply, share and import named Looks. */
+    private void showPresetsPanel() {
+        final org.json.JSONArray presets = readPresets();
+        final java.util.List<String> labels = new java.util.ArrayList<>();
+        final java.util.List<LookPreset> parsed = new java.util.ArrayList<>();
+        labels.add("保存当前预设");
+        for (int i = 0; i < presets.length(); ++i) {
+            final LookPreset preset = LookPreset.fromJson(presets.optJSONObject(i));
+            if (preset != null) {
+                parsed.add(preset);
+                labels.add(preset.name().isEmpty() ? "未命名预设" : preset.name());
+            }
+        }
+        labels.add("从剪贴板导入");
+        showActionSheet("预设", "只保存 Look，不保存照片；应用会写入当前帧并渲染一次",
+                labels.toArray(new String[0]), which -> {
+                    if (which == 0) {
+                        saveCurrentPreset();
+                    } else if (which == labels.size() - 1) {
+                        importPresetFromClipboard();
+                    } else {
+                        showPresetActions(parsed.get(which - 1));
+                    }
+                });
+    }
+
+    private void showPresetActions(LookPreset preset) {
+        if (preset == null) {
+            return;
+        }
+        showActionSheet(preset.name(), "应用会写入当前帧并渲染一次",
+                new String[]{"应用", "分享 JSON", "删除"}, which -> {
+                    if (which == 0) {
+                        applyPreset(preset);
+                    } else if (which == 1) {
+                        sharePreset(preset);
+                    } else if (which == 2) {
+                        deletePreset(preset.name());
+                    }
+                });
+    }
+
+    private void saveCurrentPreset() {
+        if (live().filmStock == null) {
+            showSnackbar("先选一张胶片，再保存预设");
+            return;
+        }
+        askText("保存预设", "", name -> {
+            final String trimmed = name == null ? "" : name.trim();
+            if (trimmed.isEmpty()) {
+                showSnackbar("预设需要名字");
+                return;
+            }
+            final boolean stored = storePreset(new LookPreset(trimmed, captureLook()));
+            showSnackbar(stored ? "已保存预设：" + trimmed : "预设已满，最多 " + PRESET_LIMIT + " 条");
+        });
+    }
+
+    private void applyPreset(LookPreset preset) {
+        if (session == null || currentSession == null) {
+            showSnackbar("先导入照片");
+            return;
+        }
+        if (preset == null || preset.look().filmStock == null) {
+            showSnackbar("这个预设没有胶片");
+            return;
+        }
+        final Look next = preset.look();
+        currentSession.edit(look -> look.copyFrom(next));
+        optics = currentSession.look();
+        applyLook(optics);
+        refreshReadoutStrip();
+        refreshPaperLabel();
+        syncToggleRows();
+        syncDateDetail();
+        updateUndoAction();
+        renderImage();
+    }
+
+    private void sharePreset(LookPreset preset) {
+        final Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT, preset.toJson().toString());
+        startActivity(Intent.createChooser(send, "分享预设"));
+    }
+
+    private void importPresetFromClipboard() {
+        try {
+            final android.content.ClipboardManager clipboard =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard == null || !clipboard.hasPrimaryClip()
+                    || clipboard.getPrimaryClip() == null
+                    || clipboard.getPrimaryClip().getItemCount() == 0) {
+                showSnackbar("剪贴板里没有预设");
+                return;
+            }
+            final String text = clipboard.getPrimaryClip().getItemAt(0)
+                    .coerceToText(this).toString();
+            final org.json.JSONObject json = new org.json.JSONObject(text);
+            LookPreset preset = LookPreset.fromJson(json);
+            if (preset == null) {
+                preset = new LookPreset("剪贴板", Look.fromJson(json));
+            }
+            if (preset.look().filmStock == null) {
+                showSnackbar("剪贴板不是有效的预设");
+                return;
+            }
+            final boolean stored = storePreset(preset);
+            showSnackbar(stored ? "已导入预设：" + preset.name()
+                    : "预设已满，最多 " + PRESET_LIMIT + " 条");
+        } catch (Throwable t) {
+            showSnackbar("预设解析失败：" + describe(t));
+        }
+    }
+
+    private boolean storePreset(LookPreset preset) {
+        final org.json.JSONArray current = readPresets();
+        final org.json.JSONArray next = new org.json.JSONArray();
+        boolean replaced = false;
+        for (int i = 0; i < current.length(); ++i) {
+            final LookPreset old = LookPreset.fromJson(current.optJSONObject(i));
+            if (old != null && old.name().equals(preset.name())) {
+                if (!replaced) {
+                    next.put(preset.toJson());
+                    replaced = true;
+                }
+            } else if (old != null) {
+                next.put(old.toJson());
+            }
+        }
+        if (!replaced && next.length() >= PRESET_LIMIT) {
+            return false;
+        }
+        if (!replaced) {
+            next.put(preset.toJson());
+        }
+        writePresets(next);
+        return true;
+    }
+
+    private void deletePreset(String name) {
+        final org.json.JSONArray current = readPresets();
+        final org.json.JSONArray next = new org.json.JSONArray();
+        for (int i = 0; i < current.length(); ++i) {
+            final LookPreset old = LookPreset.fromJson(current.optJSONObject(i));
+            if (old != null && !old.name().equals(name)) {
+                next.put(old.toJson());
+            }
+        }
+        writePresets(next);
+        showSnackbar("已删除预设：" + name);
+    }
+
+    private org.json.JSONArray readPresets() {
+        final String raw = getSharedPreferences(PRESET_PREFS, MODE_PRIVATE)
+                .getString(PRESET_KEY, "[]");
+        try {
+            return new org.json.JSONArray(raw);
+        } catch (Throwable ignored) {
+            return new org.json.JSONArray();
+        }
+    }
+
+    private void writePresets(org.json.JSONArray presets) {
+        getSharedPreferences(PRESET_PREFS, MODE_PRIVATE).edit()
+                .putString(PRESET_KEY, presets.toString()).apply();
+    }
+
     private void showPaperPicker() {
         if (printIds.isEmpty()) {
             showSnackbar("没有可用的相纸");
@@ -3171,7 +3535,9 @@ card.setOnClickListener(v -> {
             // once; keyboard, switch access, and TalkBack changes coalesce so
             // a held arrow key does not queue a render per key. The guard at
             // the top keeps a Look restore and a chip rebind silent.
-            if (!trackingOpticsTouch) {
+            if (trackingOpticsTouch) {
+                requestLivePreview();
+            } else {
                 scheduleOpticsCommit(slider);
             }
         });
@@ -3223,6 +3589,14 @@ card.setOnClickListener(v -> {
      * labelled slider per field. Values live in {@code optics.view}, so the
      * Frame switch and undo see them with the rest of the Look.
      */
+    /** The hue toggle names the state, not the action. */
+    private String hueToggleText() {
+        if (HueCorrection.fixed(live().filmStock)) {
+            return "胶片原色 · 固定";
+        }
+        return live().hueCorrection > 0.5f ? "胶片原色 · 开" : "胶片原色 · 关";
+    }
+
     private void showViewAdjustSheet() {
         final BottomSheetDialog dialog = new BottomSheetDialog(this);
         final LinearLayout root = new LinearLayout(this);
@@ -3232,6 +3606,39 @@ card.setOnClickListener(v -> {
         root.addView(m3Label("视图调整 / VIEW", M3Tokens.TypeRole.TITLE_MEDIUM,
                 m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
                 tfDisplay));
+
+        final MaterialButton hueButton = actionButton(
+                mixedText(hueToggleText()), "胶片原色：关闭或启用该胶片的色相校正");
+        hueButton.setOnClickListener(v -> {
+            if (HueCorrection.fixed(live().filmStock)) {
+                showSnackbar("这只胶片的色相校正由配置文件固定，不能关闭");
+                return;
+            }
+            if (currentSession != null) {
+                currentSession.edit(look -> look.hueCorrection =
+                        look.hueCorrection > 0.5f ? 0f : 1f);
+                optics = currentSession.look();
+            } else {
+                optics.hueCorrection = optics.hueCorrection > 0.5f ? 0f : 1f;
+            }
+            hueButton.setText(mixedText(hueToggleText()));
+            renderImage();
+        });
+        root.addView(hueButton, new LinearLayout.LayoutParams(-1, dp(48)));
+        final MaterialButton gamutButton = actionButton(
+                mixedText("预览色域 · " + previewSpace),
+                "预览色域：只影响屏幕，导出始终使用 sRGB");
+        gamutButton.setOnClickListener(v -> showChoiceSheet("预览色域 / GAMUT",
+                "只影响屏幕显示；导出的 JPEG/TIFF 始终使用 sRGB",
+                java.util.Arrays.asList("sRGB", "Display P3"),
+                "Display P3".equals(previewSpace) ? 1 : 0, picked -> {
+                    previewSpace = picked == 1 ? "Display P3" : "sRGB";
+                    getSharedPreferences("console", MODE_PRIVATE).edit()
+                            .putString("preview_space", previewSpace).apply();
+                    gamutButton.setText(mixedText("预览色域 · " + previewSpace));
+                    renderImage();
+                }));
+        root.addView(gamutButton, new LinearLayout.LayoutParams(-1, dp(48)));
 
         final ChipGroup groups = new ChipGroup(this);
         groups.setSingleSelection(true);
@@ -3442,6 +3849,7 @@ card.setOnClickListener(v -> {
                 if (!fromUser) {
                     return;
                 }
+                requestLivePreview();
                 viewAdjustHandler.removeCallbacks(viewAdjustCommit);
                 viewAdjustHandler.postDelayed(viewAdjustCommit, 180);
             });
@@ -3735,6 +4143,26 @@ card.setOnClickListener(v -> {
                 });
     }
 
+    /** Metering is a Look value: applying it re-states the same JSON as a render. */
+    private void showMeterPicker() {
+        final java.util.List<String> labels = java.util.Arrays.asList(Metering.NAMES);
+        final int selected = Metering.indexOf(live().meterMethod);
+        showChoiceSheet("测光 / METER",
+                "关闭时由胶片自己的曝光决定；JPEG 默认关闭，RAW 默认保护高光",
+                labels, selected, picked -> {
+                    if (picked < 0 || picked >= Metering.IDS.length) {
+                        return;
+                    }
+                    if (currentSession != null) {
+                        currentSession.edit(look -> look.meterMethod = Metering.IDS[picked]);
+                        optics = currentSession.look();
+                    } else {
+                        optics.meterMethod = Metering.IDS[picked];
+                    }
+                    renderImage();
+                });
+    }
+
     private void showProtectionNormPicker() {
         if (!opticsUnlocked) {
             showSnackbar(opticsLockReason());
@@ -3811,6 +4239,10 @@ card.setOnClickListener(v -> {
                 mixedText("视图"), "打开视图调整：白平衡、亮度、颜色、分级");
         viewAction.setOnClickListener(v -> showViewAdjustSheet());
         head.addView(viewAction, new LinearLayout.LayoutParams(-2, dp(48)));
+        final MaterialButton meterAction = actionButton(
+                mixedText("测光"), "选择相机测光方式");
+        meterAction.setOnClickListener(v -> showMeterPicker());
+        head.addView(meterAction, new LinearLayout.LayoutParams(-2, dp(48)));
         return head;
     }
 
@@ -4645,6 +5077,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             }
             apply.accept(value);
             if (!syncingRebate) {
+                requestLivePreview();
                 slider.removeCallbacks(rebateCommit);
                 slider.postDelayed(rebateCommit, OPTICS_COMMIT_DELAY_MS);
             }
@@ -5036,6 +5469,22 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
     /** Import, export, and About use the same M3 sheet as the stock pickers. */
     void showActionSheet(String title, String note, String[] items,
                          java.util.function.IntConsumer onPick) {
+        showActionSheet(title, note, items, onPick, null, null);
+    }
+
+    /** The same sheet, with a gesture on its title. */
+    void showActionSheet(String title, String note, String[] items,
+                         java.util.function.IntConsumer onPick, Runnable onTitleLongPress) {
+        showActionSheet(title, note, items, onPick, onTitleLongPress, null);
+    }
+
+    /**
+     * The same sheet with a line that never scrolls away: the update
+     * announcement's download address stays above a long changelog.
+     */
+    void showActionSheet(String title, String note, String[] items,
+                         java.util.function.IntConsumer onPick, Runnable onTitleLongPress,
+                         String pinned) {
         if (items == null || items.length == 0 || isFinishing()) {
             return;
         }
@@ -5043,6 +5492,13 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         final BottomSheetDialog dialog = new BottomSheetDialog(this);
         dialog.setTitle(title);
         final LinearLayout column = sheetColumn(dialog, title);
+
+        if (pinned != null && !pinned.isEmpty()) {
+            final TextView pinView = m3Label(pinned, M3Tokens.TypeRole.BODY_MEDIUM,
+                    m3OnSurface(), tfHan);
+            pinView.setPadding(dp(16), 0, dp(16), dp(8));
+            column.addView(pinView, new LinearLayout.LayoutParams(-1, -2));
+        }
 
         final NestedScrollView scroll = new NestedScrollView(this);
         scroll.setFillViewport(false);
@@ -5833,7 +6289,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
     private void showImportMenu() {
         showActionSheet("导入照片", "从相册或文件管理器选择", new String[]{
                 "从相册选择（照片）",
-                "从文件管理器选择（RAW / HEIC / 任意文件）"
+                "从文件管理器选择（RAW / HEIC / 任意文件）",
         }, which -> {
             // A deliberate pick is a *new* photograph, not a chip coming back.
             // Cleared here so a chip whose file disappeared cannot leave the
@@ -5928,12 +6384,28 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                 "TIFF 16 位 · 实时画质",
                 "TIFF 16 位 · 预览画质 · 长边 3400",
                 "TIFF 16 位 · 全尺寸（原图）",
-                "DNG · 全尺寸（电脑用 · 手机版打不开）"
+                "DNG · 全尺寸（电脑用 · 手机版打不开）",
+                "批量导出全部帧…"
         }, which -> {
+            if (which == 7) { showBatchExportDialog(); return; }
             if (which == 6) { exportImage("dng", "full"); return; }
             exportImage(which >= 3 ? "tiff" : "jpeg",
                         which % 3 == 0 ? "live" : which % 3 == 1 ? "preview" : "full");
         });
+    }
+
+    /** Pick a format for the whole strip; each Frame reopens before its export. */
+    private void showBatchExportDialog() {
+        showActionSheet("批量导出全部帧",
+                "逐帧重开并导出；没有胶片的帧会跳过",
+                new String[]{"JPEG · 实时画质", "JPEG · 全尺寸",
+                        "TIFF 16 位 · 全尺寸", "DNG · 全尺寸"},
+                which -> {
+                    if (which == 0) { startBatchExport("jpeg", "live"); }
+                    else if (which == 1) { startBatchExport("jpeg", "full"); }
+                    else if (which == 2) { startBatchExport("tiff", "full"); }
+                    else if (which == 3) { startBatchExport("dng", "full"); }
+                });
     }
 
     /** Reset from the old single control strip: delegate to the film page. */
@@ -6295,9 +6767,11 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             chain.add(new Intent(android.provider.MediaStore.ACTION_PICK_IMAGES));
         }
         chain.add(new Intent(Intent.ACTION_GET_CONTENT)
-                .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"));
+                .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
+                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true));
         chain.add(new Intent(Intent.ACTION_OPEN_DOCUMENT)
-                .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"));
+                .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
+                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true));
         if (!launchFirstResolvable(chain, 1)) {
             showSnackbar("本机没有可用的图片选择器；请点「导入」→「从文件管理器选择」");
         }
@@ -6359,11 +6833,13 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         documents.addCategory(Intent.CATEGORY_OPENABLE);
         documents.setType("*/*");
         documents.putExtra(Intent.EXTRA_MIME_TYPES, types);
+        documents.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         chain.add(documents);
         Intent content = new Intent(Intent.ACTION_GET_CONTENT);
         content.addCategory(Intent.CATEGORY_OPENABLE);
         content.setType("*/*");
         content.putExtra(Intent.EXTRA_MIME_TYPES, types);
+        content.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         chain.add(content);
         if (!launchFirstResolvable(chain, 1)) {
             showSnackbar("本机没有可用的文件选择器");
@@ -6379,21 +6855,39 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         if (resultCode != RESULT_OK) {
             return;  // the user cancelled
         }
-        // RESULT_OK with no URI happens on ROMs whose picker cannot hand back a
-        // stream for the item (a cloud-only photo, a broken provider). Doing
-        // nothing there is what "下载后没法导入" looks like from the outside: the
-        // tap simply has no effect and nothing is said.
-        Uri uri = data == null ? null : data.getData();
-        if (uri == null) {
+        // The picker can return several items in a ClipData; the single-URI
+        // field stays for pickers that only hand back one.
+        final java.util.List<Uri> picked = new java.util.ArrayList<>();
+        if (data != null) {
+            final android.content.ClipData clip = data.getClipData();
+            if (clip != null) {
+                for (int i = 0; i < clip.getItemCount(); ++i) {
+                    final Uri item = clip.getItemAt(i).getUri();
+                    if (item != null && !picked.contains(item)) {
+                        picked.add(item);
+                    }
+                }
+            }
+            final Uri single = data.getData();
+            if (single != null && !picked.contains(single)) {
+                picked.add(single);
+            }
+        }
+        if (picked.isEmpty()) {
             try { DebugSink.text("picker", "RESULT_OK with no data"); } catch (Throwable ignored) { }
             showSnackbar("没有拿到图片（选择器返回空）。请点「导入」→「从文件管理器选择」再试一次");
             return;
         }
-        loadImage(uri);
+        if (picked.size() > 1) {
+            startBatchImport(picked);
+        } else {
+            loadImage(picked.get(0));
+        }
     }
 
     /** Reset the live Look session and Scan state before decoding an import. */
     private void prepareImportState(boolean reopening) {
+        cancelLivePreview();
         // A new import works out its own imprint date; the previous frame's
         // cached text must not travel with the new Source.
         defaultDateText = null;
@@ -6490,6 +6984,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             }
         }
         session = engine.openSession(sourcePixels, sourceWidth, sourceHeight, 3);
+        suppressBudgetDialog = false;
     }
 
     /** Whether the still needs the shrink dialog before it is decoded. */
@@ -6563,12 +7058,12 @@ refreshEdgeFormats();
             String fileName = getFileName(uri);
             final String lower = fileName == null ? "" : fileName.toLowerCase(java.util.Locale.US);
             isRawFile = ImageFormat.isRaw(lower);
+            if (!reopening) { live().meterMethod = isRawFile ? "protect_highlights" : ""; }
             final String unsupported = ImageFormat.unsupportedRawExtension(lower);
             if (unsupported != null) {
                 showSnackbar("[E-1107] 暂不支持 " + unsupported + " 格式");
                 return;
             }
-
             if (isRawFile) {
                 loadRawImage(uri);
                 return;
@@ -6748,6 +7243,7 @@ refreshEdgeFormats();
     /** Put a decoded RAW frame on the canvas before its first print. */
     private void applyRawPreview(Bitmap preview, Uri uri) {
         beforeBitmap = preview;
+        updateHistogram(preview);
         compare.setBefore(preview);
         setStage(1, getFileName(uri));
         rememberFrame(uri);
@@ -6761,6 +7257,7 @@ refreshEdgeFormats();
         if (session == null) {
             return;
         }
+        suppressBudgetDialog = false;
         showingOriginal = true;
         lastRenderedBitmap = null;
         if (!reopening) {
@@ -7018,7 +7515,7 @@ refreshEdgeFormats();
         // control.
         final String importParams = live().filmStock == null
                 ? null
-                : snapshotFor(live(), live().filmStock, PREVIEW_LONG_EDGE).params;
+                : snapshotFor(live(), live().filmStock, PREVIEW_LONG_EDGE, false).params;
         try {
             final String filePath = prepareRawImport(uri);
             if (filePath == null) {
@@ -7534,14 +8031,16 @@ refreshEdgeFormats();
      * one and not the other was invisible until a file disagreed with the
      * screen. There is now one string, built in one place.
      */
-    private RenderSnapshot snapshotFor(Look look, String stock, int longEdge) {
+    private RenderSnapshot snapshotFor(Look look, String stock, int longEdge,
+                                       boolean forExport) {
         return RenderSnapshot.of(look, stock, longEdge,
                 new LookRestatement.Context(
                         isRawFile,
                         longEdge,
                         isPositiveFilm(stock),
                         edgeTextFor(stock),
-                        look.dateOn ? defaultImprintDate() : ""));
+                        look.dateOn ? defaultImprintDate() : "",
+                        forExport ? "sRGB" : previewSpace));
     }
 
     /*
@@ -7556,7 +8055,171 @@ refreshEdgeFormats();
      * scene-referred and keeps the meter.
      */
 
+    /**
+     * A control moved. Ask the live thread for one small frame.
+     *
+     * <p>Requests coalesce: the thread draws at most one frame per
+     * {@link #LIVE_MIN_GAP_MS} and always uses the newest snapshot. Nothing is
+     * recorded, persisted, or sent to the engine on this call -- the UI thread
+     * only takes the Look and its parameters.
+     */
+    private void requestLivePreview() {
+        if (liveStopped || isFinishing() || session == null || live().filmStock == null) {
+            return;
+        }
+        // A full render owns the engine until it lands; its result is about to
+        // replace whatever a live frame could draw now.
+        if (rendering) {
+            return;
+        }
+        if (showingOriginal) {
+            showingOriginal = false;
+            setOriginalVisual(false);
+        }
+        try {
+            liveSnapshot = snapshotFor(captureLook(), live().filmStock, LIVE_LONG_EDGE, false);
+        } catch (Throwable t) {
+            try { DebugSink.text("live", "snapshot failed " + describe(t)); } catch (Throwable ignored) { }
+            return;
+        }
+        liveGate.request();
+        liveWanted = true;
+        ensureLiveThread();
+        synchronized (liveLock) {
+            liveLock.notifyAll();
+        }
+    }
+
+    private void ensureLiveThread() {
+        if (liveThread != null) {
+            return;
+        }
+        liveThread = new Thread(this::liveLoop, "live-preview");
+        liveThread.setDaemon(true);
+        liveThread.start();
+    }
+
+    /** Drop a live frame that has not painted yet, and every frame in flight. */
+    private void cancelLivePreview() {
+        liveGate.cancel();
+        liveWanted = false;
+        liveSnapshot = null;
+    }
+
+    /** Stop the daemon before the session is torn down. */
+    private void stopLivePreview() {
+        liveStopped = true;
+        liveWanted = false;
+        synchronized (liveLock) {
+            liveLock.notifyAll();
+        }
+        if (liveThread != null) {
+            liveThread.interrupt();
+            liveThread = null;
+        }
+    }
+
+    private void liveLoop() {
+        while (!liveStopped) {
+            synchronized (liveLock) {
+                while (!liveWanted && !liveStopped) {
+                    try { liveLock.wait(); } catch (InterruptedException e) { return; }
+                }
+            }
+            if (liveStopped) {
+                return;
+            }
+            // Let the gesture settle for a moment: requests that arrive during
+            // the sleep fold into the frame that follows.
+            final long since = System.currentTimeMillis() - liveLastStart;
+            if (since < LIVE_MIN_GAP_MS) {
+                try {
+                    Thread.sleep(LIVE_MIN_GAP_MS - since);
+                } catch (InterruptedException e) {
+                    return;
+                }
+            }
+            liveWanted = false;
+            if (!liveGate.consume()) {
+                continue;
+            }
+            final RenderSnapshot snapshot = liveSnapshot;
+            if (snapshot == null || rendering || session == null) {
+                continue;
+            }
+            liveLastStart = System.currentTimeMillis();
+            drawLivePreview(snapshot, liveGate.generation(), liveGate.fullGeneration(),
+                    currentFrame);
+        }
+    }
+
+    /**
+     * One reprint at {@link #LIVE_LONG_EDGE}. The snapshot was taken on the UI
+     * thread; the worker neither reads a control nor writes the Look.
+     */
+    private void drawLivePreview(RenderSnapshot snapshot, int generation,
+                                 int fullGeneration, int frame) {
+        final Bitmap bmp = renderLiveFrame(snapshot, generation, fullGeneration);
+        if (bmp == null) {
+            return;
+        }
+        runOnUiThread(() -> {
+            if (!uiReady || liveStopped || rendering || session == null
+                    || compare == null
+                    || frame != currentFrame
+                    || !liveGate.accepts(generation, fullGeneration)) {
+                return;
+            }
+            lastRenderedBitmap = bmp;
+            tagPreviewSpace(bmp);
+            updateHistogram(bmp);
+            compare.setAfter(bmp);
+            setStage(1, null);
+        });
+    }
+
+    /** The native half of a live frame; null when the request is already stale. */
+    private Bitmap renderLiveFrame(RenderSnapshot snapshot, int generation,
+                                  int fullGeneration) {
+        synchronized (renderMutex) {
+            if (session == null || !liveGate.accepts(generation, fullGeneration)) {
+                return null;
+            }
+            try {
+                SpektraLabEngine.setViewAdjust(snapshot.viewAdjust);
+                session.setParams(snapshot.params);
+                final int[] dims = session.renderBegin("live", true);
+                final int w = dims[0], h = dims[1];
+                if (w <= 0 || h <= 0) {
+                    throw new RuntimeException("empty live frame");
+                }
+                if (livePixels == null || livePixels.length < w * h) {
+                    livePixels = new int[w * h];
+                }
+                final int copied = session.copyArgbRange(livePixels, 0, h);
+                if (copied != w * h) {
+                    throw new RuntimeException("live copy " + copied + "/" + (w * h));
+                }
+                final Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                bmp.setPixels(livePixels, 0, w, 0, 0, w, h);
+                session.renderEnd();
+                try { DebugSink.text("live", "frame " + w + "x" + h); }
+                catch (Throwable ignored) { }
+                return bmp;
+            } catch (Throwable t) {
+                try { session.renderEnd(); } catch (Throwable ignored) { }
+                try { DebugSink.text("live", "fail " + describe(t)); }
+                catch (Throwable ignored) { }
+                return null;
+            }
+        }
+    }
+
     private void renderImage() {
+        // The full pass owns the canvas from here: a live frame still in flight
+        // must not land on top of the result the user waited for.
+        cancelLivePreview();
+        liveGate.fullRenderStarted();
         // Every branch says something. The foot is one thin line, too quiet to
         // carry "nothing happened"; failures need to be readable.
         if (session == null) {
@@ -7597,7 +8260,7 @@ refreshEdgeFormats();
         updateUndoAction();
         // The view layer is a process-global native pass, so snapshot its
         // values with the Look and send them under the render lock.
-        final RenderSnapshot snapshot = snapshotFor(renderLook, renderedStock, PREVIEW_LONG_EDGE);
+        final RenderSnapshot snapshot = snapshotFor(renderLook, renderedStock, PREVIEW_LONG_EDGE, false);
         final double[] viewAdjust = snapshot.viewAdjust;
         // Snapshot the whole Look here, on the UI thread: the render thread gets
         // one finished string and never reads a control or a Frame.
@@ -7723,6 +8386,8 @@ refreshEdgeFormats();
         setStage(1, null);
         setStep(2);
         lastRenderedBitmap = bmp;
+        tagPreviewSpace(bmp);
+        updateHistogram(bmp);
         setOpticsUnlocked(true);
         setOriginalVisual(false);
         refreshFilmPanel();
@@ -7971,6 +8636,10 @@ refreshEdgeFormats();
     }
 
     private void exportImage(String format, String tier) {
+        exportImage(format, tier, null);
+    }
+
+    private void exportImage(String format, String tier, java.util.function.IntConsumer onDone) {
         final boolean tiff = "tiff".equals(format);
         final boolean dng = "dng".equals(format);
         final String ext = dng ? ".dng" : tiff ? ".tif" : ".jpg";
@@ -7980,10 +8649,16 @@ refreshEdgeFormats();
         }
         if (engine == null || session == null) {
             showSnackbar("请先导入照片");
+            if (onDone != null) {
+                onDone.accept(0);
+            }
             return;
         }
         if (live().filmStock == null) {
             showSnackbar("先选一张胶片，再导出");
+            if (onDone != null) {
+                onDone.accept(0);
+            }
             return;
         }
         // The export states the Look it was started with, not whatever the
@@ -7991,14 +8666,128 @@ refreshEdgeFormats();
         // switch or a slider drag during a long export must not move the file.
         final String exportStock = live().filmStock;
         final Look exportLook = captureLook();
-        final RenderSnapshot exportSnapshot = snapshotFor(exportLook, exportStock, PREVIEW_LONG_EDGE);
+        final RenderSnapshot exportSnapshot = snapshotFor(exportLook, exportStock, PREVIEW_LONG_EDGE, true);
         final double[] exportViewAdjust = exportSnapshot.viewAdjust;
         final String exportParams = exportSnapshot.params;
         final String rawExportPath = isRawFile ? (rawFilePath == null ? "" : rawFilePath) : null;
         // A bitmap export renders from the preview session; a RAW export opens
         // its own below. The render lock keeps a stock change out of either.
         startExportThread(format, tier, tiff, dng, ext, mime, exportStock,
-                exportParams, exportViewAdjust, rawExportPath);
+                exportParams, exportViewAdjust, rawExportPath, onDone);
+    }
+
+    /** Export every Frame, one at a time, each through the normal reopen path. */
+    private void startBatchExport(String format, String tier) {
+        if (batchExportRunning) {
+            showSnackbar("批量导出已经在跑");
+            return;
+        }
+        if (frames.size() < 2) {
+            showSnackbar("只有一张照片，不需要批量");
+            return;
+        }
+        saveLookIntoFrames();
+        final java.util.List<Frame> batch = new java.util.ArrayList<>(frames);
+        final int home = currentFrame;
+        batchExportRunning = true;
+        batchExportAbort = false;
+        new Thread(() -> runBatchExport(batch, home, format, tier),
+                "batch-export").start();
+    }
+
+    private void runBatchExport(java.util.List<Frame> batch, int home,
+                                String format, String tier) {
+        int ok = 0;
+        int failed = 0;
+        try {
+            for (int i = 0; i < batch.size() && !batchExportAbort; ++i) {
+                final Frame frame = batch.get(i);
+                if (frame.session() == null || frame.session().look().filmStock == null) {
+                    ++failed;
+                    continue;
+                }
+                final int index = i;
+                final String label = "批量导出 " + (i + 1) + "/" + batch.size();
+                runOnUiThread(() -> {
+                    statusText.setText(label);
+                    cancelLivePreview();
+                    closeSessionForBatch();
+                    reopenFrameForced(index);
+                });
+                if (!pollUntil(() -> session != null && !rendering, 180000)) {
+                    ++failed;
+                    continue;
+                }
+                final java.util.concurrent.CountDownLatch done =
+                        new java.util.concurrent.CountDownLatch(1);
+                final java.util.concurrent.atomic.AtomicBoolean exported =
+                        new java.util.concurrent.atomic.AtomicBoolean(false);
+                runOnUiThread(() -> exportImage(format, tier, success -> {
+                    if (success == 1) {
+                        exported.set(true);
+                    }
+                    done.countDown();
+                }));
+                if (!done.await(20, java.util.concurrent.TimeUnit.MINUTES) || !exported.get()) {
+                    ++failed;
+                } else {
+                    ++ok;
+                }
+                runOnUiThread(this::closeSessionForBatch);
+                try {
+                    if (engine != null) {
+                        engine.trimPool();
+                    }
+                } catch (Throwable ignored) { }
+                try { SpektraLabEngine.clearRawCache(); } catch (Throwable ignored) { }
+                System.gc();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            final int okCount = ok;
+            final int failedCount = failed;
+            runOnUiThread(() -> finishBatchExport(home, okCount, failedCount));
+        }
+    }
+
+    private void closeSessionForBatch() {
+        synchronized (renderMutex) {
+            if (session != null) {
+                session.close();
+                session = null;
+            }
+        }
+    }
+
+    private void finishBatchExport(int home, int ok, int failed) {
+        batchExportRunning = false;
+        if (exportProgressBar != null) {
+            exportProgressBar.setVisibility(View.GONE);
+        }
+        final String msg = "批量导出完成：" + ok + " 张成功"
+                + (failed > 0 ? "，" + failed + " 张跳过或失败" : "");
+        statusText.setText(msg);
+        showSnackbar(msg);
+        if (home >= 0 && home < frames.size()) {
+            reopenFrame(home);
+        }
+    }
+
+    private boolean pollUntil(java.util.function.BooleanSupplier condition, long timeoutMs) {
+        final long end = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < end) {
+            if (condition.getAsBoolean()) {
+                return true;
+            }
+            try {
+                Thread.sleep(250);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
     }
 
 
@@ -8075,7 +8864,7 @@ refreshEdgeFormats();
     /** Write the rendered file to the gallery and publish the result. */
     private void finishExport(java.io.File tmp, int[] info, String canvas, long t0,
                                   String format, String tier, String ext, String mime,
-                                  boolean tiff, boolean dng) throws Exception {
+                                  boolean tiff, boolean dng, java.util.function.IntConsumer onDone) throws Exception {
         uploadExportProgress(tmp);
         uploadVkLog();
         int w = info[0], h = info[1];
@@ -8109,15 +8898,20 @@ refreshEdgeFormats();
         final long bytes = tmp.exists() ? tmp.length() : 0;
         final String sizeLabel = bytes > 0
                 ? String.format("%.1f MB", bytes / 1048576.0) : "?";
-        runOnUiThread(() -> applyExportResult(outUri, mime, canvas, fw, fh,
-                fRender, secs, sizeLabel, tiff, dng));
+        runOnUiThread(() -> {
+            applyExportResult(outUri, mime, canvas, fw, fh,
+                    fRender, secs, sizeLabel, tiff, dng);
+            if (onDone != null) {
+                onDone.accept(1);
+            }
+        });
         }
 
     /** Render one export, write it to the gallery and report on the UI thread. */
         private void startExportThread(String format, String tier, boolean tiff, boolean dng,
                                   String ext, String mime, String exportStock,
                                   String exportParams, double[] exportViewAdjust,
-                                  String rawExportPath) {
+                                  String rawExportPath, java.util.function.IntConsumer onDone) {
         new Thread(() -> {
             java.io.File tmp = new java.io.File(getCacheDir(), "export_" + System.currentTimeMillis() + ext);
             try {
@@ -8160,13 +8954,19 @@ refreshEdgeFormats();
                 } finally {
                     spinning.set(false);
                 }
-                finishExport(tmp, info, canvas, t0, format, tier, ext, mime, tiff, dng);
+                finishExport(tmp, info, canvas, t0, format, tier, ext, mime, tiff, dng,
+                        onDone);
             } catch (Throwable e) {
                 final String msg = describe(e);
                 try { DebugSink.text("export-error", "tier=" + tier + " " + msg); } catch (Throwable ignored) {}
                 uploadExportProgress(tmp);
                 uploadVkLog();
-                runOnUiThread(() -> applyExportFailure(msg));
+                runOnUiThread(() -> {
+                    applyExportFailure(msg);
+                    if (onDone != null) {
+                        onDone.accept(0);
+                    }
+                });
                 final int code = SpkError.codeOf(msg);
                 if (code == 1001 || code == 1009) {
                     offerSmallerImport();
@@ -8301,6 +9101,7 @@ refreshEdgeFormats();
         }
         currentSnackbar = null;
         snackbarHost = null;
+        stopLivePreview();
         // Session *and* engine go down under the same lock the render runs
         // under: a render that is mid-`renderBegin` is holding device buffers
         // owned by this engine, and tearing it down outside the lock is the

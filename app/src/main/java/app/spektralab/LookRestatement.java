@@ -31,14 +31,22 @@ public final class LookRestatement {
         public final boolean positiveFilm;
         public final String edgePrint;
         public final String defaultDateText;
+        /** The engine output space; the preview may be Display P3, export sRGB. */
+        public final String outputSpace;
 
         public Context(boolean raw, int longEdge, boolean positiveFilm,
                        String edgePrint, String defaultDateText) {
+            this(raw, longEdge, positiveFilm, edgePrint, defaultDateText, "sRGB");
+        }
+
+        public Context(boolean raw, int longEdge, boolean positiveFilm,
+                       String edgePrint, String defaultDateText, String outputSpace) {
             this.raw = raw;
             this.longEdge = longEdge;
             this.positiveFilm = positiveFilm;
             this.edgePrint = edgePrint == null ? "" : edgePrint;
             this.defaultDateText = defaultDateText == null ? "" : defaultDateText;
+            this.outputSpace = "Display P3".equals(outputSpace) ? "Display P3" : "sRGB";
         }
     }
 
@@ -64,11 +72,15 @@ public final class LookRestatement {
         final boolean monochrome = isMonochromeStock(look.filmStock);
         final float highlight = look.get(OpticsDelta.Param.HIGHLIGHT_ROOM);
         final float shadow = look.get(OpticsDelta.Param.SHADOW_ROOM);
+        final String meter = app.spektralab.core.Metering.sanitize(look.meterMethod);
+        final float hue = app.spektralab.core.HueCorrection.wire(
+                look.filmStock, look.hueCorrection);
 
         return String.format(Locale.US,
             "{\"film_stock\":\"%s\",\"print_stock\":\"%s\",\"scan_film\":%s,"
             + "\"input_color_space\":\"%s\",\"input_cctf_decoding\":%s,\"auto_exposure\":%s,"
-            + "\"output_color_space\":\"sRGB\",\"preview_long_edge\":%d,"
+            + "\"auto_exposure_method\":\"%s\","
+            + "\"output_color_space\":\"%s\",\"preview_long_edge\":%d,"
             + "\"print_exposure\":%.2f,\"grain_amount\":%.3f,\"grain_sublayers_active\":%s,"
             + "\"halation_amount\":%.3f,\"halation_boost_ev\":%.2f,"
             + "\"halation_scatter_amount\":%.3f,"
@@ -76,6 +88,7 @@ public final class LookRestatement {
             + "\"dir_couplers_active\":%s,\"scanner_white_correction\":%s,"
             + "\"scanner_black_correction\":%s,\"extended_dynamic_range\":%s,"
             + "\"camera_filter\":\"%s\","
+            + "\"hue_correction\":%.3f,"
             + "\"scene_latitude_active\":%s,\"scene_latitude_norm\":\"%s\","
             + "\"scene_latitude_highlight_knee\":1.0,"
             + "\"scene_latitude_highlight_room\":%.2f,\"scene_latitude_shadow_knee\":-2.0,"
@@ -104,7 +117,9 @@ public final class LookRestatement {
             context.positiveFilm ? "true" : "false",
             context.raw ? "ProPhoto RGB" : "sRGB",
             context.raw ? "false" : "true",
-            context.raw ? "true" : "false",
+            (!meter.isEmpty() || context.raw) ? "true" : "false",
+            escape(meter.isEmpty() ? "balanced" : meter),
+            context.outputSpace,
             context.longEdge,
             look.printExposure, grainAmount(look),
             monochrome ? "false" : "true",
@@ -119,6 +134,7 @@ public final class LookRestatement {
             look.scannerBlack > 0.5f ? "true" : "false",
             look.edrOn > 0.5f ? "true" : "false",
             OpticsDelta.CameraFilter.fromWire(look.cameraFilter).wire,
+            hue,
             OpticsDelta.sceneLatitudeActive(highlight, shadow) ? "true" : "false",
             OpticsDelta.ProtectionNorm.fromWire(look.sceneNorm).wire,
             OpticsDelta.highlightRoomWire(highlight),

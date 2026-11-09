@@ -5,24 +5,25 @@
 颗粒、光晕和成色剂耦合按画幅的微米尺度计算，不是 LUT。
 
 > 社区移植，不是上游官方版本。引擎来自上游 `assist/vulkan-engine-1.3.4`（commit `445e314`），
-> 应用层已同步到上游 `1.5.0e`。
+> 应用层已同步到上游 `1.6.0e`。
 
 ## 当前版本
 
 **稳定版：`1.4.4-m3a` · versionCode 156**
 
-**源码预览：`1.5.0e-m3` · versionCode 181**
+**源码预览：`1.6.0e-m3` · versionCode 326**
 
 - [GitHub Releases](https://github.com/qwerkilo/SpektraLab-Android/releases)
 - 更新通道：`update.json`（stable）与 `preview.json`（preview）
 - 官网：[spektralab.workshop.skin](https://spektralab.workshop.skin/)
 
-`1.5.0e-m3` 的主要内容：
+`1.6.0e-m3` 的主要内容：
 
-- 同步上游 1.5.0e 原生核心：分带渲染覆盖胶片与冲印，新增 77 MP 片边导出路径
-- 修复导出花屏、片边条带、日期偏移、片门越界与片边中文方块
+- 同步上游 1.6.0e 的原生核心、JNI 与引擎 facade
+- 带入 58/77 MP 渲染、RAW 缓存、崩溃与诊断链修复
 - 保留 M3 控制台：双主题、动态色、视图调整、构图、每帧撤销、画布缩放、Scan inspect
-- 上游的直方图、暗色主题与画布 UI 仍待移植到 M3 控制台
+- 已移植 live preview、批量导入/导出、命名预设、测光、色相校正、直方图与预览色域
+- 上游 58/77 MP 的控制界面仍待移植；原生渲染能力已在
 
 `1.4.4-m3a` 是当前稳定下载，包含 1.4.4 分带渲染、解码白平衡、加性光晕、导出元数据、
 RAW 修复，以及启动器图标修复。
@@ -42,13 +43,16 @@ RAW 修复，以及启动器图标修复。
 | 构图 | 旋转、裁切、翻转，预览与导出共用同一组 geometry 参数 |
 | 扫描检视 | 可拖动扫描线，显示 RGB 与波长估计；不改变 Look |
 | 撤销 | 每帧独立 Look 历史，M3 顶栏「撤销」 |
+| 批量 | 相册/文件管理器多选导入；逐帧导出 JPEG / TIFF / DNG |
+| 预设 | 命名保存、套用、分享 JSON、剪贴板导入 |
+| 检视 | 测光方式、胶片原色、直方图、sRGB / Display P3 预览 |
 
 ## 安装
 
 从 [Releases](https://github.com/qwerkilo/SpektraLab-Android/releases) 下载
 `SpektraLab-1.4.4-m3a-arm64-v8a.apk`，安装到 arm64-v8a 的 Android 设备。
 
-`1.5.0e-m3` 是源码预览，尚未作为 stable 发布；稳定通道仍由 `update.json` 提供 156。
+`1.6.0e-m3` 是源码预览，尚未作为 stable 发布；稳定通道仍由 `update.json` 提供 156。
 
 Android 15 / 16（16 KB 页）请使用 release 中已 `zipalign -P 16` 的包；本地构建见下。
 
@@ -71,13 +75,13 @@ sdk.dir=F:\\android-sdk
 Gradle 需要一份 **donor APK** 提供 `assets/` 与 `arm64-v8a` 原生库。默认读取：
 
 ```text
-app/build/SpektraLab-1.5.0e-qa.apk
+app/build/SpektraLab-1.6.0e-qa.apk
 ```
 
 也可以显式指定：
 
 ```powershell
-.\gradlew.bat assembleDebug -PbaseApk="C:\path\to\SpektraLab-1.5.0e-arm64-v8a.apk"
+.\gradlew.bat assembleDebug -PbaseApk="C:\path\to\SpektraLab-1.6.0e-arm64-v8a.apk"
 ```
 
 `stock_catalog.json` 不从 donor 复制，而是由 `generateStockCatalog` 根据 donor 的
@@ -119,7 +123,7 @@ app/build/outputs/apk/debug/app-debug-16k-signed.apk
 1. JDK 17、Python 3.12、Android SDK 36
 2. `checkstyleGovernance`、`checkJvm`、`lintDebug`
 3. `check-manifest.py`、`check-apk.py`
-4. 下载上游 `v1.5.0e` donor，构建并签名 16 KB APK
+4. 下载上游 `v1.6.0e` donor，构建并签名 16 KB APK
 5. 上传可安装的 `SpektraLab-debug-16k` artifact
 
 CI 使用仓库 secrets 中的 release keystore；fork PR 默认拿不到 secrets。
@@ -193,20 +197,21 @@ python app/build/test-gen-stock-catalog.py
 An unofficial Android port of the SpektraLab film/paper simulation engine (Vulkan backend).
 RAW or JPEG in, physically modelled film + paper out, on the phone.
 
-Stable release: **1.4.4-m3a (156)**. Source preview: **1.5.0e-m3 (181)**.
+Stable release: **1.4.4-m3a (156)**. Source preview: **1.6.0e-m3 (326)**.
 
 The stable build carries upstream 1.4.4 banded rendering, decode white balance,
 additive halation, export metadata, RAW fixes, and the M3 Console (view adjust,
 composition, per-Frame undo, Scan inspect, dynamic colour, phone tabs / wide
-navigation rail). The preview source tracks the upstream 1.5.0e native core:
-banded film and print passes, a 77 MP rebate export path, and export fixes for
-banding, date offset, gate overflow and CJK edge text. Upstream histogram,
-dark-theme and canvas UI changes are not yet ported to the M3 Console.
+navigation rail). The preview source tracks the upstream 1.6.0e native core:
+58/77 MP rendering, a RAW decode cache, and the crash/diagnostics fixes. Live
+preview, batch import/export, named presets, metering, hue correction, histogram
+and the preview gamut are ported to the M3 Console; the upstream 58/77 MP
+controls are the remaining M3 follow-up.
 
 Build with `./gradlew assembleDebug` (requires JDK 17, SDK 36, and a donor
-`app/build/SpektraLab-1.5.0e-qa.apk` or `-PbaseApk=<path>`), then `./gradlew align16k`
+`app/build/SpektraLab-1.6.0e-qa.apk` or `-PbaseApk=<path>`), then `./gradlew align16k`
 for a 16 KB-aligned installable APK. Checks: `./gradlew checkstyleGovernance`,
-`checkJvm`, `lintDebug`, `python app/build/check-manifest.py`,
+`checkJvm`, `testDebugUnitTest`, `lintDebug`, `python app/build/check-manifest.py`,
 `python app/build/check-apk.py <apk>`.
 
 Known limits: no instrumentation suite; `contrast_mask` unsupported on Vulkan;
