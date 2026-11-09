@@ -34,6 +34,7 @@ public final class IconCheck {
         ok("adaptive icon root", xml.contains("<adaptive-icon"));
         ok("adaptive background", xml.contains("@color/ic_launcher_background"));
         ok("adaptive foreground", xml.contains("@mipmap/ic_launcher_foreground"));
+        ok("adaptive monochrome", xml.contains("<monochrome"));
 
         System.out.println("IconCheck: " + checks + " checks passed");
     }

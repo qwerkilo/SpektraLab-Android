@@ -74,6 +74,9 @@ def main():
     if application is not None:
         check("allowBackup=false", attr(application, "allowBackup") == "false",
               str(attr(application, "allowBackup")))
+        check("dataExtractionRules referenced",
+              attr(application, "dataExtractionRules") == "@xml/data_extraction_rules",
+              str(attr(application, "dataExtractionRules")))
         check("usesCleartextTraffic=false",
               attr(application, "usesCleartextTraffic") == "false",
               str(attr(application, "usesCleartextTraffic")))
