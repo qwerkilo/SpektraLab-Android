@@ -50,7 +50,21 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path app\build | Out-Null
-          Invoke-WebRequest -Uri 'https://github.com/SAINTTaiYi/SpektraLab-Android/releases/download/v1.6.0e/SpektraLab-1.6.0e-arm64-v8a.apk' -OutFile app\build\SpektraLab-1.6.0e-qa.apk
+          $url = 'https://github.com/SAINTTaiYi/SpektraLab-Android/releases/download/v1.6.0e/SpektraLab-1.6.0e-arm64-v8a.apk'
+          $out = 'app\build\SpektraLab-1.6.0e-qa.apk'
+          $ok = $false
+          for ($i = 1; $i -le 4 -and -not $ok; $i++) {
+            & curl.exe -fL --retry 3 --retry-all-errors --connect-timeout 20 -o $out $url
+            if ((Test-Path $out) -and (Get-Item $out).Length -gt 10MB) {
+              $ok = $true
+            } else {
+              Write-Host "donor download attempt $i failed; retrying"
+              Start-Sleep -Seconds (5 * $i)
+            }
+          }
+          if (-not $ok) {
+            throw 'donor APK download failed after 4 attempts'
+          }
 
       - name: Checks, lint and tests
         shell: pwsh
