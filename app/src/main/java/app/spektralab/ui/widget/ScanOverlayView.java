@@ -210,7 +210,12 @@ public class ScanOverlayView extends View {
             case android.view.MotionEvent.ACTION_MOVE:
                 return handleMove(event);
             case android.view.MotionEvent.ACTION_UP:
-                return handleUp(event);
+                final boolean tap = !dragging && !holding && !forwarding;
+                final boolean handled = handleUp(event);
+                if (tap) {
+                    performClick();
+                }
+                return handled;
             case android.view.MotionEvent.ACTION_CANCEL:
                 return handleCancel(event);
             default:
@@ -364,6 +369,10 @@ public class ScanOverlayView extends View {
             }
         }
         return super.performAccessibilityAction(action, args);
+    }
+
+    @Override public boolean performClick() {
+        return super.performClick();
     }
 
     @Override protected void onDetachedFromWindow() {

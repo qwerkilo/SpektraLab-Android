@@ -198,7 +198,11 @@ private static int withAlpha(int color, int alpha) {
             case android.view.MotionEvent.ACTION_POINTER_UP:
                 return pinching || super.onTouchEvent(e);
             case android.view.MotionEvent.ACTION_UP:
+                final boolean tap = !dragging && !holding && !pinching;
                 endTouch();
+                if (tap) {
+                    performClick();
+                }
                 return true;
             case android.view.MotionEvent.ACTION_CANCEL:
                 cancelTouch();
@@ -287,5 +291,10 @@ private static int withAlpha(int color, int alpha) {
         holding = false;
         dragging = false;
         invalidate();
+    }
+
+    @Override
+    public boolean performClick() {
+        return super.performClick();
     }
 }
