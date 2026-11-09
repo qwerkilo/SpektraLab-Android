@@ -36,10 +36,10 @@ jobs:
         shell: pwsh
         run: |
           $base = Join-Path $env:RUNNER_TEMP 'SpektraLab-donor.apk'
-          Invoke-WebRequest -Uri 'https://github.com/SAINTTaiYi/SpektraLab-Android/releases/download/v1.5.0e/SpektraLab-1.5.0e-arm64-v8a.apk' -OutFile $base
+          Invoke-WebRequest -Uri 'https://github.com/SAINTTaiYi/SpektraLab-Android/releases/download/v1.6.0e/SpektraLab-1.6.0e-arm64-v8a.apk' -OutFile $base
           Add-Content -Path $env:GITHUB_ENV -Value "BASE_APK=$base" -Encoding utf8
           New-Item -ItemType Directory -Force -Path app\build | Out-Null
-          Copy-Item $base app\build\SpektraLab-1.5.0e-qa.apk -Force
+          Copy-Item $base app\build\SpektraLab-1.6.0e-qa.apk -Force
 
       - name: Checks and lint
         shell: pwsh

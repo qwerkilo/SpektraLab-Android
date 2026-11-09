@@ -5036,6 +5036,22 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
     /** Import, export, and About use the same M3 sheet as the stock pickers. */
     void showActionSheet(String title, String note, String[] items,
                          java.util.function.IntConsumer onPick) {
+        showActionSheet(title, note, items, onPick, null, null);
+    }
+
+    /** The same sheet, with a gesture on its title. */
+    void showActionSheet(String title, String note, String[] items,
+                         java.util.function.IntConsumer onPick, Runnable onTitleLongPress) {
+        showActionSheet(title, note, items, onPick, onTitleLongPress, null);
+    }
+
+    /**
+     * The same sheet with a line that never scrolls away: the update
+     * announcement's download address stays above a long changelog.
+     */
+    void showActionSheet(String title, String note, String[] items,
+                         java.util.function.IntConsumer onPick, Runnable onTitleLongPress,
+                         String pinned) {
         if (items == null || items.length == 0 || isFinishing()) {
             return;
         }
@@ -5043,6 +5059,13 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         final BottomSheetDialog dialog = new BottomSheetDialog(this);
         dialog.setTitle(title);
         final LinearLayout column = sheetColumn(dialog, title);
+
+        if (pinned != null && !pinned.isEmpty()) {
+            final TextView pinView = m3Label(pinned, M3Tokens.TypeRole.BODY_MEDIUM,
+                    m3OnSurface(), tfHan);
+            pinView.setPadding(dp(16), 0, dp(16), dp(8));
+            column.addView(pinView, new LinearLayout.LayoutParams(-1, -2));
+        }
 
         final NestedScrollView scroll = new NestedScrollView(this);
         scroll.setFillViewport(false);

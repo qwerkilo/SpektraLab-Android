@@ -39,6 +39,17 @@ public final class SpkError {
                 || raw.contains("openOutputStream");
     }
 
+    /**
+     * The pixels are finished and on disk; the provider refused its own new
+     * row. That distinction matters: "render failed" sends the user to their
+     * photo library, "the album would not take the file" sends them to a
+     * restart, and the two need different words.
+     */
+    static boolean isAlbumWriteFailure(String raw) {
+        if (raw == null) return false;
+        return raw.contains("相册写入失败") || raw.contains("No item at content://media/");
+    }
+
     static boolean isPermissionFailure(String raw) {
         if (raw == null || isMediaStoreFailure(raw)) return false;
         return raw.contains("SecurityException") || raw.contains("Permission Denial")
@@ -48,6 +59,7 @@ public final class SpkError {
     /** "[E-1001] 中文说明" plus the engine's own text, which carries the numbers. */
     public static String format(String raw) {
         if (raw == null || raw.isEmpty()) return "[E-0000] 未知错误";
+        if (isAlbumWriteFailure(raw)) return "[E-1306] " + ErrorText.GALLERY_WRITE + "（" + raw + "）";
         if (isMediaStoreFailure(raw)) return "[E-1306] " + ErrorText.GALLERY_WRITE + "（" + raw + "）";
         if (isPermissionFailure(raw)) return "[E-1304] " + ErrorText.IMPORT_PERMISSION + "（" + raw + "）";
         int code = codeOf(raw);
