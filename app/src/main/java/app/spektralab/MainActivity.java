@@ -105,7 +105,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean e1001Offered = false;
     /** A render is in flight: one native result buffer, one renderer. */
     private volatile boolean rendering = false;
-    private SpektraLabEngine.Session session;
+    private volatile SpektraLabEngine.Session session;
     private boolean isRawFile = false;
     private String rawFilePath = null;
     /** The caps the current RAW was opened with: an export re-decodes the
@@ -396,6 +396,8 @@ public class MainActivity extends AppCompatActivity {
     }
             private final java.util.List<Frame> frames = new java.util.ArrayList<>();
     private boolean batchImportRunning;
+    private boolean batchExportRunning;
+    private boolean batchExportAbort;
     private LinearLayout sourceBar, sourceRow, thumbStrip;
     /** The folded strip: a short stack of prints in the canvas's lower-left. */
     private View shelfHandle;
@@ -890,6 +892,11 @@ public class MainActivity extends AppCompatActivity {
     /** System Back leaves a secondary page before it leaves the Console. */
     @Override
     public void onBackPressed() {
+        if (batchExportRunning) {
+            batchExportAbort = true;
+            showSnackbar("批量导出会在当前这张结束后停止");
+            return;
+        }
         if (activeTabIndex == 3 && edgePageIndex >= 0) {
             openEdgePage(-1);
             return;
@@ -2548,6 +2555,21 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             return;
         }
         if (index == currentFrame && session != null) {
+            return;
+        }
+        final Frame frame = frames.get(index);
+        saveLookIntoFrames();
+        saveScanStateIntoFrame();
+        currentFrame = index;
+        reopeningFrame = true;
+        suppressBudgetDialog = true;
+        rebuildFrameChips();
+        loadImage(frame.uri());
+    }
+
+    /** Reopen even the frame already on screen; a batch export needs its own session. */
+    private void reopenFrameForced(int index) {
+        if (index < 0 || index >= frames.size()) {
             return;
         }
         final Frame frame = frames.get(index);
@@ -5961,7 +5983,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
     private void showImportMenu() {
         showActionSheet("导入照片", "从相册或文件管理器选择", new String[]{
                 "从相册选择（照片）",
-                "从文件管理器选择（RAW / HEIC / 任意文件）"
+                "从文件管理器选择（RAW / HEIC / 任意文件）",
         }, which -> {
             // A deliberate pick is a *new* photograph, not a chip coming back.
             // Cleared here so a chip whose file disappeared cannot leave the
@@ -6056,12 +6078,28 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                 "TIFF 16 位 · 实时画质",
                 "TIFF 16 位 · 预览画质 · 长边 3400",
                 "TIFF 16 位 · 全尺寸（原图）",
-                "DNG · 全尺寸（电脑用 · 手机版打不开）"
+                "DNG · 全尺寸（电脑用 · 手机版打不开）",
+                "批量导出全部帧…"
         }, which -> {
+            if (which == 7) { showBatchExportDialog(); return; }
             if (which == 6) { exportImage("dng", "full"); return; }
             exportImage(which >= 3 ? "tiff" : "jpeg",
                         which % 3 == 0 ? "live" : which % 3 == 1 ? "preview" : "full");
         });
+    }
+
+    /** Pick a format for the whole strip; each Frame reopens before its export. */
+    private void showBatchExportDialog() {
+        showActionSheet("批量导出全部帧",
+                "逐帧重开并导出；没有胶片的帧会跳过",
+                new String[]{"JPEG · 实时画质", "JPEG · 全尺寸",
+                        "TIFF 16 位 · 全尺寸", "DNG · 全尺寸"},
+                which -> {
+                    if (which == 0) { startBatchExport("jpeg", "live"); }
+                    else if (which == 1) { startBatchExport("jpeg", "full"); }
+                    else if (which == 2) { startBatchExport("tiff", "full"); }
+                    else if (which == 3) { startBatchExport("dng", "full"); }
+                });
     }
 
     /** Reset from the old single control strip: delegate to the film page. */
@@ -8283,6 +8321,10 @@ refreshEdgeFormats();
     }
 
     private void exportImage(String format, String tier) {
+        exportImage(format, tier, null);
+    }
+
+    private void exportImage(String format, String tier, java.util.function.IntConsumer onDone) {
         final boolean tiff = "tiff".equals(format);
         final boolean dng = "dng".equals(format);
         final String ext = dng ? ".dng" : tiff ? ".tif" : ".jpg";
@@ -8292,10 +8334,16 @@ refreshEdgeFormats();
         }
         if (engine == null || session == null) {
             showSnackbar("请先导入照片");
+            if (onDone != null) {
+                onDone.accept(0);
+            }
             return;
         }
         if (live().filmStock == null) {
             showSnackbar("先选一张胶片，再导出");
+            if (onDone != null) {
+                onDone.accept(0);
+            }
             return;
         }
         // The export states the Look it was started with, not whatever the
@@ -8310,7 +8358,121 @@ refreshEdgeFormats();
         // A bitmap export renders from the preview session; a RAW export opens
         // its own below. The render lock keeps a stock change out of either.
         startExportThread(format, tier, tiff, dng, ext, mime, exportStock,
-                exportParams, exportViewAdjust, rawExportPath);
+                exportParams, exportViewAdjust, rawExportPath, onDone);
+    }
+
+    /** Export every Frame, one at a time, each through the normal reopen path. */
+    private void startBatchExport(String format, String tier) {
+        if (batchExportRunning) {
+            showSnackbar("批量导出已经在跑");
+            return;
+        }
+        if (frames.size() < 2) {
+            showSnackbar("只有一张照片，不需要批量");
+            return;
+        }
+        saveLookIntoFrames();
+        final java.util.List<Frame> batch = new java.util.ArrayList<>(frames);
+        final int home = currentFrame;
+        batchExportRunning = true;
+        batchExportAbort = false;
+        new Thread(() -> runBatchExport(batch, home, format, tier),
+                "batch-export").start();
+    }
+
+    private void runBatchExport(java.util.List<Frame> batch, int home,
+                                String format, String tier) {
+        int ok = 0;
+        int failed = 0;
+        try {
+            for (int i = 0; i < batch.size() && !batchExportAbort; ++i) {
+                final Frame frame = batch.get(i);
+                if (frame.session() == null || frame.session().look().filmStock == null) {
+                    ++failed;
+                    continue;
+                }
+                final int index = i;
+                final String label = "批量导出 " + (i + 1) + "/" + batch.size();
+                runOnUiThread(() -> {
+                    statusText.setText(label);
+                    cancelLivePreview();
+                    closeSessionForBatch();
+                    reopenFrameForced(index);
+                });
+                if (!pollUntil(() -> session != null && !rendering, 180000)) {
+                    ++failed;
+                    continue;
+                }
+                final java.util.concurrent.CountDownLatch done =
+                        new java.util.concurrent.CountDownLatch(1);
+                final java.util.concurrent.atomic.AtomicBoolean exported =
+                        new java.util.concurrent.atomic.AtomicBoolean(false);
+                runOnUiThread(() -> exportImage(format, tier, success -> {
+                    if (success == 1) {
+                        exported.set(true);
+                    }
+                    done.countDown();
+                }));
+                if (!done.await(20, java.util.concurrent.TimeUnit.MINUTES) || !exported.get()) {
+                    ++failed;
+                } else {
+                    ++ok;
+                }
+                runOnUiThread(this::closeSessionForBatch);
+                try {
+                    if (engine != null) {
+                        engine.trimPool();
+                    }
+                } catch (Throwable ignored) { }
+                try { SpektraLabEngine.clearRawCache(); } catch (Throwable ignored) { }
+                System.gc();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            final int okCount = ok;
+            final int failedCount = failed;
+            runOnUiThread(() -> finishBatchExport(home, okCount, failedCount));
+        }
+    }
+
+    private void closeSessionForBatch() {
+        synchronized (renderMutex) {
+            if (session != null) {
+                session.close();
+                session = null;
+            }
+        }
+    }
+
+    private void finishBatchExport(int home, int ok, int failed) {
+        batchExportRunning = false;
+        if (exportProgressBar != null) {
+            exportProgressBar.setVisibility(View.GONE);
+        }
+        final String msg = "批量导出完成：" + ok + " 张成功"
+                + (failed > 0 ? "，" + failed + " 张跳过或失败" : "");
+        statusText.setText(msg);
+        showSnackbar(msg);
+        if (home >= 0 && home < frames.size()) {
+            reopenFrame(home);
+        }
+    }
+
+    private boolean pollUntil(java.util.function.BooleanSupplier condition, long timeoutMs) {
+        final long end = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < end) {
+            if (condition.getAsBoolean()) {
+                return true;
+            }
+            try {
+                Thread.sleep(250);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
     }
 
 
@@ -8387,7 +8549,7 @@ refreshEdgeFormats();
     /** Write the rendered file to the gallery and publish the result. */
     private void finishExport(java.io.File tmp, int[] info, String canvas, long t0,
                                   String format, String tier, String ext, String mime,
-                                  boolean tiff, boolean dng) throws Exception {
+                                  boolean tiff, boolean dng, java.util.function.IntConsumer onDone) throws Exception {
         uploadExportProgress(tmp);
         uploadVkLog();
         int w = info[0], h = info[1];
@@ -8421,15 +8583,20 @@ refreshEdgeFormats();
         final long bytes = tmp.exists() ? tmp.length() : 0;
         final String sizeLabel = bytes > 0
                 ? String.format("%.1f MB", bytes / 1048576.0) : "?";
-        runOnUiThread(() -> applyExportResult(outUri, mime, canvas, fw, fh,
-                fRender, secs, sizeLabel, tiff, dng));
+        runOnUiThread(() -> {
+            applyExportResult(outUri, mime, canvas, fw, fh,
+                    fRender, secs, sizeLabel, tiff, dng);
+            if (onDone != null) {
+                onDone.accept(1);
+            }
+        });
         }
 
     /** Render one export, write it to the gallery and report on the UI thread. */
         private void startExportThread(String format, String tier, boolean tiff, boolean dng,
                                   String ext, String mime, String exportStock,
                                   String exportParams, double[] exportViewAdjust,
-                                  String rawExportPath) {
+                                  String rawExportPath, java.util.function.IntConsumer onDone) {
         new Thread(() -> {
             java.io.File tmp = new java.io.File(getCacheDir(), "export_" + System.currentTimeMillis() + ext);
             try {
@@ -8472,13 +8639,19 @@ refreshEdgeFormats();
                 } finally {
                     spinning.set(false);
                 }
-                finishExport(tmp, info, canvas, t0, format, tier, ext, mime, tiff, dng);
+                finishExport(tmp, info, canvas, t0, format, tier, ext, mime, tiff, dng,
+                        onDone);
             } catch (Throwable e) {
                 final String msg = describe(e);
                 try { DebugSink.text("export-error", "tier=" + tier + " " + msg); } catch (Throwable ignored) {}
                 uploadExportProgress(tmp);
                 uploadVkLog();
-                runOnUiThread(() -> applyExportFailure(msg));
+                runOnUiThread(() -> {
+                    applyExportFailure(msg);
+                    if (onDone != null) {
+                        onDone.accept(0);
+                    }
+                });
                 final int code = SpkError.codeOf(msg);
                 if (code == 1001 || code == 1009) {
                     offerSmallerImport();

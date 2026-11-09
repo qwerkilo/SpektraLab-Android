@@ -9,6 +9,7 @@ Android version, and Theme mode.
 - [ ] Install fresh (`adb install` after `pm clear app.spektralab`) and open the app. No storage permission dialog appears; the picker still opens.
 - [ ] On Android 13+, import a JPEG and a RAW from the system picker. No `READ_EXTERNAL_STORAGE` grant is requested.
 - [ ] Multi-select three images from the picker: three chips appear, the first new chip opens, and opening the other two decodes them normally.
+- [ ] With three Frames loaded and a film on each, export all: three files appear, the canvas returns to the starting Frame, and Back stops after the current file.
 - [ ] From a file manager, "open with" offers no SpektraLab image entry (the dead `VIEW` filter is gone); use the in-app picker.
 - [ ] `adb shell dumpsys package app.spektralab` shows only `READ_EXTERNAL_STORAGE` (maxSdk 32) and `INTERNET`.
 - [ ] `adb shell cmd netpolicy` is not needed; the app only reaches HTTPS endpoints and the loopback debug sink.

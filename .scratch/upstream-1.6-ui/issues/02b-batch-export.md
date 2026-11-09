@@ -1,6 +1,6 @@
 # 02b — Batch export
 
-Status: `pending`
+Status: `implemented` (device pass pending)
 Blocked by: 02 (batch import), 01 (live preview).
 
 ## Scope
@@ -11,6 +11,16 @@ Blocked by: 02 (batch import), 01 (live preview).
   trim the pool between files.
 - Cancelable progress; failures count and continue.
 - Restore the Frame the batch started on.
+
+## Implementation
+
+- `exportImage(format, tier, IntConsumer)` reports success or failure after the
+  gallery result reaches the UI; the old two-argument form delegates with a
+  null callback.
+- `reopenFrameForced` bypasses the same-frame shortcut.
+- `startBatchExport` snapshots the Frame list, skips Frames with no film, and
+  restores the starting Frame in `finishBatchExport`.
+- `Back` sets `batchExportAbort`, which stops after the current file.
 
 ## Acceptance
 
