@@ -1078,12 +1078,6 @@ histogram.setVisibility(histogramOn ? View.VISIBLE : View.GONE);
 if (histogramOn && lastRenderedBitmap != null) {
     histogram.setBitmap(lastRenderedBitmap);
 }
-final android.widget.FrameLayout.LayoutParams histogramLp =
-        new android.widget.FrameLayout.LayoutParams(dp(132), dp(64));
-histogramLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
-histogramLp.topMargin = dp(8);
-histogramLp.rightMargin = dp(8);
-stage.addView(histogram, histogramLp);
 
         return stage;
     }
@@ -1894,6 +1888,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         evLp.bottomMargin = dp(3);
         exposureRow.addView(ev, evLp);
         exposure.addView(exposureRow);
+        // The histogram lives inside the exposure block so it can never draw
+        // over the EV value, at any font scale.
+        final LinearLayout.LayoutParams histogramLp =
+                new LinearLayout.LayoutParams(dp(132), dp(64));
+        histogramLp.topMargin = dp(6);
+        histogramLp.gravity = android.view.Gravity.END;
+        exposure.addView(histogram, histogramLp);
         android.widget.FrameLayout.LayoutParams exposureLp = new android.widget.FrameLayout.LayoutParams(
                 -2, -2, android.view.Gravity.TOP | android.view.Gravity.END);
         exposureLp.rightMargin = dp(34);
