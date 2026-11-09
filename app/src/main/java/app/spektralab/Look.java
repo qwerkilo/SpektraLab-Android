@@ -61,6 +61,8 @@ public final class Look {
     /** Choices: lens filter, the norm, and the rebate/date layout. */
     String cameraFilter = "";
     String sceneNorm = "power";
+    /** Engine metering choice; empty means off. */
+    String meterMethod = "";
     String edgeMode = "strip", edgeGate = "auto", edgeHoles = "white", edgeCarrier = "none";
     String datePlacement = "frame", dateCorner = "br", dateStyle = "lcd";
     /** mm from the gate's edge to the text, frame placement only. */
@@ -149,6 +151,7 @@ public final class Look {
         maxLift = c.maxLift;
         cameraFilter = c.cameraFilter;
         sceneNorm = c.sceneNorm;
+        meterMethod = c.meterMethod;
         edgeMode = c.edgeMode;
         edgeGate = c.edgeGate;
         edgeHoles = c.edgeHoles;
@@ -192,6 +195,7 @@ public final class Look {
             }
             o.put("cfilter", cameraFilter == null ? "" : cameraFilter);
             o.put("snorm", sceneNorm == null ? "power" : sceneNorm);
+            o.put("mtr", app.spektralab.core.Metering.sanitize(meterMethod));
             o.put("emode", edgeMode == null ? "strip" : edgeMode);
             o.put("egate", edgeGate == null ? "auto" : edgeGate);
             o.put("eholes", edgeHoles == null ? "white" : edgeHoles);
@@ -243,6 +247,7 @@ public final class Look {
         }
         l.cameraFilter = o.optString("cfilter", "");
         l.sceneNorm = o.optString("snorm", "power");
+        l.meterMethod = app.spektralab.core.Metering.sanitize(o.optString("mtr", ""));
         l.edgeMode = o.optString("emode", "strip");
         l.edgeGate = o.optString("egate", "auto");
         l.edgeHoles = o.optString("eholes", "white");

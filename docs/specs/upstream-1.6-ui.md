@@ -48,9 +48,10 @@ form until art exists.
 
 ### Phase 4 — colour, metering, histogram
 
-Seven metering modes, hue-correction wiring, a histogram overlay toggle on the
-readout strip, and the preview gamut choice. These are display/parameter
-changes; export must use the same values as preview.
+Seven metering modes are implemented: the choice lives in the Frame's Look and
+is written as `auto_exposure` / `auto_exposure_method`. Hue-correction wiring,
+a histogram overlay toggle on the readout strip, and the preview gamut choice
+are `04b`; they need their own display and engine contracts.
 
 ## Test seams
 

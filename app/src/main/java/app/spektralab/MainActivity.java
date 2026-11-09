@@ -26,6 +26,7 @@ import app.spektralab.engine.SpektraLabEngine;
 import app.spektralab.core.FilmBrand;
 import app.spektralab.core.ImageFormat;
 import app.spektralab.core.LivePreviewGate;
+import app.spektralab.core.Metering;
 import app.spektralab.core.SafeFileName;
 import app.spektralab.core.PrintTarget;
 import app.spektralab.core.ScanSample;
@@ -2435,6 +2436,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             return false;
         }
         final Frame frame = new Frame(uri, ImageFormat.isRaw(lower), name, defaultLook());
+        frame.session().look().meterMethod =
+                ImageFormat.isRaw(lower) ? "protect_highlights" : "";
         if (thumb != null) {
             frame.setThumb(thumb);
         }
@@ -4037,6 +4040,26 @@ card.setOnClickListener(v -> {
                 });
     }
 
+    /** Metering is a Look value: applying it re-states the same JSON as a render. */
+    private void showMeterPicker() {
+        final java.util.List<String> labels = java.util.Arrays.asList(Metering.NAMES);
+        final int selected = Metering.indexOf(live().meterMethod);
+        showChoiceSheet("测光 / METER",
+                "关闭时由胶片自己的曝光决定；JPEG 默认关闭，RAW 默认保护高光",
+                labels, selected, picked -> {
+                    if (picked < 0 || picked >= Metering.IDS.length) {
+                        return;
+                    }
+                    if (currentSession != null) {
+                        currentSession.edit(look -> look.meterMethod = Metering.IDS[picked]);
+                        optics = currentSession.look();
+                    } else {
+                        optics.meterMethod = Metering.IDS[picked];
+                    }
+                    renderImage();
+                });
+    }
+
     private void showProtectionNormPicker() {
         if (!opticsUnlocked) {
             showSnackbar(opticsLockReason());
@@ -4113,6 +4136,10 @@ card.setOnClickListener(v -> {
                 mixedText("视图"), "打开视图调整：白平衡、亮度、颜色、分级");
         viewAction.setOnClickListener(v -> showViewAdjustSheet());
         head.addView(viewAction, new LinearLayout.LayoutParams(-2, dp(48)));
+        final MaterialButton meterAction = actionButton(
+                mixedText("测光"), "选择相机测光方式");
+        meterAction.setOnClickListener(v -> showMeterPicker());
+        head.addView(meterAction, new LinearLayout.LayoutParams(-2, dp(48)));
         return head;
     }
 
@@ -6927,12 +6954,12 @@ refreshEdgeFormats();
             String fileName = getFileName(uri);
             final String lower = fileName == null ? "" : fileName.toLowerCase(java.util.Locale.US);
             isRawFile = ImageFormat.isRaw(lower);
+            if (!reopening) { live().meterMethod = isRawFile ? "protect_highlights" : ""; }
             final String unsupported = ImageFormat.unsupportedRawExtension(lower);
             if (unsupported != null) {
                 showSnackbar("[E-1107] 暂不支持 " + unsupported + " 格式");
                 return;
             }
-
             if (isRawFile) {
                 loadRawImage(uri);
                 return;

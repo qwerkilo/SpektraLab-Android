@@ -64,10 +64,12 @@ public final class LookRestatement {
         final boolean monochrome = isMonochromeStock(look.filmStock);
         final float highlight = look.get(OpticsDelta.Param.HIGHLIGHT_ROOM);
         final float shadow = look.get(OpticsDelta.Param.SHADOW_ROOM);
+        final String meter = app.spektralab.core.Metering.sanitize(look.meterMethod);
 
         return String.format(Locale.US,
             "{\"film_stock\":\"%s\",\"print_stock\":\"%s\",\"scan_film\":%s,"
             + "\"input_color_space\":\"%s\",\"input_cctf_decoding\":%s,\"auto_exposure\":%s,"
+            + "\"auto_exposure_method\":\"%s\","
             + "\"output_color_space\":\"sRGB\",\"preview_long_edge\":%d,"
             + "\"print_exposure\":%.2f,\"grain_amount\":%.3f,\"grain_sublayers_active\":%s,"
             + "\"halation_amount\":%.3f,\"halation_boost_ev\":%.2f,"
@@ -104,7 +106,8 @@ public final class LookRestatement {
             context.positiveFilm ? "true" : "false",
             context.raw ? "ProPhoto RGB" : "sRGB",
             context.raw ? "false" : "true",
-            context.raw ? "true" : "false",
+            (!meter.isEmpty() || context.raw) ? "true" : "false",
+            escape(meter.isEmpty() ? "balanced" : meter),
             context.longEdge,
             look.printExposure, grainAmount(look),
             monochrome ? "false" : "true",

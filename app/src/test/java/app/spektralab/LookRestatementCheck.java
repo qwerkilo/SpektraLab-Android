@@ -167,6 +167,7 @@ public final class LookRestatementCheck {
         eq("ProPhoto RGB", raw.optString("input_color_space"));
         eq("false", raw.optString("input_cctf_decoding"));
         eq("true", raw.optString("auto_exposure"));
+        eq("balanced", raw.optString("auto_exposure_method"));
         eq("false", raw.optString("scan_film"));
 
         final org.json.JSONObject jpeg = parse(LookRestatement.json(
@@ -175,6 +176,12 @@ public final class LookRestatementCheck {
         eq("true", jpeg.optString("input_cctf_decoding"));
         eq("false", jpeg.optString("auto_exposure"));
         eq("1024", jpeg.optString("preview_long_edge"));
+
+        look.meterMethod = "protect_highlights";
+        final org.json.JSONObject meteredJpeg = parse(LookRestatement.json(
+                look, new LookRestatement.Context(false, 1024, false, "EDGE", "")));
+        eq("true", meteredJpeg.optString("auto_exposure"));
+        eq("protect_highlights", meteredJpeg.optString("auto_exposure_method"));
 
         final org.json.JSONObject slide = parse(LookRestatement.json(
                 look, new LookRestatement.Context(false, 2048, true, "EDGE", "")));
