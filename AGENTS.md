@@ -48,7 +48,7 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 
 Prefer Material Components over framework widgets for every control and chrome surface: `MaterialToolbar` + `AppBarLayout`, `TabLayout`, `NavigationRailView` / `NavigationBarView`, `MaterialButton`, `MaterialCardView`, `Chip` / `ChipGroup`, `Slider`, `MaterialSwitch`, `MaterialRadioButton`, `MaterialAlertDialogBuilder`, `BottomSheetDialog`, `Snackbar`, and `TextInputLayout` / `TextInputEditText`. Style text through `m3Label` / `mixedM3Label` / `applyTypeRole`, and colours through `m3Role` / `m3Primary` / `Palette.Role`; never hardcode a colour or text size.
 
-- A raw `TextView` is only a typographic surface. The two raw `EditText`s in `askText` / `askSeed` are debt: convert them to `TextInputLayout` when touched, and do not add another.
+- A raw `TextView` is only a typographic surface. Free-text dialogs use `TextInputLayout` + `TextInputEditText`; do not add a framework `EditText`.
 - Custom Views in `ui/widget` are only for canvas or data visuals with no M3 equivalent (`CompareView`, `ScanOverlayView`, `SpectrumCurveView`, `HistogramView`, `SpectralRail`, decorative glyphs). A new interactive control needs an M3 component first, a 48 dp touch target, and a TalkBack role/state description.
 - Every screen must work in both themes, with dynamic colour, at 390 dp and at the ≥600 dp rail; M3 defaults must not be overridden with fixed colours.
 
