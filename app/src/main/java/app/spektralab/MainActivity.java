@@ -395,6 +395,7 @@ public class MainActivity extends AppCompatActivity {
         return bestId;
     }
             private final java.util.List<Frame> frames = new java.util.ArrayList<>();
+    private boolean batchImportRunning;
     private LinearLayout sourceBar, sourceRow, thumbStrip;
     /** The folded strip: a short stack of prints in the canvas's lower-left. */
     private View shelfHandle;
@@ -2356,6 +2357,92 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         currentFrame = frames.size() - 1;
         attachSession(frame.session());
         rebuildFrameChips();
+    }
+
+    /** File a batch selection as Frames, then open the first one. */
+    private void startBatchImport(final java.util.List<Uri> uris) {
+        if (batchImportRunning) {
+            showSnackbar("批量导入已经在跑");
+            return;
+        }
+        if (uris == null || uris.isEmpty()) {
+            return;
+        }
+        if (uris.size() == 1) {
+            loadImage(uris.get(0));
+            return;
+        }
+        batchImportRunning = true;
+        final int total = uris.size();
+        statusText.setText("正在加入 " + total + " 张照片…");
+        new Thread(() -> {
+            final Bitmap[] thumbs = new Bitmap[total];
+            try {
+                for (int i = 0; i < total; ++i) {
+                    thumbs[i] = systemThumb(uris.get(i));
+                }
+            } catch (Throwable t) {
+                runOnUiThread(() -> {
+                    batchImportRunning = false;
+                    showSnackbar("批量导入失败：" + describe(t));
+                });
+                return;
+            }
+            runOnUiThread(() -> finishBatchImport(uris, thumbs));
+        }, "batch-import").start();
+    }
+
+    /** Add the prepared selection on the UI thread; no decode happens here. */
+    private void finishBatchImport(java.util.List<Uri> uris, Bitmap[] thumbs) {
+        int added = 0;
+        int failed = 0;
+        for (int i = 0; i < uris.size(); ++i) {
+            if (addFrameOnly(uris.get(i), thumbs[i])) {
+                ++added;
+            } else {
+                ++failed;
+            }
+        }
+        batchImportRunning = false;
+        final String msg = "已加入 " + added + " 张"
+                + (failed > 0 ? "，跳过 " + failed + " 张" : "");
+        statusText.setText(msg);
+        showSnackbar(msg);
+        rebuildFrameChips();
+        if (added > 0 && currentFrame < 0 && !frames.isEmpty()) {
+            reopenFrame(frames.size() - added);
+        }
+    }
+
+    /** Register one URI without decoding it; opening the chip does the decode. */
+    private boolean addFrameOnly(Uri uri, Bitmap thumb) {
+        if (uri == null) {
+            return false;
+        }
+        final String name = getFileName(uri);
+        final String lower = name == null ? "" : name.toLowerCase(java.util.Locale.US);
+        if (ImageFormat.unsupportedRawExtension(lower) != null) {
+            return false;
+        }
+        final Frame frame = new Frame(uri, ImageFormat.isRaw(lower), name, defaultLook());
+        if (thumb != null) {
+            frame.setThumb(thumb);
+        }
+        frames.add(frame);
+        return true;
+    }
+
+    /** A small system thumbnail, when the provider can make one. */
+    private Bitmap systemThumb(Uri uri) {
+        if (android.os.Build.VERSION.SDK_INT < 29) {
+            return null;
+        }
+        try {
+            return getContentResolver().loadThumbnail(uri,
+                    new android.util.Size(96, 96), null);
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     /** One chip per opened frame, newest at the right, the open one ringed. */
@@ -6336,9 +6423,11 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             chain.add(new Intent(android.provider.MediaStore.ACTION_PICK_IMAGES));
         }
         chain.add(new Intent(Intent.ACTION_GET_CONTENT)
-                .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"));
+                .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
+                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true));
         chain.add(new Intent(Intent.ACTION_OPEN_DOCUMENT)
-                .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"));
+                .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
+                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true));
         if (!launchFirstResolvable(chain, 1)) {
             showSnackbar("本机没有可用的图片选择器；请点「导入」→「从文件管理器选择」");
         }
@@ -6400,11 +6489,13 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         documents.addCategory(Intent.CATEGORY_OPENABLE);
         documents.setType("*/*");
         documents.putExtra(Intent.EXTRA_MIME_TYPES, types);
+        documents.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         chain.add(documents);
         Intent content = new Intent(Intent.ACTION_GET_CONTENT);
         content.addCategory(Intent.CATEGORY_OPENABLE);
         content.setType("*/*");
         content.putExtra(Intent.EXTRA_MIME_TYPES, types);
+        content.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         chain.add(content);
         if (!launchFirstResolvable(chain, 1)) {
             showSnackbar("本机没有可用的文件选择器");
@@ -6420,17 +6511,34 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         if (resultCode != RESULT_OK) {
             return;  // the user cancelled
         }
-        // RESULT_OK with no URI happens on ROMs whose picker cannot hand back a
-        // stream for the item (a cloud-only photo, a broken provider). Doing
-        // nothing there is what "下载后没法导入" looks like from the outside: the
-        // tap simply has no effect and nothing is said.
-        Uri uri = data == null ? null : data.getData();
-        if (uri == null) {
+        // The picker can return several items in a ClipData; the single-URI
+        // field stays for pickers that only hand back one.
+        final java.util.List<Uri> picked = new java.util.ArrayList<>();
+        if (data != null) {
+            final android.content.ClipData clip = data.getClipData();
+            if (clip != null) {
+                for (int i = 0; i < clip.getItemCount(); ++i) {
+                    final Uri item = clip.getItemAt(i).getUri();
+                    if (item != null && !picked.contains(item)) {
+                        picked.add(item);
+                    }
+                }
+            }
+            final Uri single = data.getData();
+            if (single != null && !picked.contains(single)) {
+                picked.add(single);
+            }
+        }
+        if (picked.isEmpty()) {
             try { DebugSink.text("picker", "RESULT_OK with no data"); } catch (Throwable ignored) { }
             showSnackbar("没有拿到图片（选择器返回空）。请点「导入」→「从文件管理器选择」再试一次");
             return;
         }
-        loadImage(uri);
+        if (picked.size() > 1) {
+            startBatchImport(picked);
+        } else {
+            loadImage(picked.get(0));
+        }
     }
 
     /** Reset the live Look session and Scan state before decoding an import. */

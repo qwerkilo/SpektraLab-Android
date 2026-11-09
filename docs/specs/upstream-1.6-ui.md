@@ -31,9 +31,10 @@ Seam: `app.spektralab.core.LivePreviewGate` (pure JVM) plus
 
 ### Phase 2 — batch import and export
 
-Multi-select import appends Frames; batch export runs the existing
-`RenderSnapshot`/export path sequentially with one cancelable progress sheet.
-No new engine entry points.
+Multi-select import registers each URI as a Frame without decoding it; opening
+a chip uses the normal import path. Batch export is `02b`: it reopens each
+Frame and runs the existing `RenderSnapshot`/export path sequentially with one
+cancelable progress sheet. No new engine entry points.
 
 ### Phase 3 — presets and film cards
 
