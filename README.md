@@ -121,11 +121,12 @@ app/build/outputs/apk/debug/app-debug-16k-signed.apk
 `.github/workflows/android.yml` 在 `windows-latest` 上运行：
 
 1. JDK 17、Python 3.12、Android SDK 36
-2. `checkstyleGovernance`、`checkJvm`、`lintDebug`
+2. `checkstyleGovernance`、`checkJvm`、`lintDebug`、`testDebugUnitTest`
 3. `check-manifest.py`、`check-apk.py`
 4. 下载上游 `v1.6.0e` donor，构建并签名 16 KB APK
 5. 上传可安装的 `SpektraLab-debug-16k` artifact
 
+CI 只在 PR 和手动触发时运行；`master` 保护要求 PR 的 `build` check，合并后不再重复跑整套。Gradle 与 donor APK 有缓存，同一 PR 的新提交会取消旧运行；需要额外验证 `master` 时用 `workflow_dispatch`。
 CI 使用仓库 secrets 中的 release keystore；fork PR 默认拿不到 secrets。
 
 ### 旧 Termux 路径

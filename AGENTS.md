@@ -31,6 +31,7 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `testDebugUnitTest` runs the JUnit 4 + Robolectric tests in `src/test/java` (currently `PanelRowsTest`, SDK 35). AGP's unit-test compiler excludes `*Check.java`; those desktop-style programs stay on `checkJvm`.
 - `checkstyleGovernance` enforces the Alibaba-style subset on `core/**`, `model/**`, `ui/**` and `MainActivity`. Do not exclude a file to make a change pass; move code to its owning package.
 - `check-manifest.py` and `check-apk.py` pin target SDK, permissions, exports, cleartext and backup.
+- CI runs on PR and `workflow_dispatch` only. `master` is protected by the PR `build` check, so a merge does not re-run the whole suite; dispatch manually to verify `master`. Gradle and the donor APK are cached, and a newer push to the same PR cancels the older run.
 - Device checks: install, then watch logcat tags `SpektraLabJNI` and `SpektraLabRAW`. `DebugSink` posts diagnostics to `127.0.0.1:8770`; driver telemetry goes to `report.workshop.skin`. Manual matrix: `docs/testing/manual-device-checklist.md`.
 
 ## Code map

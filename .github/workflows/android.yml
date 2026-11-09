@@ -1,10 +1,15 @@
 name: Android checks and APK
 
 on:
-  push:
-    branches: [master]
+  # master is protected: every change is tested on its PR. Removing the master
+  # push trigger avoids a second full run after every merge; dispatch manually
+  # when a post-merge verification is genuinely needed.
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -21,6 +26,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Python 3.12
         uses: actions/setup-python@v6
@@ -32,26 +38,26 @@ jobs:
         with:
           packages: 'platforms;android-36 build-tools;36.0.0'
 
+      - name: Cache donor APK
+        id: donor
+        uses: actions/cache@v4
+        with:
+          path: app/build/SpektraLab-1.6.0e-qa.apk
+          key: donor-SpektraLab-1.6.0e
+
       - name: Fetch the donor APK
+        if: steps.donor.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          $base = Join-Path $env:RUNNER_TEMP 'SpektraLab-donor.apk'
-          Invoke-WebRequest -Uri 'https://github.com/SAINTTaiYi/SpektraLab-Android/releases/download/v1.6.0e/SpektraLab-1.6.0e-arm64-v8a.apk' -OutFile $base
-          Add-Content -Path $env:GITHUB_ENV -Value "BASE_APK=$base" -Encoding utf8
           New-Item -ItemType Directory -Force -Path app\build | Out-Null
-          Copy-Item $base app\build\SpektraLab-1.6.0e-qa.apk -Force
+          Invoke-WebRequest -Uri 'https://github.com/SAINTTaiYi/SpektraLab-Android/releases/download/v1.6.0e/SpektraLab-1.6.0e-arm64-v8a.apk' -OutFile app\build\SpektraLab-1.6.0e-qa.apk
 
-      - name: Checks and lint
+      - name: Checks, lint and tests
         shell: pwsh
         run: |
           python app/build/check-manifest.py
           python app/build/test-gen-stock-catalog.py
-          .\gradlew.bat checkstyleGovernance checkJvm lintDebug --no-daemon
-
-      - name: JUnit and Robolectric
-        shell: pwsh
-        run: |
-          .\gradlew.bat testDebugUnitTest "-PbaseApk=$env:BASE_APK" --no-daemon
+          .\gradlew.bat checkstyleGovernance checkJvm lintDebug testDebugUnitTest --no-daemon
 
       - name: Release or CI signing key
         shell: pwsh
@@ -83,7 +89,7 @@ jobs:
       - name: Assemble and gate the 16 KB APK
         shell: pwsh
         run: |
-          .\gradlew.bat align16k "-PbaseApk=$env:BASE_APK" --no-daemon
+          .\gradlew.bat align16k --no-daemon
 
       - name: Verify the APK signature
         shell: pwsh
