@@ -6029,8 +6029,8 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             if (sourceUri != null) {
                 try (InputStream in = getContentResolver().openInputStream(sourceUri)) {
                     if (in != null) {
-                        exif = new android.media.ExifInterface(in)
-                                .getAttribute(android.media.ExifInterface.TAG_DATETIME_ORIGINAL);
+                        exif = new androidx.exifinterface.media.ExifInterface(in)
+                                .getAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME_ORIGINAL);
                     }
                 }
             }
@@ -7775,9 +7775,9 @@ refreshEdgeFormats();
     private int orientationOfPath(String path) {
         int fromPlatform = -1;
         try {
-            fromPlatform = new android.media.ExifInterface(path).getAttributeInt(
-                    android.media.ExifInterface.TAG_ORIENTATION,
-                    android.media.ExifInterface.ORIENTATION_NORMAL);
+            fromPlatform = new androidx.exifinterface.media.ExifInterface(path).getAttributeInt(
+                    androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
+                    androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL);
         } catch (Throwable t) {
             try { DebugSink.text("exif", "path: " + t); } catch (Throwable ignored) { }
         }
@@ -7859,16 +7859,16 @@ refreshEdgeFormats();
     private int readOrientation(Uri uri) {
         try (InputStream in = getContentResolver().openInputStream(uri)) {
             if (in != null) {
-                return new android.media.ExifInterface(in).getAttributeInt(
-                        android.media.ExifInterface.TAG_ORIENTATION,
-                        android.media.ExifInterface.ORIENTATION_NORMAL);
+                return new androidx.exifinterface.media.ExifInterface(in).getAttributeInt(
+                        androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
+                        androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL);
             }
         } catch (Throwable ignored) { }
         try (android.os.ParcelFileDescriptor fd = getContentResolver().openFileDescriptor(uri, "r")) {
             if (fd != null) {
-                return new android.media.ExifInterface(fd.getFileDescriptor()).getAttributeInt(
-                        android.media.ExifInterface.TAG_ORIENTATION,
-                        android.media.ExifInterface.ORIENTATION_NORMAL);
+                return new androidx.exifinterface.media.ExifInterface(fd.getFileDescriptor()).getAttributeInt(
+                        androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
+                        androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL);
             }
         } catch (Throwable ignored) { }
         return -1;
@@ -7985,21 +7985,21 @@ refreshEdgeFormats();
         try {
             android.graphics.Matrix matrix = new android.graphics.Matrix();
             switch (orientation) {
-                case android.media.ExifInterface.ORIENTATION_ROTATE_90:
+                case androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90:
                     matrix.postRotate(90); break;
-                case android.media.ExifInterface.ORIENTATION_ROTATE_180:
+                case androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180:
                     matrix.postRotate(180); break;
-                case android.media.ExifInterface.ORIENTATION_ROTATE_270:
+                case androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270:
                     matrix.postRotate(270); break;
-                case android.media.ExifInterface.ORIENTATION_FLIP_HORIZONTAL:
+                case androidx.exifinterface.media.ExifInterface.ORIENTATION_FLIP_HORIZONTAL:
                     matrix.postScale(-1, 1); break;
-                case android.media.ExifInterface.ORIENTATION_FLIP_VERTICAL:
+                case androidx.exifinterface.media.ExifInterface.ORIENTATION_FLIP_VERTICAL:
                     matrix.postScale(1, -1); break;
                 // The two mirrored rotations. Rare, but a phone that writes 5
                 // or 7 and lands in the default branch shows its photo sideways.
-                case android.media.ExifInterface.ORIENTATION_TRANSPOSE:
+                case androidx.exifinterface.media.ExifInterface.ORIENTATION_TRANSPOSE:
                     matrix.postRotate(90); matrix.postScale(-1, 1); break;
-                case android.media.ExifInterface.ORIENTATION_TRANSVERSE:
+                case androidx.exifinterface.media.ExifInterface.ORIENTATION_TRANSVERSE:
                     matrix.postRotate(-90); matrix.postScale(-1, 1); break;
                 default:
                     return bitmap;
