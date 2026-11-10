@@ -95,6 +95,27 @@ public final class PanelRowsTest {
     }
 
     @Test
+    public void scanPresetRevealsUndoWithAFrameButNoFilm() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        final java.lang.reflect.Field session =
+                MainActivity.class.getDeclaredField("currentSession");
+        session.setAccessible(true);
+        session.set(activity, new FrameLookSession(new Look()));
+        click(activity, "光学");
+        click(activity, "扫描仪");
+        final android.app.Dialog dialog =
+                org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        assertNotNull("no scan sheet", dialog);
+        clickTarget(find(dialog.getWindow().getDecorView(), "SP-3000（模型）"));
+
+        final View undo = find(activity, "撤销");
+        assertNotNull("no undo action", undo);
+        org.junit.Assert.assertEquals(
+                "a scan edit with no film must still reveal undo",
+                View.VISIBLE, undo.getVisibility());
+    }
+
+    @Test
     public void textDialogsUseMaterialInput() throws Exception {
         final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
         final java.lang.reflect.Method askText = MainActivity.class.getDeclaredMethod(
