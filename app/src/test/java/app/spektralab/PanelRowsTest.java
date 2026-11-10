@@ -62,6 +62,39 @@ public final class PanelRowsTest {
     }
 
     @Test
+    public void scanSheetKeepsPresetAndCorrections() {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "光学");
+        click(activity, "扫描仪");
+        final android.app.Dialog dialog =
+                org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        assertNotNull("no scan sheet", dialog);
+        final View root = dialog.getWindow().getDecorView();
+        assertNotNull("no SP-3000 preset in the scan sheet", find(root, "SP-3000"));
+        assertNotNull("no white correction in the scan sheet", find(root, "白点校正"));
+        assertNotNull("no black correction in the scan sheet", find(root, "黑点校正"));
+    }
+
+    @Test
+    public void scanPresetTurnsBothSwitchesOn() {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "光学");
+        click(activity, "扫描仪");
+        final android.app.Dialog dialog =
+                org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        assertNotNull("no scan sheet", dialog);
+        final View root = dialog.getWindow().getDecorView();
+        clickTarget(find(root, "SP-3000（模型）"));
+        final java.util.List<View> switches = new java.util.ArrayList<>();
+        collectByType(root, com.google.android.material.materialswitch.MaterialSwitch.class, switches);
+        org.junit.Assert.assertEquals("expected two correction switches", 2, switches.size());
+        for (View view : switches) {
+            assertTrue("a correction switch stayed off after choosing SP-3000",
+                    ((com.google.android.material.materialswitch.MaterialSwitch) view).isChecked());
+        }
+    }
+
+    @Test
     public void textDialogsUseMaterialInput() throws Exception {
         final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
         final java.lang.reflect.Method askText = MainActivity.class.getDeclaredMethod(
@@ -101,6 +134,18 @@ public final class PanelRowsTest {
             }
         }
         return null;
+    }
+
+    private static void collectByType(View root, Class<?> type, java.util.List<View> out) {
+        if (type.isInstance(root)) {
+            out.add(root);
+        }
+        if (root instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); ++i) {
+                collectByType(group.getChildAt(i), type, out);
+            }
+        }
     }
 
     @Test
