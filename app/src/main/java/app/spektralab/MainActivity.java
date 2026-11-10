@@ -30,6 +30,8 @@ import app.spektralab.core.SafeFileName;
 import app.spektralab.core.PrintTarget;
 import app.spektralab.core.ScanProfile;
 import app.spektralab.core.ScanSample;
+import app.spektralab.core.SessionDocument;
+import app.spektralab.core.ExportDigest;
 import app.spektralab.core.SpectrumCurve;
 import app.spektralab.core.SpectrumSamples;
 import app.spektralab.core.StockNames;
@@ -126,6 +128,10 @@ public class MainActivity extends AppCompatActivity {
     private TextView sharePill = null;
     private Bitmap sourceBitmap;
     private Uri sourceUri;
+    /** The pending current-frame restore, consumed by the next imported Frame. */
+    private SessionDocument pendingSession;
+    /** The restored session was showing Original, so its first import must not render. */
+    private boolean restoringOriginal;
     private Bitmap lastRenderedBitmap;
     private ByteBuffer sourcePixels;
     private int sourceWidth, sourceHeight;
@@ -207,6 +213,7 @@ public class MainActivity extends AppCompatActivity {
                 .getString("preview_space", "sRGB");
         buildUi();
         uiReady = true;
+        restoreSessionIfAny();
 
         // Silent, and late enough not to compete with the first import. It only
         // speaks when there is a newer build than this one.
@@ -2494,6 +2501,72 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         }
     }
 
+    /** Restore the one current Frame left by the last process, if its source is still readable. */
+    private void restoreSessionIfAny() {
+        final java.io.File file = SessionDocument.file(getNoBackupFilesDir());
+        final SessionDocument document = SessionDocument.read(file);
+        if (document == null) {
+            if (file.exists()) {
+                file.delete();
+            }
+            return;
+        }
+        final Uri uri = Uri.parse(document.uri());
+        if (!sourceReadable(uri)) {
+            file.delete();
+            return;
+        }
+        pendingSession = document;
+        restoringOriginal = document.original();
+        setTab(document.tab());
+        loadImage(uri);
+    }
+
+    /** Check the restored source without decoding it or asking the picker. */
+    private boolean sourceReadable(Uri uri) {
+        if (uri == null) {
+            return false;
+        }
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            return in != null;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /** Attach the one restored Look and its Scan state to the Frame being filed. */
+    private void applyPendingSession(Frame frame) {
+        if (pendingSession == null || frame == null) {
+            return;
+        }
+        frame.session().reset(Look.fromJson(pendingSession.look()));
+        frame.setScanFraction(pendingSession.scanFraction());
+        frame.setScanVisible(pendingSession.scanVisible());
+        pendingSession = null;
+    }
+
+    /** Save the current source, Look and page for the next process. */
+    private void saveSessionIfAny() {
+        if (!uiReady || currentSession == null) {
+            return;
+        }
+        Uri uri = sourceUri;
+        if (currentFrame >= 0 && currentFrame < frames.size()) {
+            uri = frames.get(currentFrame).uri();
+        }
+        if (uri == null) {
+            return;
+        }
+        try {
+            final SessionDocument document = new SessionDocument(
+                    uri.toString(), getFileName(uri), isRawFile, activeTabIndex,
+                    scanFraction, scanVisible, showingOriginal, captureLook().toJson());
+            document.write(SessionDocument.file(getNoBackupFilesDir()));
+        } catch (Throwable ignored) {
+            // A failed session write must never break the edit or the export.
+        }
+    }
+
     /** File the frame that just finished importing, once. */
     private void rememberFrame(Uri uri) {
         if (uri == null) {
@@ -2517,6 +2590,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         final Frame frame = new Frame(uri, isRawFile, name, captureLook());
         frame.setScanFraction(scanFraction);
         frame.setScanVisible(scanVisible);
+        applyPendingSession(frame);
         if (beforeBitmap != null) {
             try {
                 final int w = Math.max(1, dp(42));
@@ -3385,11 +3459,15 @@ card.setOnClickListener(v -> {
                 });
     }
 
-    /** Save, apply, share and import named Looks. */
+    /** Built-in looks plus the user's saved Looks. */
     private void showPresetsPanel() {
+        final java.util.List<BuiltInLook> looks = BuiltInLook.all();
         final org.json.JSONArray presets = readPresets();
         final java.util.List<String> labels = new java.util.ArrayList<>();
         final java.util.List<LookPreset> parsed = new java.util.ArrayList<>();
+        for (BuiltInLook look : looks) {
+            labels.add("外观 · " + look.name());
+        }
         labels.add("保存当前预设");
         for (int i = 0; i < presets.length(); ++i) {
             final LookPreset preset = LookPreset.fromJson(presets.optJSONObject(i));
@@ -3399,16 +3477,39 @@ card.setOnClickListener(v -> {
             }
         }
         labels.add("从剪贴板导入");
-        showActionSheet("预设", "只保存 Look，不保存照片；应用会写入当前帧并渲染一次",
+        final int saved = looks.size();
+        final int importAt = labels.size() - 1;
+        showActionSheet("外观 / 预设",
+                "内置外观只覆盖胶片、相纸和外观参数；预设保存完整 Look",
                 labels.toArray(new String[0]), which -> {
-                    if (which == 0) {
+                    if (which < saved) {
+                        showBuiltInLook(looks.get(which));
+                    } else if (which == saved) {
                         saveCurrentPreset();
-                    } else if (which == labels.size() - 1) {
+                    } else if (which == importAt) {
                         importPresetFromClipboard();
                     } else {
-                        showPresetActions(parsed.get(which - 1));
+                        showPresetActions(parsed.get(which - saved - 1));
                     }
                 });
+    }
+
+    private void showBuiltInLook(BuiltInLook look) {
+        if (currentSession == null) {
+            showSnackbar("先导入照片，再套用外观");
+            return;
+        }
+        final Look base = live().copy();
+        showPresetAmountSheet("外观 · " + look.name(), builtInLookSubtitle(look),
+                base, look.apply(base));
+    }
+
+    private String builtInLookSubtitle(BuiltInLook look) {
+        final String filmName = stockLabel(look.filmId(), filmIds, filmLabels);
+        if (isPositiveFilm(look.filmId())) {
+            return filmName + " · 正片直扫";
+        }
+        return filmName + " · " + stockLabel(look.printId(), printIds, printLabels);
     }
 
     private void showPresetActions(LookPreset preset) {
@@ -3416,15 +3517,68 @@ card.setOnClickListener(v -> {
             return;
         }
         showActionSheet(preset.name(), "应用会写入当前帧并渲染一次",
-                new String[]{"应用", "分享 JSON", "删除"}, which -> {
+                new String[]{"应用", "按强度应用", "分享 JSON", "删除"}, which -> {
                     if (which == 0) {
                         applyPreset(preset);
                     } else if (which == 1) {
-                        sharePreset(preset);
+                        showPresetAmountSheet("预设 · " + preset.name(),
+                                "从当前画面过渡到这个预设",
+                                live().copy(), preset.look());
                     } else if (which == 2) {
+                        sharePreset(preset);
+                    } else if (which == 3) {
                         deletePreset(preset.name());
                     }
                 });
+    }
+
+    /**
+     * A draft strength sheet for a built-in look or a complete preset. The
+     * slider only changes the label; applying writes one settled edit and
+     * renders once, so a cancelled sheet leaves the Frame untouched.
+     */
+    private void showPresetAmountSheet(String title, String subtitle,
+                                       Look base, Look full) {
+        if (currentSession == null) {
+            showSnackbar("先导入照片，再套用外观");
+            return;
+        }
+        final BottomSheetDialog dialog = new BottomSheetDialog(this);
+        final LinearLayout column = sheetColumn(dialog, title);
+
+        final TextView note = m3Label(subtitle, M3Tokens.TypeRole.BODY_MEDIUM,
+                m3OnSurfaceVariant(), tfHan);
+        note.setSingleLine(false);
+        column.addView(note, new LinearLayout.LayoutParams(-1, -2));
+
+        final TextView value = m3Label("100%", M3Tokens.TypeRole.TITLE_MEDIUM,
+                m3OnSurface(), tfBody);
+        value.setPadding(0, dp(8), 0, 0);
+        column.addView(value, new LinearLayout.LayoutParams(-1, -2));
+
+        final Slider slider = new Slider(this);
+        slider.setValueFrom(0f);
+        slider.setValueTo(100f);
+        slider.setStepSize(1f);
+        slider.setValue(100f);
+        slider.setMinimumHeight(dp(MIN_TOUCH_DP));
+        slider.setLabelBehavior(
+                com.google.android.material.slider.LabelFormatter.LABEL_GONE);
+        slider.addOnChangeListener((s, v, fromUser) ->
+                value.setText(Math.round(v) + "%"));
+        column.addView(slider, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        final MaterialButton apply = actionButton("应用", "按当前强度应用外观");
+        apply.setOnClickListener(v -> {
+            final int percent = Math.round(slider.getValue());
+            dialog.dismiss();
+            if (percent <= 0) {
+                return;
+            }
+            applyLookToCurrentFrame(PresetAmount.blend(base, full, percent / 100f));
+        });
+        column.addView(apply, new LinearLayout.LayoutParams(-1, dp(48)));
+        showSheet(dialog, scrollableSheet(column));
     }
 
     private void saveCurrentPreset() {
@@ -3444,15 +3598,23 @@ card.setOnClickListener(v -> {
     }
 
     private void applyPreset(LookPreset preset) {
-        if (session == null || currentSession == null) {
-            showSnackbar("先导入照片");
-            return;
-        }
         if (preset == null || preset.look().filmStock == null) {
             showSnackbar("这个预设没有胶片");
             return;
         }
-        final Look next = preset.look();
+        applyLookToCurrentFrame(preset.look());
+    }
+
+    /** Write one complete Look into the live Frame, then render once. */
+    private void applyLookToCurrentFrame(Look next) {
+        if (session == null || currentSession == null) {
+            showSnackbar("先导入照片");
+            return;
+        }
+        if (next == null || next.filmStock == null) {
+            showSnackbar("这个外观没有胶片");
+            return;
+        }
         currentSession.edit(look -> look.copyFrom(next));
         optics = currentSession.look();
         applyLook(optics);
@@ -7048,7 +7210,9 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                 .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true));
         chain.add(new Intent(Intent.ACTION_OPEN_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
-                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true));
+                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION));
         if (!launchFirstResolvable(chain, 1)) {
             showSnackbar("本机没有可用的图片选择器；请点「导入」→「从文件管理器选择」");
         }
@@ -7111,6 +7275,8 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         documents.setType("*/*");
         documents.putExtra(Intent.EXTRA_MIME_TYPES, types);
         documents.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        documents.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         chain.add(documents);
         Intent content = new Intent(Intent.ACTION_GET_CONTENT);
         content.addCategory(Intent.CATEGORY_OPENABLE);
@@ -7154,6 +7320,18 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             try { DebugSink.text("picker", "RESULT_OK with no data"); } catch (Throwable ignored) { }
             showSnackbar("没有拿到图片（选择器返回空）。请点「导入」→「从文件管理器选择」再试一次");
             return;
+        }
+        // A new pick replaces the restored current Frame; keep its grant for
+        // the next process when the provider offered a persistable one.
+        pendingSession = null;
+        restoringOriginal = false;
+        for (Uri uri : picked) {
+            try {
+                getContentResolver().takePersistableUriPermission(uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Throwable ignored) {
+                // GET_CONTENT and Photo Picker grants are not persistable.
+            }
         }
         if (picked.size() > 1) {
             startBatchImport(picked);
@@ -7389,15 +7567,17 @@ refreshEdgeFormats();
             }
             setOriginalVisual(true);
             refreshFilmPanel();
-            if (live().filmStock != null) {
+            if (!restoringOriginal && live().filmStock != null) {
                 // A chip came back with a look: develop it again rather than
                 // making the user re-pick a film that was never unpicked.
                 showingOriginal = false;
                 refreshFilmPanel();
                 renderImage();
             } else {
-                statusText.setText("未渲染 · 选择胶片开始");
+                statusText.setText(restoringOriginal
+                        ? "已恢复 · 原图" : "未渲染 · 选择胶片开始");
             }
+            restoringOriginal = false;
         } catch (Throwable t) {
             lastImportError = describeImportFailure(t);
             showErrorSnackbar("导入失败", lastImportError);
@@ -8895,21 +9075,48 @@ refreshEdgeFormats();
         if (outUri == null) {
             throw new RuntimeException("无法创建媒体文件");
         }
-        try (java.io.InputStream in = new java.io.FileInputStream(tmp);
-             java.io.OutputStream out = resolver.openOutputStream(outUri)) {
-            if (out == null) {
-                throw new RuntimeException("无法打开输出流");
+        try {
+            try (java.io.InputStream in = new java.io.FileInputStream(tmp);
+                 java.io.OutputStream out = resolver.openOutputStream(outUri)) {
+                if (out == null) {
+                    throw new RuntimeException("无法打开输出流");
+                }
+                final byte[] buf = new byte[262144];
+                int len;
+                while ((len = in.read(buf)) > 0) {
+                    out.write(buf, 0, len);
+                }
             }
-            final byte[] buf = new byte[262144];
-            int len;
-            while ((len = in.read(buf)) > 0) {
-                out.write(buf, 0, len);
+            final ExportDigest.Result staged = ExportDigest.scan(tmp);
+            final ExportDigest.Result copied;
+            try (java.io.InputStream in = resolver.openInputStream(outUri)) {
+                if (in == null) {
+                    throw new RuntimeException("无法回读导出文件");
+                }
+                copied = ExportDigest.scan(in);
             }
+            if (!ExportDigest.matches(staged, copied)) {
+                throw new java.io.IOException("导出校验失败：长度或摘要不一致");
+            }
+            values.clear();
+            values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0);
+            resolver.update(outUri, values, null, null);
+            try {
+                DebugSink.text("export-verify", "bytes=" + copied.length
+                        + " sha256=" + ExportDigest.hex(copied.sha256));
+            } catch (Throwable ignored) { }
+            return outUri;
+        } catch (Throwable failure) {
+            try {
+                resolver.delete(outUri, null, null);
+            } catch (Throwable ignored) {
+                // The row may already be gone; the original failure matters more.
+            }
+            if (failure instanceof Exception) {
+                throw (Exception) failure;
+            }
+            throw new RuntimeException(failure);
         }
-        values.clear();
-        values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0);
-        resolver.update(outUri, values, null, null);
-        return outUri;
     }
 
     private void exportImage(String format, String tier) {
@@ -9366,6 +9573,12 @@ refreshEdgeFormats();
         for (String name : files) {
             copyAssetTree(assetPath + "/" + name, new java.io.File(outDir, name));
         }
+    }
+
+    @Override
+    protected void onStop() {
+        saveSessionIfAny();
+        super.onStop();
     }
 
     @Override

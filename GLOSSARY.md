@@ -32,6 +32,26 @@ _Avoid_: Preset, filter, style, theme
 The live Look and its undo history for one Frame. A Frame owns exactly one; switching Frame switches the session, not a copy of the Look.
 _Avoid_: Editor state, session, working copy
 
+**Built-in look**:
+A shipped one-tap film/paper combination authored as a sparse overlay on the current Look. It keeps every value it does not name, including composition, crop, date and view settings.
+_Avoid_: Preset, built-in preset, style
+
+**Preset**:
+A named, complete Look snapshot saved by the user. Applying it replaces the Frame's Look; it is not the same object as a Built-in look.
+_Avoid_: Built-in look, recipe, style
+
+**Preset strength**:
+The 0–1 blend from the Look before a preset is applied to that preset's full Look. Continuous values interpolate; categorical values switch at 50 %.
+_Avoid_: Opacity, mix, amount
+
+**Session document**:
+The app-private JSON that restores the current source URI, Look and selected page after the process is recreated. It is not the in-memory Frame Look session and does not store multi-frame undo history.
+_Avoid_: Session, sidecar, editor state
+
+**Transactional export**:
+A gallery write whose `IS_PENDING` row is deleted on failure and published only after the copied bytes match the staged file's length and SHA-256 digest.
+_Avoid_: Atomic export, safe save
+
 **Render**:
 The engine work that applies a Look to a Frame's Source and produces the preview or the exported pixels.
 _Avoid_: Develop, process, export (export is writing the file)

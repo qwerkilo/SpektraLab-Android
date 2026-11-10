@@ -192,6 +192,39 @@ public final class PanelRowsTest {
     }
 
     @Test
+    public void presetsListBuiltInLooksFirst() {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "预设");
+        final android.app.Dialog dialog =
+                org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        assertNotNull("no preset sheet", dialog);
+        final View root = dialog.getWindow().getDecorView();
+        assertNotNull("no Portra 400 built-in look", find(root, "外观 · Portra 400"));
+        assertNotNull("no CineStill 800T built-in look",
+                find(root, "外观 · CineStill 800T"));
+    }
+
+    @Test
+    public void builtInLookOpensAStrengthDraft() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        final java.lang.reflect.Field session =
+                MainActivity.class.getDeclaredField("currentSession");
+        session.setAccessible(true);
+        session.set(activity, new FrameLookSession(new Look()));
+        click(activity, "预设");
+        final android.app.Dialog menu =
+                org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        assertNotNull("no preset sheet", menu);
+        clickTarget(find(menu.getWindow().getDecorView(), "外观 · Portra 400"));
+        final android.app.Dialog dialog =
+                org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        assertNotNull("no strength sheet", dialog);
+        final View root = dialog.getWindow().getDecorView();
+        assertNotNull("no strength percentage", find(root, "100%"));
+        assertNotNull("no apply action", find(root, "应用"));
+    }
+
+    @Test
     public void themeSwitchKeepsTheOpenEdgePage() {
         final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
         click(activity, "边框");
