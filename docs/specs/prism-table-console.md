@@ -86,6 +86,9 @@ simulated surface.
 - At 2.0× the stage drops its file/exposure corner readouts, which the 2×2
   table already carries, and the import pill clears the floating bar; the
   status line and spectral rail stay.
+- At large text the Optics header keeps 视图 / 测光 / 扫描仪 on one
+  horizontally scrollable 48 dp row, so the three entries no longer consume
+  the sheet before the first parameter.
 - Device evidence: `prototypes/shots/prism-phone-light.png`,
   `prism-phone-dark.png`, `prism-wide.png`.
 - Checks: `checkstyleGovernance`, `checkJvm` (including `GlassStyleCheck`),
