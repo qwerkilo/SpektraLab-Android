@@ -4451,15 +4451,32 @@ card.setOnClickListener(v -> {
         final MaterialButton viewAction = actionButton(
                 mixedText("视图"), "打开视图调整：白平衡、亮度、颜色、分级");
         viewAction.setOnClickListener(v -> showViewAdjustSheet());
-        head.addView(viewAction, new LinearLayout.LayoutParams(-2, dp(48)));
         final MaterialButton meterAction = actionButton(
                 mixedText("测光"), "选择相机测光方式");
         meterAction.setOnClickListener(v -> showMeterPicker());
-        head.addView(meterAction, new LinearLayout.LayoutParams(-2, dp(48)));
         final MaterialButton scanAction = actionButton(
                 mixedText("扫描仪"), "打开扫描页：SP-3000 模型预设与黑白校正");
         scanAction.setOnClickListener(v -> showScanSheet());
-        head.addView(scanAction, new LinearLayout.LayoutParams(-2, dp(48)));
+        if (largeText()) {
+            // A vertical head gave each action its own 48 dp row, so at 2.0x
+            // three entries consumed the whole sheet before the first slider.
+            // Keep the 48 dp targets but put them on one scrollable row.
+            final LinearLayout actions = new LinearLayout(this);
+            actions.setOrientation(LinearLayout.HORIZONTAL);
+            actions.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            actions.addView(viewAction, new LinearLayout.LayoutParams(-2, dp(48)));
+            actions.addView(meterAction, new LinearLayout.LayoutParams(-2, dp(48)));
+            actions.addView(scanAction, new LinearLayout.LayoutParams(-2, dp(48)));
+            final HorizontalScrollView scroll = new HorizontalScrollView(this);
+            scroll.setHorizontalScrollBarEnabled(false);
+            scroll.setClipToPadding(false);
+            scroll.addView(actions, new android.widget.FrameLayout.LayoutParams(-2, dp(48)));
+            head.addView(scroll, new LinearLayout.LayoutParams(-1, dp(48)));
+        } else {
+            head.addView(viewAction, new LinearLayout.LayoutParams(-2, dp(48)));
+            head.addView(meterAction, new LinearLayout.LayoutParams(-2, dp(48)));
+            head.addView(scanAction, new LinearLayout.LayoutParams(-2, dp(48)));
+        }
         return head;
     }
 
