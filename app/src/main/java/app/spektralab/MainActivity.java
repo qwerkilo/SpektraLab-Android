@@ -1675,6 +1675,14 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         return outer;
     }
 
+    /** A sheet body scrolls when large text makes its rows taller than the window. */
+    private NestedScrollView scrollableSheet(View content) {
+        final NestedScrollView scroll = new NestedScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.addView(content, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        return scroll;
+    }
+
     /** A panel's content scrolls inside the fixed panel height when text grows. */
     private View scrollablePanel(View content) {
         ScrollView scroll = new ScrollView(this);
@@ -3992,7 +4000,7 @@ card.setOnClickListener(v -> {
         buildComposeSliders(root, draft);
         buildComposeFlips(root, draftFlips);
         buildComposeActions(root, dialog, draftTurns, draft, draftFlips);
-        dialog.setContentView(root);
+        dialog.setContentView(scrollableSheet(root));
         dialog.show();
     }
 

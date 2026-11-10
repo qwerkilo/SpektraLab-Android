@@ -118,6 +118,19 @@ public final class PanelRowsTest {
     }
 
     @Test
+    public void composeSheetScrollsAtLargeText() {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "尺度");
+        click(activity, "构图 / COMPOSE");
+        final android.app.Dialog dialog =
+                org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        assertNotNull("no compose sheet", dialog);
+        assertNotNull("the compose sheet must scroll at large text",
+                findByType(dialog.getWindow().getDecorView(),
+                        androidx.core.widget.NestedScrollView.class));
+    }
+
+    @Test
     public void textDialogsUseMaterialInput() throws Exception {
         final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
         final java.lang.reflect.Method askText = MainActivity.class.getDeclaredMethod(
