@@ -3781,6 +3781,7 @@ card.setOnClickListener(v -> {
         } else {
             optics.applyScanProfile(profile);
         }
+        updateUndoAction();
         refreshReadoutStrip();
         renderImage();
     }
@@ -3793,6 +3794,7 @@ card.setOnClickListener(v -> {
         } else {
             optics.set(param, value);
         }
+        updateUndoAction();
         refreshReadoutStrip();
         renderImage();
     }
