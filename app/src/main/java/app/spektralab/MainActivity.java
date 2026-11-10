@@ -3823,7 +3823,12 @@ card.setOnClickListener(v -> {
                 new LinearLayout.LayoutParams(-1, dp(56)));
         sync[0] = () -> syncScanSheet(chips, white, black);
         sync[0].run();
-        dialog.setContentView(root);
+        // At 2.0× the two switch rows overflow a phone sheet; keep the preset
+        // and both corrections reachable instead of clipping the black point.
+        final NestedScrollView scroll = new NestedScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.addView(root, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        dialog.setContentView(scroll);
         dialog.show();
     }
 
