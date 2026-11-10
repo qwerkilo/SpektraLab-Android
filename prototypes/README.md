@@ -1,8 +1,8 @@
 # UI prototypes (throwaway)
 
-## Current: Instrument round
+## Selected: Prism Table
 
-Question: **which refinement of the Instrument direction should ship, and does it survive light mode?**
+Question: **which Prism HUD refinement should become the M3 console's visual direction?**
 
 Run:
 
@@ -10,20 +10,20 @@ Run:
 python prototypes/serve.py
 ```
 
-Open `http://127.0.0.1:8788/ui-instrument.html?variant=A`.
+Open `http://127.0.0.1:8788/ui-prism.html?variant=C`.
 
-| Key | Variant | Structure |
+| Key | Refinement | Structure |
 |---|---|---|
-| `A` | Console | C tightened: readout strip, density curve, larger type |
-| `B` | Ledger | Vertical index rail, measurement table, Δ column |
-| `C` | Scan | Draggable scan line, RGB / λ readout, spectrum + 2×2 matrix |
+| `A` | Prism Air | Lighter chrome, segmented bottom dock, shorter airy sheet |
+| `B` | Prism Beam | Right-side vertical rail, narrow sheet, more image |
+| `C` | Prism Table | **Selected** — 2×2 readout table, slim text dock, quiet glass |
 
-Theme: the pill in each phone header toggles light/dark. `?theme=light` or `?theme=dark` sets it from the URL; `T` toggles from the keyboard.
+Theme: `?theme=light|dark`, the switcher's theme button, or `T`.
+The state line under the switcher shows the direction, theme, film, exposure, grain and scan fraction.
 
-The state line under the switcher shows the active theme, tab, film, slider values, edge toggles, and scan position.
+`ui-liquid-glass.html` keeps the earlier three-language round (Lumen Deck / Refraction Rail / Prism HUD).
+`ui-prototype.html` keeps the first round (Darkroom / Contact Sheet / Instrument).
+`ui-instrument.html` keeps the Instrument round (Console / Ledger / Scan).
 
-## Earlier: three visual languages
-
-`ui-prototype.html` keeps the first round: A Darkroom, B Contact Sheet, C Instrument. It is superseded by the Instrument round.
-
-The winning direction gets rewritten into `MainActivity.java`; this folder stays out of production.
+The winning direction is implemented in the real M3 console via
+`docs/specs/prism-table-console.md`; this folder stays out of production.
