@@ -28,6 +28,7 @@ import app.spektralab.core.LivePreviewGate;
 import app.spektralab.core.Metering;
 import app.spektralab.core.SafeFileName;
 import app.spektralab.core.PrintTarget;
+import app.spektralab.core.ScanProfile;
 import app.spektralab.core.ScanSample;
 import app.spektralab.core.SpectrumCurve;
 import app.spektralab.core.SpectrumSamples;
@@ -3688,6 +3689,115 @@ card.setOnClickListener(v -> {
     }
 
     /**
+     * The scan page: one model preset plus the two correction switches the
+     * engine already exposes. The preset is only a named combination of those
+     * switches, so the chip and the switches always agree.
+     */
+    private void showScanSheet() {
+        final BottomSheetDialog dialog = new BottomSheetDialog(this);
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(18), dp(20), dp(24));
+        root.addView(m3Label("扫描 / SCAN", M3Tokens.TypeRole.TITLE_MEDIUM,
+                m3OnSurface(), tfDisplay));
+        root.addView(m3Label("SP-3000 是模型预设，不是实测扫描仪标定。"
+                        + "选择预设只打开两项黑白校正；关闭后仍可单独开关。"
+                        + "镜头模糊与反锐化属于原生 parity 任务。",
+                        M3Tokens.TypeRole.LABEL_MEDIUM, m3OnSurfaceVariant(), tfHan),
+                new LinearLayout.LayoutParams(-1, -2));
+
+        final ChipGroup profiles = new ChipGroup(this);
+        profiles.setSingleSelection(true);
+        profiles.setSelectionRequired(true);
+        final java.util.List<Chip> chips = new ArrayList<>();
+        final Runnable[] sync = new Runnable[1];
+        final ScanProfile[] values = ScanProfile.values();
+        for (ScanProfile profile : values) {
+            final Chip chip = new Chip(this);
+            styleOpticsChip(chip);
+            chip.setText(mixedText(profile.label));
+            chip.setCheckable(true);
+            chip.setChecked(profile == live().scanProfile());
+            chip.setMinimumHeight(dp(MIN_TOUCH_DP));
+            chip.setOnClickListener(v -> {
+                applyScanPreset(profile);
+                sync[0].run();
+            });
+            chips.add(chip);
+            profiles.addView(chip);
+        }
+        root.addView(profiles, new LinearLayout.LayoutParams(-1, -2));
+
+        final MaterialSwitch white = new MaterialSwitch(this);
+        final MaterialSwitch black = new MaterialSwitch(this);
+        root.addView(switchRow("白点校正", null, white,
+                        () -> scanCorrectionOn(OpticsDelta.Param.SCANNER_WHITE),
+                        on -> {
+                            setScanCorrection(OpticsDelta.Param.SCANNER_WHITE, on);
+                            sync[0].run();
+                        }),
+                new LinearLayout.LayoutParams(-1, dp(56)));
+        root.addView(switchRow("黑点校正", null, black,
+                        () -> scanCorrectionOn(OpticsDelta.Param.SCANNER_BLACK),
+                        on -> {
+                            setScanCorrection(OpticsDelta.Param.SCANNER_BLACK, on);
+                            sync[0].run();
+                        }),
+                new LinearLayout.LayoutParams(-1, dp(56)));
+        sync[0] = () -> syncScanSheet(chips, white, black);
+        sync[0].run();
+        dialog.setContentView(root);
+        dialog.show();
+    }
+
+    private void syncScanSheet(java.util.List<Chip> chips, MaterialSwitch white,
+                               MaterialSwitch black) {
+        final ScanProfile current = live().scanProfile();
+        final ScanProfile[] values = ScanProfile.values();
+        for (int i = 0; i < values.length; ++i) {
+            chips.get(i).setChecked(values[i] == current);
+        }
+        syncingToggles = true;
+        try {
+            final boolean whiteOn = scanCorrectionOn(OpticsDelta.Param.SCANNER_WHITE);
+            white.setChecked(whiteOn);
+            white.setContentDescription(toggleDescription("白点校正", whiteOn));
+            final boolean blackOn = scanCorrectionOn(OpticsDelta.Param.SCANNER_BLACK);
+            black.setChecked(blackOn);
+            black.setContentDescription(toggleDescription("黑点校正", blackOn));
+        } finally {
+            syncingToggles = false;
+        }
+    }
+
+    private boolean scanCorrectionOn(OpticsDelta.Param param) {
+        return live().get(param) > 0.5f;
+    }
+
+    private void applyScanPreset(ScanProfile profile) {
+        if (currentSession != null) {
+            currentSession.edit(look -> look.applyScanProfile(profile));
+            optics = currentSession.look();
+        } else {
+            optics.applyScanProfile(profile);
+        }
+        refreshReadoutStrip();
+        renderImage();
+    }
+
+    private void setScanCorrection(OpticsDelta.Param param, boolean on) {
+        final float value = on ? 1f : 0f;
+        if (currentSession != null) {
+            currentSession.edit(look -> look.set(param, value));
+            optics = currentSession.look();
+        } else {
+            optics.set(param, value);
+        }
+        refreshReadoutStrip();
+        renderImage();
+    }
+
+    /**
      * Composition as an M3 sheet. The values are part of the Look and go
      * through the engine's geometry node; no bitmap transform is baked in.
      */
@@ -4262,6 +4372,10 @@ card.setOnClickListener(v -> {
                 mixedText("测光"), "选择相机测光方式");
         meterAction.setOnClickListener(v -> showMeterPicker());
         head.addView(meterAction, new LinearLayout.LayoutParams(-2, dp(48)));
+        final MaterialButton scanAction = actionButton(
+                mixedText("扫描仪"), "打开扫描页：SP-3000 模型预设与黑白校正");
+        scanAction.setOnClickListener(v -> showScanSheet());
+        head.addView(scanAction, new LinearLayout.LayoutParams(-2, dp(48)));
         return head;
     }
 

@@ -16,6 +16,7 @@ Android version, and Theme mode.
 - [ ] Tap the SPECTRUM readout cell: the histogram appears over the stage without a new render, follows later renders, and hides on a second tap.
 - [ ] Open 视图 and toggle 胶片原色 on Portra 400 and CineStill 800T: Portra renders once and keeps the choice across undo; CineStill shows the fixed-configuration message and does not change.
 - [ ] In 视图 choose 预览色域 · Display P3: the canvas re-renders and a P3-capable phone shows the wider colour; exporting still writes an sRGB file.
+- [ ] Open 光学 → 扫描仪: choose `SP-3000（模型）`; both correction switches turn on and the canvas renders once. Toggle one switch off: the preset chip shows `关闭`, the other switch stays on, and one render follows. Switch Frame A→B→A and press 撤销: the preset and both switches restore per Frame. Switch theme: the scan page reopens with the same values and does not render. Export once: the white/black correction values reach the file.
 - [ ] From a file manager, "open with" offers no SpektraLab image entry (the dead `VIEW` filter is gone); use the in-app picker.
 - [ ] `adb shell dumpsys package app.spektralab` shows only `READ_EXTERNAL_STORAGE` (maxSdk 32) and `INTERNET`.
 - [ ] `adb shell cmd netpolicy` is not needed; the app only reaches HTTPS endpoints and the loopback debug sink.
