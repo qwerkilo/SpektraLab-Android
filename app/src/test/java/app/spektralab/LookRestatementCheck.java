@@ -189,9 +189,20 @@ public final class LookRestatementCheck {
                 look, new LookRestatement.Context(false, 1024, false, "EDGE", "", "Display P3")));
         eq("Display P3", p3.optString("output_color_space"));
 
+        // A directly scanned positive bypasses the negative scan correction;
+        // sending it makes the native engine reject the whole render.
+        look.scannerWhite = 1f;
+        look.scannerBlack = 1f;
+        final org.json.JSONObject negative = parse(LookRestatement.json(
+                look, new LookRestatement.Context(false, 2048, false, "EDGE", "")));
+        eq("true", negative.optString("scanner_white_correction"));
+        eq("true", negative.optString("scanner_black_correction"));
+
         final org.json.JSONObject slide = parse(LookRestatement.json(
                 look, new LookRestatement.Context(false, 2048, true, "EDGE", "")));
         eq("true", slide.optString("scan_film"));
+        eq("false", slide.optString("scanner_white_correction"));
+        eq("false", slide.optString("scanner_black_correction"));
     }
 
     private static void rebateAndDateReachTheWire() {

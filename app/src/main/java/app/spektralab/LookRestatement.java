@@ -130,8 +130,10 @@ public final class LookRestatement {
             look.antihalationRemoved > 0.5f ? "true" : "false",
             look.grainOn > 0.5f ? "true" : "false",
             look.couplersOn > 0.5f ? "true" : "false",
-            look.scannerWhite > 0.5f ? "true" : "false",
-            look.scannerBlack > 0.5f ? "true" : "false",
+            // A directly scanned positive bypasses the negative scan correction;
+            // the engine rejects the combination instead of silently ignoring it.
+            (look.scannerWhite > 0.5f && !context.positiveFilm) ? "true" : "false",
+            (look.scannerBlack > 0.5f && !context.positiveFilm) ? "true" : "false",
             look.edrOn > 0.5f ? "true" : "false",
             OpticsDelta.CameraFilter.fromWire(look.cameraFilter).wire,
             hue,

@@ -1,5 +1,6 @@
 package app.spektralab;
 
+import app.spektralab.core.ScanProfile;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -110,6 +111,23 @@ public final class Look {
     /** Return one parameter to its contract default; every other value stays. */
     void reset(OpticsDelta.Param param) {
         set(param, param.defaultValue);
+    }
+
+    /** The scanner preset these two correction switches currently match. */
+    ScanProfile scanProfile() {
+        return ScanProfile.of(scannerWhite > 0.5f, scannerBlack > 0.5f);
+    }
+
+    /**
+     * Write one scanner preset into this Look. The preset is only a named
+     * combination of the two existing switches, so no separate value is stored:
+     * turning one switch off later is a deliberate off state, not a stale
+     * preset label.
+     */
+    void applyScanProfile(ScanProfile profile) {
+        final ScanProfile chosen = profile == null ? ScanProfile.OFF : profile;
+        scannerWhite = chosen.whiteCorrection ? 1f : 0f;
+        scannerBlack = chosen.blackCorrection ? 1f : 0f;
     }
 
     /** A detached copy of this Look, with no value normalised on the way. */
