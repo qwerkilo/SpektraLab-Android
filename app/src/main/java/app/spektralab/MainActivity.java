@@ -3705,6 +3705,11 @@ card.setOnClickListener(v -> {
                         + "镜头模糊与反锐化属于原生 parity 任务。",
                         M3Tokens.TypeRole.LABEL_MEDIUM, m3OnSurfaceVariant(), tfHan),
                 new LinearLayout.LayoutParams(-1, -2));
+        if (isPositiveFilm(live().filmStock)) {
+            root.addView(m3Label("当前是正片直扫：黑白校正不参与渲染；切回负片后生效。",
+                            M3Tokens.TypeRole.LABEL_MEDIUM, m3Primary(), tfHan),
+                    new LinearLayout.LayoutParams(-1, -2));
+        }
 
         final ChipGroup profiles = new ChipGroup(this);
         profiles.setSingleSelection(true);
