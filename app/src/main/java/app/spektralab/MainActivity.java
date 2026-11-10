@@ -2536,7 +2536,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         }
     }
 
-    /** Put the restored Look on the live session before a RAW session is opened. */
+    /** Put the restored Look on the live session before any decode starts. */
     private void applyRestoredLook() {
         if (pendingSession == null || currentSession == null) {
             return;
@@ -2544,6 +2544,20 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         currentSession.reset(Look.fromJson(pendingSession.look()));
         optics = currentSession.look();
         applyLook(optics);
+    }
+
+    /** Finish a still or RAW import: develop a restored/selected Look or stay on Original. */
+    private void finishImportRender() {
+        refreshFilmPanel();
+        if (!restoringOriginal && live().filmStock != null) {
+            showingOriginal = false;
+            refreshFilmPanel();
+            renderImage();
+        } else {
+            statusText.setText(restoringOriginal
+                    ? "已恢复 · 原图" : "未渲染 · 选择胶片开始");
+        }
+        restoringOriginal = false;
     }
 
     /** Attach the one restored Look and its Scan state to the Frame being filed. */
@@ -2614,6 +2628,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         frames.add(frame);
         currentFrame = frames.size() - 1;
         attachSession(frame.session());
+        restoreScanStateFromFrame(frame);
+        syncScanAvailability();
         applyLook(optics);
         rebuildFrameChips();
     }
@@ -7585,19 +7601,13 @@ refreshEdgeFormats();
                 brandFilter = FilmBrand.ALL;
             }
             setOriginalVisual(true);
-            refreshFilmPanel();
-            if (!restoringOriginal && live().filmStock != null) {
-                // A chip came back with a look: develop it again rather than
-                // making the user re-pick a film that was never unpicked.
-                showingOriginal = false;
-                refreshFilmPanel();
-                renderImage();
-            } else {
-                statusText.setText(restoringOriginal
-                        ? "已恢复 · 原图" : "未渲染 · 选择胶片开始");
-            }
-            restoringOriginal = false;
+            finishImportRender();
         } catch (Throwable t) {
+            if (pendingSession != null) {
+                pendingSession = null;
+                restoringOriginal = false;
+                SessionDocument.file(getNoBackupFilesDir()).delete();
+            }
             lastImportError = describeImportFailure(t);
             showErrorSnackbar("导入失败", lastImportError);
             try { DebugSink.text("import-failed", lastImportError); } catch (Throwable ignored) { }
@@ -7731,6 +7741,8 @@ refreshEdgeFormats();
     /** Mark the RAW import ready and develop it when its frame already has a film. */
     private void finishRawImport(boolean reopening) {
         if (session == null) {
+            pendingSession = null;
+            restoringOriginal = false;
             return;
         }
         suppressBudgetDialog = false;
@@ -7740,16 +7752,7 @@ refreshEdgeFormats();
             brandFilter = FilmBrand.ALL;
         }
         setOriginalVisual(true);
-        refreshFilmPanel();
-        if (!restoringOriginal && live().filmStock != null) {
-            showingOriginal = false;
-            refreshFilmPanel();
-            renderImage();
-        } else {
-            statusText.setText(restoringOriginal
-                    ? "已恢复 · 原图" : "未渲染 · 选择胶片开始");
-        }
-        restoringOriginal = false;
+        finishImportRender();
     }
 
     /** Open the RAW session with the import caps and the current Look. */

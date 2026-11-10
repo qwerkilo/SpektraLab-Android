@@ -91,6 +91,8 @@ them in the existing Java/View console:
     device gates to stay green, so this slice does not lower the bar.
 30. As a maintainer, I want AGENTS.md to point at the new seams and checks, so the
     next session does not rediscover them.
+31. As a photographer, I want a restored Frame that was left on Original to stay
+    on Original, so relaunching does not suddenly develop a film I had hidden.
 
 ## Implementation Decisions
 
@@ -108,9 +110,9 @@ them in the existing Java/View console:
   writes one `FrameLookSession.edit`, refreshes the same panels as a preset
   apply, and renders once. Zero strength dismisses without an edit.
 - The **Session document** stores only the current source URI, its display name,
-  the RAW flag, the current Look JSON, the selected page, and the Scan fraction
-  and visibility. It contains no Bitmap, engine handle, URI grant token or
-  multi-frame list.
+  the RAW flag, the current Look JSON, the selected page, the Scan fraction and
+  visibility, and the Original/developed display state. It contains no Bitmap,
+  engine handle, URI grant token or multi-frame list.
 - The session file lives under `noBackupFilesDir`, is written through a temporary
   file and an atomic rename, and is restored only after the source URI is still
   readable. A missing, malformed or revoked source discards the file.

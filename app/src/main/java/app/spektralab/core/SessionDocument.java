@@ -92,7 +92,10 @@ public final class SessionDocument {
         return out;
     }
 
-    /** Null when the document is missing a source or a Look object. */
+    /**
+     * Null when the document is missing a source, missing a Look object, or
+     * carries a version this build does not understand.
+     */
     public static SessionDocument fromJson(JSONObject o) {
         if (o == null) {
             return null;
