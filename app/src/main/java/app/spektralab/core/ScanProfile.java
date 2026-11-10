@@ -17,7 +17,7 @@ public enum ScanProfile {
     OFF("off", "\u5173\u95ed", false, false),
     SP_3000("sp3000", "SP-3000\uff08\u6a21\u578b\uff09", true, true);
 
-    /** Stable id saved with a Look. */
+    /** Stable id for a future saved preset; the Look stores only the switches today. */
     public final String wire;
     /** The visible name a chip and TalkBack announce. */
     public final String label;

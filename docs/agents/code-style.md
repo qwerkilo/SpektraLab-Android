@@ -45,6 +45,17 @@ A new pure rule belongs in `core`; a new record in `model`; a new custom view in
 - After a panel split, open that panel on the device and count its rows against
   the pre-split screen; the JVM checks cannot build Android views.
 
+## Editing a Look
+
+- A UI path that calls `FrameLookSession.edit(...)` must refresh anything whose
+  visibility depends on history. `renderImage()` updates the undo action, but it
+  can return early (no film, no session), so the panel that owns the edit calls
+  `updateUndoAction()` itself. The scan sheet missed this on 2026-11-10.
+- A directly scanned positive (`scan_film: true`) bypasses negative scanner
+  correction. `LookRestatement` suppresses the two scanner correction flags for
+  positive film; do not send them from another path or the native engine rejects
+  the render with `spk_render failed (-5)`.
+
 ## Comments
 
 - Class and method Javadoc is English. User-visible text stays Chinese.
