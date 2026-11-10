@@ -73,6 +73,8 @@ public final class PanelRowsTest {
         assertNotNull("no SP-3000 preset in the scan sheet", find(root, "SP-3000"));
         assertNotNull("no white correction in the scan sheet", find(root, "白点校正"));
         assertNotNull("no black correction in the scan sheet", find(root, "黑点校正"));
+        assertNotNull("the scan sheet must scroll at large text",
+                findByType(root, androidx.core.widget.NestedScrollView.class));
     }
 
     @Test
