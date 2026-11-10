@@ -222,6 +222,29 @@ public final class PanelRowsTest {
         final View root = dialog.getWindow().getDecorView();
         assertNotNull("no strength percentage", find(root, "100%"));
         assertNotNull("no apply action", find(root, "应用"));
+        dialog.dismiss();
+    }
+
+    @Test
+    public void cancellingStrengthLeavesTheLookAlone() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        final Look base = new Look();
+        base.filmStock = "fujifilm_c200";
+        final FrameLookSession live = new FrameLookSession(base);
+        final java.lang.reflect.Field session =
+                MainActivity.class.getDeclaredField("currentSession");
+        session.setAccessible(true);
+        session.set(activity, live);
+        click(activity, "预设");
+        final android.app.Dialog menu =
+                org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        clickTarget(find(menu.getWindow().getDecorView(), "外观 · Portra 400"));
+        final android.app.Dialog sheet =
+                org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        assertNotNull("no strength sheet", sheet);
+        sheet.dismiss();
+        org.junit.Assert.assertEquals("a dismissed sheet must not edit the Look",
+                "fujifilm_c200", live.look().filmStock);
     }
 
     @Test

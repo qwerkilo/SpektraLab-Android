@@ -97,6 +97,9 @@ public final class SessionDocument {
         if (o == null) {
             return null;
         }
+        if (o.has("version") && o.optInt("version", VERSION) != VERSION) {
+            return null;
+        }
         final String uri = o.optString("uri", "");
         final JSONObject look = o.optJSONObject("look");
         if (uri.isEmpty() || look == null) {

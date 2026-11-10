@@ -2508,12 +2508,14 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         if (document == null) {
             if (file.exists()) {
                 file.delete();
+                showSnackbar("上次的会话记录已损坏，已清除恢复记录");
             }
             return;
         }
         final Uri uri = Uri.parse(document.uri());
         if (!sourceReadable(uri)) {
             file.delete();
+            showSnackbar("上次的照片已不可用，已清除恢复记录");
             return;
         }
         pendingSession = document;
@@ -2532,6 +2534,16 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    /** Put the restored Look on the live session before a RAW session is opened. */
+    private void applyRestoredLook() {
+        if (pendingSession == null || currentSession == null) {
+            return;
+        }
+        currentSession.reset(Look.fromJson(pendingSession.look()));
+        optics = currentSession.look();
+        applyLook(optics);
     }
 
     /** Attach the one restored Look and its Scan state to the Frame being filed. */
@@ -2602,6 +2614,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         frames.add(frame);
         currentFrame = frames.size() - 1;
         attachSession(frame.session());
+        applyLook(optics);
         rebuildFrameChips();
     }
 
@@ -3562,10 +3575,15 @@ card.setOnClickListener(v -> {
         slider.setStepSize(1f);
         slider.setValue(100f);
         slider.setMinimumHeight(dp(MIN_TOUCH_DP));
+        slider.setContentDescription("预设强度");
+        ViewCompat.setStateDescription(slider, "100%");
         slider.setLabelBehavior(
                 com.google.android.material.slider.LabelFormatter.LABEL_GONE);
-        slider.addOnChangeListener((s, v, fromUser) ->
-                value.setText(Math.round(v) + "%"));
+        slider.addOnChangeListener((s, v, fromUser) -> {
+            final String percent = Math.round(v) + "%";
+            value.setText(percent);
+            ViewCompat.setStateDescription(slider, percent);
+        });
         column.addView(slider, new LinearLayout.LayoutParams(-1, dp(48)));
 
         final MaterialButton apply = actionButton("应用", "按当前强度应用外观");
@@ -7361,6 +7379,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             applyLook(optics);
         }
         updateUndoAction();
+        applyRestoredLook();
     }
 
     /** Drop the previous source and canvas before a new decode. */
@@ -7722,13 +7741,15 @@ refreshEdgeFormats();
         }
         setOriginalVisual(true);
         refreshFilmPanel();
-        if (live().filmStock != null) {
+        if (!restoringOriginal && live().filmStock != null) {
             showingOriginal = false;
             refreshFilmPanel();
             renderImage();
         } else {
-            statusText.setText("未渲染 · 选择胶片开始");
+            statusText.setText(restoringOriginal
+                    ? "已恢复 · 原图" : "未渲染 · 选择胶片开始");
         }
+        restoringOriginal = false;
     }
 
     /** Open the RAW session with the import caps and the current Look. */
@@ -9100,7 +9121,9 @@ refreshEdgeFormats();
             }
             values.clear();
             values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0);
-            resolver.update(outUri, values, null, null);
+            if (resolver.update(outUri, values, null, null) <= 0) {
+                throw new java.io.IOException("导出发布失败：媒体行未更新");
+            }
             try {
                 DebugSink.text("export-verify", "bytes=" + copied.length
                         + " sha256=" + ExportDigest.hex(copied.sha256));

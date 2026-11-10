@@ -40,6 +40,7 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `PresetAmount.java` — the 0–1 draft blend used by the built-in/preset strength sheet. Numbers and equal-length numeric arrays interpolate; booleans, strings and seeds/turns switch at 50 %.
 - `StockCatalogue.java` — the single store for film/print entries. The Activity exposes read-only views; do not add a parallel list.
 - `core/SessionDocument.java` — the current source URI, Look JSON, tab and Scan state; written atomically under `noBackupFilesDir` and restored only when the source is still readable.
+- `ui/GlassStyle.java` — Prism Table glass radii, alpha, outline and elevation tokens, guarded by `GlassStyleCheck`.
 - `core/ExportDigest.java` — length + SHA-256 verification for a gallery export.
 - `ui/widget/` — extracted custom views (`SpectralRail`, `ToolGlyph`, `ArrowView`, `GuideView`, `EdgeBackdrop`, `SnackbarHost`, `CompareView`, `ScanOverlayView`, `SpectrumCurveView`, `HistogramView`). New views go here. See “Material 3 components” before adding one.
 - `core/` — framework-free rules and format helpers (`Metering`, `HueCorrection`, `Histogram`, `LivePreviewGate`, `ScanProfile`, …). `model/` — immutable records (`FilmStock`, `Frame`). `ui/` — presentation state (`UiState`, `ThemeMode`). The root package keeps the composition root and the remaining domain seams (`Look`, `GateScale`, `OpticsDelta`, `Palette`, `M3Tokens`, `UpdateGate`, `SpkError`).

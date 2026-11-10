@@ -42,6 +42,9 @@ public final class SessionDocumentCheck {
         ok(SessionDocument.fromJson(new JSONObject()) == null, "missing uri rejected");
         ok(SessionDocument.fromJson(new JSONObject().put("uri", "x")) == null,
                 "missing look rejected");
+        ok(SessionDocument.fromJson(new JSONObject().put("version", SessionDocument.VERSION + 1)
+                .put("uri", "x").put("look", new JSONObject())) == null,
+                "future version rejected");
 
         java.nio.file.Files.write(file.toPath(), "{not json".getBytes(
                 java.nio.charset.StandardCharsets.UTF_8));
