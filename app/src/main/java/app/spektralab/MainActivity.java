@@ -1636,8 +1636,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         outer.addView(hairline(m3OutlineVariant()),
                 new LinearLayout.LayoutParams(-1, dp(1)));
 
-        final String[] titles = {
-                "FILM / 胶片", "PAPER / 相纸", "EXPOSURE / 曝光", "SPECTRUM / 光谱"};
+        // At 2.0x the bilingual titles wrap to two lines in every cell and the
+        // table eats the stage; the Chinese name alone still identifies each
+        // reading, and the values stay bilingual.
+        final String[] titles = veryLargeText()
+                ? new String[] {"胶片", "相纸", "曝光", "光谱"}
+                : new String[] {"FILM / 胶片", "PAPER / 相纸",
+                        "EXPOSURE / 曝光", "SPECTRUM / 光谱"};
         // Two columns at every width. Four columns at 400 dp clip the section
         // titles and the longer stock names even at the default font scale;
         // the readout is an instrument strip, not a race to fit four cells.

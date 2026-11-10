@@ -89,6 +89,9 @@ simulated surface.
 - At large text the Optics header keeps 视图 / 测光 / 扫描仪 on one
   horizontally scrollable 48 dp row, so the three entries no longer consume
   the sheet before the first parameter.
+- At 2.0× the 2×2 readout table uses the Chinese-only cell titles
+  (胶片 / 相纸 / 曝光 / 光谱); the bilingual titles wrap to two lines and make
+  the table taller than the controls it feeds.
 - Device evidence: `prototypes/shots/prism-phone-light.png`,
   `prism-phone-dark.png`, `prism-wide.png`.
 - Checks: `checkstyleGovernance`, `checkJvm` (including `GlassStyleCheck`),
