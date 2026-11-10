@@ -83,6 +83,9 @@ simulated surface.
   shell pad).
 - On the ≥600 dp rail layout the sheet reserves the bar's height at the top of
   the control column so its heading never sits under the overlay.
+- At 2.0× the stage drops its file/exposure corner readouts, which the 2×2
+  table already carries, and the import pill clears the floating bar; the
+  status line and spectral rail stay.
 - Device evidence: `prototypes/shots/prism-phone-light.png`,
   `prism-phone-dark.png`, `prism-wide.png`.
 - Checks: `checkstyleGovernance`, `checkJvm` (including `GlassStyleCheck`),

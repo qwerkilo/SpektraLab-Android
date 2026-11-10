@@ -1130,10 +1130,11 @@ load.setGravity(android.view.Gravity.CENTER);
 load.setBackground(pressableFill(Palette.Role.SURFACE_ELEVATED));
 load.setPadding(dp(18), 0, dp(18), 0);
 load.setOnClickListener(v -> showImportMenu());
-// At 2.0× the centred pill runs into the PRINT EXPOSURE readout at the
-// stage's right edge; bias it left rather than shrinking the label.
+// At 2.0× the room above the sheet is too short for both the floating
+// bar and a centred import pill; clear the bar and drop the stage's
+// corner readouts, which the 2×2 table below already carries.
 if (veryLargeText()) {
-    load.setTranslationX(-dp(44));
+    load.setTranslationY(dp(32));
 }
 load.addView(m3Label("选择照片",
         veryLargeText() ? M3Tokens.TypeRole.LABEL_MEDIUM : M3Tokens.TypeRole.LABEL_LARGE,
@@ -1990,6 +1991,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
 
     private void addStageReadouts(android.widget.FrameLayout stage) {
         addStageScrims(stage);
+        if (veryLargeText()) {
+            // The 2×2 table carries film, paper, exposure and spectrum; at
+            // 2.0× the stage is too short to repeat the file and exposure
+            // corners without colliding with the import control.
+            addStageStatusAndRail(stage);
+            return;
+        }
         addStageFileReadout(stage);
         addStageExposureReadout(stage);
         addStageStatusAndRail(stage);
@@ -6379,7 +6387,9 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             setOriginalVisual(false);
         }
         if (name != null && !name.isEmpty()) {
-            fileLabel.setText(name);
+            if (fileLabel != null) {
+                fileLabel.setText(name);
+            }
             rawName.setText(name);
         }
         if (stageMeta != null) {
