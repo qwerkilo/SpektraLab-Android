@@ -31,6 +31,9 @@ Governed packages: `app.spektralab.core`, `app.spektralab.model`,
 
 A new pure rule belongs in `core`; a new record in `model`; a new custom view in
 `ui.widget`. Do not add a field to `MainActivity` when an existing seam owns it.
+A pure rule that transforms the `Look` model stays beside `Look` in the root
+package (`BuiltInLook`, `PresetAmount`): moving it into `core` would make `core`
+depend on a root seam.
 
 ## Extracting a method
 
