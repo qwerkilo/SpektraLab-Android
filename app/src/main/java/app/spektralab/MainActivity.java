@@ -40,6 +40,8 @@ import app.spektralab.core.FormatCardLayout;
 import app.spektralab.core.SpectrumCurve;
 import app.spektralab.core.SpectrumSamples;
 import app.spektralab.core.StockNames;
+import app.spektralab.ui.ConsoleType;
+import app.spektralab.ui.M3Chrome;
 import app.spektralab.core.ImportBudget;
 import app.spektralab.model.FilmStock;
 import app.spektralab.ui.GlassStyle;
@@ -270,6 +272,7 @@ public class MainActivity extends AppCompatActivity {
     private Typeface tfDisplay;      // Inter 300 — numbers and the wordmark
     private Typeface tfBody;         // Inter 400 — Latin labels
     private Typeface tfHan;          // OPPO Sans — Chinese, and anything mixed
+    private ConsoleType type;
     private View emptyState, rawState;
     private TextView fileLabel, rawName, busyLabel, originalLabel, paperValue, edgeValue, formatFootValue;
     /**
@@ -559,6 +562,7 @@ public class MainActivity extends AppCompatActivity {
             DebugSink.text("font", "oppo: " + t);
             tfHan = Typeface.create("sans-serif", Typeface.NORMAL);
         }
+        type = new ConsoleType(this, tfBody, tfHan);
     }
 
     /**
@@ -634,38 +638,15 @@ public class MainActivity extends AppCompatActivity {
                 new android.graphics.drawable.GradientDrawable(
                         android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
                         new int[] {
-                                withAlpha(surface, GlassStyle.SURFACE_START_ALPHA),
-                                withAlpha(surface, GlassStyle.SURFACE_END_ALPHA) });
+                                M3Chrome.withAlpha(surface, GlassStyle.SURFACE_START_ALPHA),
+                                M3Chrome.withAlpha(surface, GlassStyle.SURFACE_END_ALPHA) });
         glass.setCornerRadius(dp(radiusDp));
         glass.setStroke(Math.max(1, dp(1)),
-                withAlpha(m3OutlineVariant(), GlassStyle.OUTLINE_ALPHA));
+                M3Chrome.withAlpha(m3OutlineVariant(), GlassStyle.OUTLINE_ALPHA));
         return glass;
     }
 
     /** A two-state colour for a real checkable control (checked, then default). */
-    private static ColorStateList checkedColors(int checked, int unchecked) {
-        return new ColorStateList(
-                new int[][] { { android.R.attr.state_checked }, {} },
-                new int[] { checked, unchecked });
-    }
-
-    /** Replace a colour's alpha channel; RGB is kept. */
-    private static int withAlpha(int color, int alpha) {
-        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
-    }
-
-    /** Apply an M3 opacity token to a colour without changing its RGB. */
-    private static int withOpacity(int color, float opacity) {
-        return withAlpha(color, Math.round(opacity * 255f));
-    }
-
-    /** An M3 weight on the brand family; API 24–27 synthesises medium as normal. */
-    private static Typeface weighted(Typeface family, int weight) {
-        if (android.os.Build.VERSION.SDK_INT >= 28) {
-            return Typeface.create(family, weight, false);
-        }
-        return Typeface.create(family, weight >= 600 ? Typeface.BOLD : Typeface.NORMAL);
-    }
     /** The window behind the first frame, so the launch never flashes paper in dark. */
     private void applyWindowPalette() {
         try {
@@ -982,96 +963,6 @@ public class MainActivity extends AppCompatActivity {
                 android.content.res.ColorStateList.valueOf(ripple), shape, null);
     }
 
-    private TextView label(String s, float sp, int color, Typeface tf) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp);
-        t.setTextColor(color);
-        if (tf != null) {
-            t.setTypeface(tf);
-        }
-        t.setIncludeFontPadding(false);
-        return t;
-    }
-
-    /** A Mixed run keeps Latin on Inter and Chinese on OPPO Sans, so a title
-     *  like "PHYSICAL SCALE / 光学尺度" never falls back to the platform font. */
-    private static boolean isCjk(char c) {
-        return (c >= 0x2E80 && c <= 0x9FFF)
-                || (c >= 0x3000 && c <= 0x303F)
-                || (c >= 0xF900 && c <= 0xFAFF)
-                || (c >= 0xFF00 && c <= 0xFF65);
-    }
-
-    private static class TfSpan extends android.text.style.MetricAffectingSpan {
-        private final Typeface tf;
-        private final int weight;
-        TfSpan(Typeface tf) { this(tf, 400); }
-        TfSpan(Typeface tf, int weight) { this.tf = tf; this.weight = weight; }
-        @Override public void updateDrawState(android.text.TextPaint p) { apply(p); }
-        @Override public void updateMeasureState(android.text.TextPaint p) { apply(p); }
-        private void apply(android.text.TextPaint p) {
-            p.setTypeface(weighted(tf, weight));
-        }
-    }
-
-    private CharSequence mixedText(String text) {
-        return mixedText(text, 400);
-    }
-
-    private CharSequence mixedText(String text, int weight) {
-        android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(text);
-        int i = 0;
-        while (i < text.length()) {
-            final boolean cjk = isCjk(text.charAt(i));
-            int j = i + 1;
-            while (j < text.length() && isCjk(text.charAt(j)) == cjk) {
-                ++j;
-            }
-            sb.setSpan(new TfSpan(cjk ? tfHan : tfBody, weight), i, j,
-                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            i = j;
-        }
-        return sb;
-    }
-
-    /** Mixed Chinese/Latin runs with one M3 role: size, weight, tracking, line height. */
-    private TextView mixedM3Label(String text, M3Tokens.TypeRole role, int color) {
-        final TextView t = new TextView(this);
-        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, role.sizeSp);
-        t.setTextColor(color);
-        t.setText(mixedText(text, role.weight));
-        t.setIncludeFontPadding(false);
-        t.setLetterSpacing(role.letterSpacingEm);
-        applyM3LineHeight(t, role);
-        return t;
-    }
-
-    /** Text with one M3 type role: size, weight, tracking, line height, brand family. */
-    private TextView m3Label(String text, M3Tokens.TypeRole role, int color, Typeface family) {
-        final TextView view = label(text, role.sizeSp, color, family);
-        applyTypeRole(view, role, family);
-        return view;
-    }
-
-    /** Apply a role to an existing TextView, including a Material component's label. */
-    private void applyTypeRole(TextView view, M3Tokens.TypeRole role, Typeface family) {
-        view.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, role.sizeSp);
-        view.setTypeface(weighted(family, role.weight));
-        view.setLetterSpacing(role.letterSpacingEm);
-        applyM3LineHeight(view, role);
-    }
-
-    /** Make each line exactly the role's M3 line height, not the font's default. */
-    private void applyM3LineHeight(TextView view, M3Tokens.TypeRole role) {
-        final android.graphics.Paint.FontMetrics metrics = view.getPaint().getFontMetrics();
-        final float natural = metrics.descent - metrics.ascent;
-        final float target = android.util.TypedValue.applyDimension(
-                android.util.TypedValue.COMPLEX_UNIT_SP, role.lineHeightSp,
-                getResources().getDisplayMetrics());
-        view.setLineSpacing(Math.max(0f, target - natural), 1f);
-    }
-
     private View hairline(int color) {
         View v = new View(this);
         v.setBackgroundColor(color);
@@ -1153,7 +1044,7 @@ load.setOnClickListener(v -> showImportMenu());
 if (veryLargeText()) {
     load.setTranslationY(dp(32));
 }
-load.addView(m3Label("选择照片",
+load.addView(type.m3Label("选择照片",
         veryLargeText() ? M3Tokens.TypeRole.LABEL_MEDIUM : M3Tokens.TypeRole.LABEL_LARGE,
         m3Primary(), tfHan));
 ArrowView loadArrow = new ArrowView(this, palette.color(Palette.Role.ACCENT));
@@ -1172,10 +1063,10 @@ raw.setOrientation(LinearLayout.VERTICAL);
 raw.setGravity(android.view.Gravity.CENTER);
 raw.setPadding(dp(24), dp(16), dp(24), dp(16));
 raw.setVisibility(View.GONE);
-TextView rawTitle = label("RAW LOADED", 34, palette.color(Palette.Role.STAGE_INK), tfDisplay);
+TextView rawTitle = type.label("RAW LOADED", 34, palette.color(Palette.Role.STAGE_INK), tfDisplay);
 rawTitle.setLetterSpacing(-0.055f);
 raw.addView(rawTitle);
-rawName = label("", 9, palette.color(Palette.Role.STAGE_INK), tfHan);
+rawName = type.label("", 9, palette.color(Palette.Role.STAGE_INK), tfHan);
 rawName.setAlpha(0.7f);
 rawName.setLineSpacing(dp(4), 1f);
 rawName.setGravity(android.view.Gravity.CENTER);
@@ -1188,7 +1079,7 @@ rawState = raw;
 
     /** The rendering overlay label. */
     private void addStageBusyLabel(android.widget.FrameLayout stage) {
-busyLabel = label("RENDERING", 18, palette.color(Palette.Role.STAGE_INK), tfDisplay);
+busyLabel = type.label("RENDERING", 18, palette.color(Palette.Role.STAGE_INK), tfDisplay);
 busyLabel.setLetterSpacing(0.14f);
 busyLabel.setGravity(android.view.Gravity.CENTER);
 busyLabel.setBackgroundColor(palette.color(Palette.Role.STAGE_BUSY));
@@ -1479,12 +1370,12 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         toolbar.setBackground(glassSurface(GlassStyle.TOP_BAR_RADIUS_DP));
         toolbar.setElevation(dp(GlassStyle.TOP_BAR_ELEVATION_DP));
         toolbar.setClipToOutline(true);
-        toolbar.setTitle(typed("SpektraLab", tfDisplay));
+        toolbar.setTitle(type.typed("SpektraLab", tfDisplay));
         // At very large text the wordmark and the two actions compete for one
         // 48 dp row; the subtitle is the first thing to go so the name and
         // the actions both stay legible. At 1.3× the tagline still fits.
         if (!veryLargeText()) {
-            toolbar.setSubtitle(mixedText("/ CONSOLE"));
+            toolbar.setSubtitle(type.mixedText("/ CONSOLE"));
         }
         toolbar.setLongClickable(true);
         toolbar.setOnLongClickListener(v -> { showAbout(); return true; });
@@ -1493,19 +1384,19 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(android.view.Gravity.CENTER_VERTICAL);
 
-        sharePill = actionButton(mixedText("分享"), "分享最近一次导出");
+        sharePill = actionButton(type.mixedText("分享"), "分享最近一次导出");
         sharePill.setVisibility(View.GONE);
         sharePill.setOnClickListener(v -> shareLastExport());
         actions.addView(sharePill, actionButtonParams());
 
-        undoButton = actionButton(mixedText(veryLargeText() ? "撤" : "撤销"),
+        undoButton = actionButton(type.mixedText(veryLargeText() ? "撤" : "撤销"),
                 "撤销上一次调整");
         undoButton.setVisibility(View.GONE);
         undoButton.setOnClickListener(v -> undoLook());
         actions.addView(undoButton, actionButtonParams());
 
         final MaterialButton themeButton = actionButton(
-                mixedText(veryLargeText()
+                type.mixedText(veryLargeText()
                         ? (dark ? "暗" : "亮")
                         : (dark ? "暗 DARK" : "亮 LIGHT")),
                 dark ? "当前深色主题，点击切换到浅色" : "当前浅色主题，点击切换到深色");
@@ -1521,7 +1412,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         themeButton.setOnClickListener(v -> toggleTheme());
         actions.addView(themeButton, actionButtonParams());
 
-        final MaterialButton export = actionButton(mixedText("导出"), "导出 EXPORT 照片");
+        final MaterialButton export = actionButton(type.mixedText("导出"), "导出 EXPORT 照片");
         export.setOnClickListener(v -> showExportDialog());
         actions.addView(export, actionButtonParams());
 
@@ -1606,21 +1497,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         button.setTextColor(color);
         button.setBackgroundTintList(ColorStateList.valueOf(android.graphics.Color.TRANSPARENT));
         button.setRippleColor(ColorStateList.valueOf(
-                withOpacity(color, M3Tokens.StateLayer.PRESSED.opacity)));
+                M3Chrome.withOpacity(color, M3Tokens.StateLayer.PRESSED.opacity)));
         button.setElevation(0f);
         button.setStateListAnimator(null);
         button.setContentDescription(description);
-        applyTypeRole(button, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
+        type.applyTypeRole(button, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
         button.setOnClickListener(v -> action.run());
         return button;
-    }
-
-    /** A run with one family, for the wordmark's Inter Light. */
-    private CharSequence typed(String text, Typeface face) {
-        final android.text.SpannableString span = new android.text.SpannableString(text);
-        span.setSpan(new TfSpan(face), 0, span.length(),
-                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        return span;
     }
 
     /** Text inside a Material component: one M3 type role, brand families. */
@@ -1715,7 +1598,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         cell.setOrientation(LinearLayout.VERTICAL);
         cell.setPadding(dp(9), dp(3), dp(6), dp(3));
 
-        TextView title = m3Label(titleText, M3Tokens.TypeRole.LABEL_SMALL,
+        TextView title = type.m3Label(titleText, M3Tokens.TypeRole.LABEL_SMALL,
                 m3OnSurfaceVariant(), tfHan);
         // At 2.0× the bilingual title is wider than half the phone; let it
         // wrap instead of ending in an ellipsis that hides the parameter name.
@@ -1731,12 +1614,12 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         LinearLayout valueRow = new LinearLayout(this);
         valueRow.setOrientation(LinearLayout.HORIZONTAL);
         valueRow.setGravity(android.view.Gravity.BOTTOM);
-        TextView value = m3Label("—", M3Tokens.TypeRole.LABEL_MEDIUM,
+        TextView value = type.m3Label("—", M3Tokens.TypeRole.LABEL_MEDIUM,
                 m3OnSurface(), i == 2 ? tfDisplay : tfHan);
         value.setSingleLine(true);
         value.setEllipsize(android.text.TextUtils.TruncateAt.END);
         valueRow.addView(value, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView unit = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+        TextView unit = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
                 m3OnSurfaceVariant(), tfBody);
         LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
         unitLp.leftMargin = dp(2);
@@ -1746,7 +1629,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         valueRowLp.topMargin = dp(1);
         cell.addView(valueRow, valueRowLp);
 
-        TextView detail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+        TextView detail = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
                 m3OnSurfaceVariant(), tfBody);
         detail.setSingleLine(false);
         detail.setMaxLines(2);
@@ -1926,13 +1809,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
         info.setClickable(false);
-        fileLabel = label("未选择照片", 6.5f, palette.color(Palette.Role.STAGE_INK), tfHan);
+        fileLabel = type.label("未选择照片", 6.5f, palette.color(Palette.Role.STAGE_INK), tfHan);
         fileLabel.setAlpha(0.82f);
         fileLabel.setSingleLine(true);
         fileLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
         fileLabel.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
         info.addView(fileLabel, new LinearLayout.LayoutParams(-1, -2));
-        stageMeta = label("NO FRAME", 5.5f,
+        stageMeta = type.label("NO FRAME", 5.5f,
                 palette.color(Palette.Role.STAGE_INK), tfBody);
         stageMeta.setAlpha(0.66f);
         stageMeta.setLetterSpacing(0.12f);
@@ -1957,7 +1840,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         exposure.setOrientation(LinearLayout.VERTICAL);
         exposure.setGravity(android.view.Gravity.END);
         exposure.setClickable(false);
-        TextView exposureCaption = label("PRINT EXPOSURE", 5.5f,
+        TextView exposureCaption = type.label("PRINT EXPOSURE", 5.5f,
                 palette.color(Palette.Role.STAGE_INK), tfBody);
         exposureCaption.setAlpha(0.66f);
         exposureCaption.setLetterSpacing(0.12f);
@@ -1967,13 +1850,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         LinearLayout exposureRow = new LinearLayout(this);
         exposureRow.setOrientation(LinearLayout.HORIZONTAL);
         exposureRow.setGravity(android.view.Gravity.BOTTOM | android.view.Gravity.END);
-        stageExposureValue = label("1.00", 27,
+        stageExposureValue = type.label("1.00", 27,
                 palette.color(Palette.Role.STAGE_INK), tfDisplay);
         stageExposureValue.setLetterSpacing(-0.05f);
         stageExposureValue.setSingleLine(true);
         stageExposureValue.setShadowLayer(dp(3), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
         exposureRow.addView(stageExposureValue);
-        TextView ev = label("EV", 7,
+        TextView ev = type.label("EV", 7,
                 palette.color(Palette.Role.STAGE_INK), tfBody);
         ev.setAlpha(0.8f);
         LinearLayout.LayoutParams evLp = new LinearLayout.LayoutParams(-2, -2);
@@ -1998,7 +1881,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
 
     /** The status line and the spectral rail. */
     private void addStageStatusAndRail(android.widget.FrameLayout stage) {
-        statusText = label("等待导入", 6.5f,
+        statusText = type.label("等待导入", 6.5f,
                 palette.color(Palette.Role.STAGE_INK), tfHan);
         statusText.setSingleLine(true);
         statusText.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -2062,14 +1945,14 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         chip.setCheckedIconVisible(false);
         chip.setChipIconVisible(false);
         chip.setEnsureMinTouchTargetSize(true);
-        chip.setText(mixedText("SCAN · 扫描", M3Tokens.TypeRole.LABEL_LARGE.weight));
-        applyTypeRole(chip, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
+        chip.setText(type.mixedText("SCAN · 扫描", M3Tokens.TypeRole.LABEL_LARGE.weight));
+        type.applyTypeRole(chip, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
         chip.setGravity(android.view.Gravity.CENTER);
         chip.setSingleLine(true);
-        chip.setChipBackgroundColor(checkedColors(chipSelected, chipSurface));
+        chip.setChipBackgroundColor(M3Chrome.checkedColors(chipSelected, chipSurface));
         chip.setChipStrokeWidth(Math.max(1, dp(1)));
-        chip.setChipStrokeColor(checkedColors(chipSelected, chipOutline));
-        chip.setTextColor(checkedColors(chipTextSelected, chipText));
+        chip.setChipStrokeColor(M3Chrome.checkedColors(chipSelected, chipOutline));
+        chip.setTextColor(M3Chrome.checkedColors(chipTextSelected, chipText));
         chip.setContentDescription("扫描检视，点击开启");
         chip.setOnClickListener(v -> toggleScan());
         scanToggleChip = chip;
@@ -2116,13 +1999,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         // so the caption used to be measured against the narrower RGB line and
         // clipped at 390 dp. Wrapping it makes the caption the block's widest
         // child and gives the readout one stable width while the numbers change.
-        final TextView caption = m3Label("SCAN INSPECT · CENTRE ROW",
+        final TextView caption = type.m3Label("SCAN INSPECT · CENTRE ROW",
                 M3Tokens.TypeRole.LABEL_SMALL, cardMuted, tfBody);
         caption.setSingleLine(true);
         caption.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         block.addView(caption, new LinearLayout.LayoutParams(-2, -2));
 
-        scanReadoutRgb = m3Label("R \u2014  G \u2014  B \u2014",
+        scanReadoutRgb = type.m3Label("R \u2014  G \u2014  B \u2014",
                 M3Tokens.TypeRole.BODY_SMALL, cardText, tfBody);
         scanReadoutRgb.setSingleLine(true);
         scanReadoutRgb.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -2130,7 +2013,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         rgbLp.topMargin = dp(3);
         block.addView(scanReadoutRgb, rgbLp);
 
-        scanReadoutLambda = m3Label("\u03bb \u2014",
+        scanReadoutLambda = type.m3Label("\u03bb \u2014",
                 M3Tokens.TypeRole.BODY_SMALL, cardText, tfDisplay);
         scanReadoutLambda.setSingleLine(true);
         scanReadoutLambda.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -2293,7 +2176,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         row.setPadding(dp(10), 0, dp(4), 0);
         sourceRow = row;
 
-        TextView add = m3Label("\uff0b", M3Tokens.TypeRole.TITLE_LARGE,
+        TextView add = type.m3Label("\uff0b", M3Tokens.TypeRole.TITLE_LARGE,
                 m3Primary(), tfDisplay);
         add.setGravity(android.view.Gravity.CENTER);
         add.setFocusable(true);
@@ -2313,7 +2196,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         thumbScroll.addView(thumbStrip, new android.widget.FrameLayout.LayoutParams(-2, -1));
         row.addView(thumbScroll, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
-        TextView fold = m3Label("\u2039", M3Tokens.TypeRole.TITLE_SMALL,
+        TextView fold = type.m3Label("\u2039", M3Tokens.TypeRole.TITLE_SMALL,
                 m3OnSurfaceVariant(), tfHan);
         fold.setGravity(android.view.Gravity.CENTER);
         fold.setFocusable(true);
@@ -2359,7 +2242,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         });
         handle.addView(shelfHandleImage, new android.widget.FrameLayout.LayoutParams(card, card));
 
-        TextView chevron = label("\u203a", 14, palette.color(Palette.Role.STAGE_INK), tfDisplay);
+        TextView chevron = type.label("\u203a", 14, palette.color(Palette.Role.STAGE_INK), tfDisplay);
         chevron.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
         chevron.setPadding(0, 0, dp(5), 0);
         chevron.setShadowLayer(dp(2), 0, 0, palette.color(Palette.Role.STAGE_SHADOW));
@@ -2899,7 +2782,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         head.setMinimumHeight(dp(SECTION_HEAD_HEIGHT_DP));
-        TextView titleView = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
+        TextView titleView = type.mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
         titleView.setMaxLines(2);
         titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
         head.addView(titleView, new LinearLayout.LayoutParams(
@@ -2986,7 +2869,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
                 new LinearLayout.LayoutParams(-1, -2));
         filmMetricsRow.setMinimumHeight(dp(FILM_METRICS_HEIGHT_DP));
 
-        filmNote = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+        filmNote = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
                 m3OnSurfaceVariant(), tfBody);
         filmNote.setSingleLine(false);
         filmNote.setMaxLines(2);
@@ -3000,7 +2883,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         LinearLayout paperRow = new LinearLayout(this);
         paperRow.setOrientation(LinearLayout.HORIZONTAL);
         paperRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        paperRow.addView(mixedM3Label("相纸 / 拷贝片",
+        paperRow.addView(type.mixedM3Label("相纸 / 拷贝片",
                 M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant()));
         MaterialCardView paperChoice = new MaterialCardView(this);
         paperChoice.setCardElevation(0f);
@@ -3013,19 +2896,19 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         paperChoice.setFocusable(true);
         paperChoice.setContentDescription("选择相纸 / 拷贝片");
         paperChoice.setRippleColor(ColorStateList.valueOf(
-                withOpacity(m3Primary(), M3Tokens.StateLayer.PRESSED.opacity)));
+                M3Chrome.withOpacity(m3Primary(), M3Tokens.StateLayer.PRESSED.opacity)));
         paperChoice.setOnClickListener(v -> showPaperPicker());
         LinearLayout paperInner = new LinearLayout(this);
         paperInner.setOrientation(LinearLayout.HORIZONTAL);
         paperInner.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
         paperInner.setPadding(dp(12), 0, dp(10), 0);
-        paperValue = m3Label("Kodak Portra Endura",
+        paperValue = type.m3Label("Kodak Portra Endura",
                 M3Tokens.TypeRole.BODY_MEDIUM, m3OnSurface(), tfHan);
         paperValue.setSingleLine(true);
         paperValue.setEllipsize(android.text.TextUtils.TruncateAt.END);
         paperValue.setGravity(android.view.Gravity.END);
         paperInner.addView(paperValue, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView paperArrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
+        TextView paperArrow = type.m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
                 m3Primary(), tfBody);
         LinearLayout.LayoutParams paperArrowLp = new LinearLayout.LayoutParams(-2, -2);
         paperArrowLp.leftMargin = dp(7);
@@ -3164,16 +3047,16 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             final int chipOutline = m3Role(
                     com.google.android.material.R.attr.colorOutlineVariant,
                     Palette.Role.LINE);
-            chip.setChipBackgroundColor(checkedColors(chipSelected, chipSurface));
+            chip.setChipBackgroundColor(M3Chrome.checkedColors(chipSelected, chipSurface));
             chip.setChipStrokeWidth(Math.max(1, dp(1)));
-            chip.setChipStrokeColor(checkedColors(chipSelected, chipOutline));
-            chip.setTextColor(checkedColors(chipTextSelected, chipText));
+            chip.setChipStrokeColor(M3Chrome.checkedColors(chipSelected, chipOutline));
+            chip.setTextColor(M3Chrome.checkedColors(chipTextSelected, chipText));
             chip.setId(View.generateViewId());
             chip.setCheckable(true);
             chip.setChecked(active);
             chip.setSingleLine(true);
             chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            chip.setText(mixedText(FilmBrand.label(id) + " " + count));
+            chip.setText(type.mixedText(FilmBrand.label(id) + " " + count));
             chip.setContentDescription(FilmBrand.label(id) + "，" + count + " 支胶片"
                     + (active ? "，已选中" : "，筛选"));
             chip.setOnClickListener(v -> {
@@ -3217,13 +3100,13 @@ content.setOrientation(LinearLayout.VERTICAL);
 content.setGravity(android.view.Gravity.CENTER_VERTICAL);
 content.setPadding(dp(8), dp(4), dp(24), dp(4));
 
-TextView name = m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM, m3OnSurface(), tfHan);
+TextView name = type.m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM, m3OnSurface(), tfHan);
 name.setTextColor(ink);
 name.setSingleLine(true);
 name.setEllipsize(android.text.TextUtils.TruncateAt.END);
 content.addView(name, new LinearLayout.LayoutParams(-1, -2));
 
-TextView kind = m3Label(subtitle, M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfBody);
+TextView kind = type.m3Label(subtitle, M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfBody);
 kind.setTextColor(muted);
 kind.setSingleLine(true);
 kind.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -3274,11 +3157,11 @@ card.setOnClickListener(v -> {
                 Palette.Role.INK);
         final int restMuted = m3Role(com.google.android.material.R.attr.colorOnSurfaceVariant,
                 Palette.Role.MUTED_INK);
-        final int disabledInk = withOpacity(restMuted, M3Tokens.DISABLED_CONTENT_ALPHA);
+        final int disabledInk = M3Chrome.withOpacity(restMuted, M3Tokens.DISABLED_CONTENT_ALPHA);
         final android.content.res.ColorStateList ink = new android.content.res.ColorStateList(
                 states, new int[]{checkedInk, restInk, disabledInk});
         final android.content.res.ColorStateList muted = new android.content.res.ColorStateList(
-                states, new int[]{withOpacity(checkedInk, M3Tokens.MEDIUM_EMPHASIS_ALPHA),
+                states, new int[]{M3Chrome.withOpacity(checkedInk, M3Tokens.MEDIUM_EMPHASIS_ALPHA),
                         restMuted, disabledInk});
 
         final MaterialCardView card = new MaterialCardView(this);
@@ -3293,7 +3176,7 @@ card.setOnClickListener(v -> {
         card.setStrokeColor(new android.content.res.ColorStateList(states, new int[]{
                 m3Role(com.google.android.material.R.attr.colorOutline, Palette.Role.ACCENT),
                 m3Role(com.google.android.material.R.attr.colorOutlineVariant, Palette.Role.LINE),
-                withOpacity(restMuted, M3Tokens.StateLayer.DRAGGED.opacity)}));
+                M3Chrome.withOpacity(restMuted, M3Tokens.StateLayer.DRAGGED.opacity)}));
         card.setCheckedIconSize(dp(16));
         card.setCheckedIconMargin(dp(4));
         card.setCheckedIconGravity(MaterialCardView.CHECKED_ICON_GRAVITY_TOP_END);
@@ -3380,12 +3263,12 @@ card.setOnClickListener(v -> {
         LinearLayout cell = new LinearLayout(this);
         cell.setOrientation(LinearLayout.VERTICAL);
         cell.setPadding(dp(1), dp(2), dp(6), dp(1));
-        TextView head = m3Label(caption, M3Tokens.TypeRole.LABEL_SMALL,
+        TextView head = type.m3Label(caption, M3Tokens.TypeRole.LABEL_SMALL,
                 m3OnSurfaceVariant(), tfBody);
         head.setSingleLine(true);
         head.setEllipsize(android.text.TextUtils.TruncateAt.END);
         cell.addView(head, new LinearLayout.LayoutParams(-1, -2));
-        TextView text = m3Label(value, M3Tokens.TypeRole.LABEL_MEDIUM,
+        TextView text = type.m3Label(value, M3Tokens.TypeRole.LABEL_MEDIUM,
                 m3OnSurface(), tfHan);
         text.setSingleLine(true);
         text.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -3593,12 +3476,12 @@ card.setOnClickListener(v -> {
         final BottomSheetDialog dialog = new BottomSheetDialog(this);
         final LinearLayout column = sheetColumn(dialog, title);
 
-        final TextView note = m3Label(subtitle, M3Tokens.TypeRole.BODY_MEDIUM,
+        final TextView note = type.m3Label(subtitle, M3Tokens.TypeRole.BODY_MEDIUM,
                 m3OnSurfaceVariant(), tfHan);
         note.setSingleLine(false);
         column.addView(note, new LinearLayout.LayoutParams(-1, -2));
 
-        final TextView value = m3Label("100%", M3Tokens.TypeRole.TITLE_MEDIUM,
+        final TextView value = type.m3Label("100%", M3Tokens.TypeRole.TITLE_MEDIUM,
                 m3OnSurface(), tfBody);
         value.setPadding(0, dp(8), 0, 0);
         column.addView(value, new LinearLayout.LayoutParams(-1, -2));
@@ -3803,7 +3686,7 @@ card.setOnClickListener(v -> {
             chip.setId(View.generateViewId());
             chip.setCheckable(true);
             chip.setSingleLine(true);
-            chip.setText(mixedText(spec.glyph + "  " + spec.label));
+            chip.setText(type.mixedText(spec.glyph + "  " + spec.label));
             chip.setContentDescription(spec.label + "，参数 " + (i + 1) + " / "
                     + OpticsDelta.Param.values().length);
             chip.setMinimumHeight(dp(MIN_TOUCH_DP));
@@ -3922,12 +3805,12 @@ card.setOnClickListener(v -> {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(24));
 
-        root.addView(m3Label("视图调整 / VIEW", M3Tokens.TypeRole.TITLE_MEDIUM,
+        root.addView(type.m3Label("视图调整 / VIEW", M3Tokens.TypeRole.TITLE_MEDIUM,
                 m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
                 tfDisplay));
 
         final MaterialButton hueButton = actionButton(
-                mixedText(hueToggleText()), "胶片原色：关闭或启用该胶片的色相校正");
+                type.mixedText(hueToggleText()), "胶片原色：关闭或启用该胶片的色相校正");
         hueButton.setOnClickListener(v -> {
             if (HueCorrection.fixed(live().filmStock)) {
                 showSnackbar("这只胶片的色相校正由配置文件固定，不能关闭");
@@ -3940,12 +3823,12 @@ card.setOnClickListener(v -> {
             } else {
                 optics.hueCorrection = optics.hueCorrection > 0.5f ? 0f : 1f;
             }
-            hueButton.setText(mixedText(hueToggleText()));
+            hueButton.setText(type.mixedText(hueToggleText()));
             renderImage();
         });
         root.addView(hueButton, new LinearLayout.LayoutParams(-1, dp(48)));
         final MaterialButton gamutButton = actionButton(
-                mixedText("预览色域 · " + previewSpace),
+                type.mixedText("预览色域 · " + previewSpace),
                 "预览色域：只影响屏幕，导出始终使用 sRGB");
         gamutButton.setOnClickListener(v -> showChoiceSheet("预览色域 / GAMUT",
                 "只影响屏幕显示；导出的 JPEG/TIFF 始终使用 sRGB",
@@ -3954,7 +3837,7 @@ card.setOnClickListener(v -> {
                     previewSpace = picked == 1 ? "Display P3" : "sRGB";
                     getSharedPreferences("console", MODE_PRIVATE).edit()
                             .putString("preview_space", previewSpace).apply();
-                    gamutButton.setText(mixedText("预览色域 · " + previewSpace));
+                    gamutButton.setText(type.mixedText("预览色域 · " + previewSpace));
                     renderImage();
                 }));
         root.addView(gamutButton, new LinearLayout.LayoutParams(-1, dp(48)));
@@ -3968,7 +3851,7 @@ card.setOnClickListener(v -> {
         for (ViewAdjust.Group group : ViewAdjust.Group.values()) {
             final Chip chip = new Chip(this);
             styleOpticsChip(chip);
-            chip.setText(mixedText(group.label + " / " + group.english));
+            chip.setText(type.mixedText(group.label + " / " + group.english));
             chip.setCheckable(true);
             chip.setChecked(group == ViewAdjust.Group.WHITE_BALANCE);
             chip.setMinimumHeight(dp(MIN_TOUCH_DP));
@@ -3997,15 +3880,15 @@ card.setOnClickListener(v -> {
         final LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(24));
-        root.addView(m3Label("扫描 / SCAN", M3Tokens.TypeRole.TITLE_MEDIUM,
+        root.addView(type.m3Label("扫描 / SCAN", M3Tokens.TypeRole.TITLE_MEDIUM,
                 m3OnSurface(), tfDisplay));
-        root.addView(m3Label("SP-3000 是模型预设，不是实测扫描仪标定。"
+        root.addView(type.m3Label("SP-3000 是模型预设，不是实测扫描仪标定。"
                         + "选择预设只打开两项黑白校正；关闭后仍可单独开关。"
                         + "镜头模糊与反锐化属于原生 parity 任务。",
                         M3Tokens.TypeRole.LABEL_MEDIUM, m3OnSurfaceVariant(), tfHan),
                 new LinearLayout.LayoutParams(-1, -2));
         if (isPositiveFilm(live().filmStock)) {
-            root.addView(m3Label("当前是正片直扫：黑白校正不参与渲染；切回负片后生效。",
+            root.addView(type.m3Label("当前是正片直扫：黑白校正不参与渲染；切回负片后生效。",
                             M3Tokens.TypeRole.LABEL_MEDIUM, m3Primary(), tfHan),
                     new LinearLayout.LayoutParams(-1, -2));
         }
@@ -4019,7 +3902,7 @@ card.setOnClickListener(v -> {
         for (ScanProfile profile : values) {
             final Chip chip = new Chip(this);
             styleOpticsChip(chip);
-            chip.setText(mixedText(profile.label));
+            chip.setText(type.mixedText(profile.label));
             chip.setCheckable(true);
             chip.setChecked(profile == live().scanProfile());
             chip.setMinimumHeight(dp(MIN_TOUCH_DP));
@@ -4151,13 +4034,13 @@ card.setOnClickListener(v -> {
     /** The two flip switches. */
     private void buildComposeFlips(LinearLayout root, boolean[] draftFlips) {
         final MaterialSwitch flipH = new MaterialSwitch(this);
-        flipH.setText(mixedText("水平翻转 / FLIP H"));
+        flipH.setText(type.mixedText("水平翻转 / FLIP H"));
         flipH.setChecked(draftFlips[0]);
         flipH.setOnCheckedChangeListener((b, checked) -> draftFlips[0] = checked);
         root.addView(flipH, new LinearLayout.LayoutParams(-1, dp(48)));
 
         final MaterialSwitch flipV = new MaterialSwitch(this);
-        flipV.setText(mixedText("垂直翻转 / FLIP V"));
+        flipV.setText(type.mixedText("垂直翻转 / FLIP V"));
         flipV.setChecked(draftFlips[1]);
         flipV.setOnCheckedChangeListener((b, checked) -> draftFlips[1] = checked);
         root.addView(flipV, new LinearLayout.LayoutParams(-1, dp(48)));
@@ -4168,7 +4051,7 @@ card.setOnClickListener(v -> {
     private void buildComposeActions(LinearLayout root, BottomSheetDialog dialog,
                                              int[] draftTurns, float[] draft, boolean[] draftFlips) {
         final MaterialButton apply = actionButton(
-                mixedText("应用构图"), "应用旋转、裁切和翻转");
+                type.mixedText("应用构图"), "应用旋转、裁切和翻转");
         apply.setOnClickListener(v -> {
             live().geometryTurns = draftTurns[0];
             live().geometryRotation = draft[0];
@@ -4183,7 +4066,7 @@ card.setOnClickListener(v -> {
         });
         root.addView(apply, new LinearLayout.LayoutParams(-2, dp(48)));
 
-        final MaterialButton reset = actionButton(mixedText("重置构图"), "重置旋转、裁切和翻转");
+        final MaterialButton reset = actionButton(type.mixedText("重置构图"), "重置旋转、裁切和翻转");
         reset.setOnClickListener(v -> {
             live().geometryTurns = 0;
             live().geometryRotation = 0f;
@@ -4202,7 +4085,7 @@ card.setOnClickListener(v -> {
         final LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(24));
-        root.addView(m3Label("构图 / COMPOSE", M3Tokens.TypeRole.TITLE_MEDIUM,
+        root.addView(type.m3Label("构图 / COMPOSE", M3Tokens.TypeRole.TITLE_MEDIUM,
                 m3OnSurface(), tfDisplay));
 
         final int[] draftTurns = {live().geometryTurns};
@@ -4223,9 +4106,9 @@ card.setOnClickListener(v -> {
         final LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        head.addView(m3Label(label, M3Tokens.TypeRole.LABEL_LARGE, m3OnSurface(), tfHan),
+        head.addView(type.m3Label(label, M3Tokens.TypeRole.LABEL_LARGE, m3OnSurface(), tfHan),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        final TextView readout = m3Label(String.format(java.util.Locale.US, "%.2f", value),
+        final TextView readout = type.m3Label(String.format(java.util.Locale.US, "%.2f", value),
                 M3Tokens.TypeRole.BODY_MEDIUM, m3Primary(), tfBody);
         head.addView(readout);
         parent.addView(head, new LinearLayout.LayoutParams(-1, -2));
@@ -4260,10 +4143,10 @@ card.setOnClickListener(v -> {
             final LinearLayout head = new LinearLayout(this);
             head.setOrientation(LinearLayout.HORIZONTAL);
             head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            head.addView(m3Label(field.label, M3Tokens.TypeRole.LABEL_LARGE,
+            head.addView(type.m3Label(field.label, M3Tokens.TypeRole.LABEL_LARGE,
                     m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
                     tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-            final TextView value = m3Label(
+            final TextView value = type.m3Label(
                     ViewAdjust.valueText(field.get(optics.view), field.unit),
                     M3Tokens.TypeRole.BODY_MEDIUM,
                     m3Role(com.google.android.material.R.attr.colorPrimary, Palette.Role.ACCENT),
@@ -4306,7 +4189,7 @@ card.setOnClickListener(v -> {
             fields.addView(block, new LinearLayout.LayoutParams(-1, -2));
         }
 
-        final MaterialButton reset = actionButton(mixedText("重置本页"), "重置当前视图调整分类");
+        final MaterialButton reset = actionButton(type.mixedText("重置本页"), "重置当前视图调整分类");
         reset.setOnClickListener(v -> {
             optics.view.reset(group);
             populateViewFields(fields, group);
@@ -4335,10 +4218,10 @@ card.setOnClickListener(v -> {
         final int chipOutline = m3Role(
                 com.google.android.material.R.attr.colorOutlineVariant,
                 Palette.Role.LINE);
-        chip.setChipBackgroundColor(checkedColors(chipSelected, chipSurface));
+        chip.setChipBackgroundColor(M3Chrome.checkedColors(chipSelected, chipSurface));
         chip.setChipStrokeWidth(Math.max(1, dp(1)));
-        chip.setChipStrokeColor(checkedColors(chipSelected, chipOutline));
-        chip.setTextColor(checkedColors(chipTextSelected, chipText));
+        chip.setChipStrokeColor(M3Chrome.checkedColors(chipSelected, chipOutline));
+        chip.setTextColor(M3Chrome.checkedColors(chipTextSelected, chipText));
         chip.setEnsureMinTouchTargetSize(true);
     }
 
@@ -4354,7 +4237,7 @@ card.setOnClickListener(v -> {
         final LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        opticsName = m3Label("", M3Tokens.TypeRole.TITLE_SMALL,
+        opticsName = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL,
                 m3OnSurface(), tfHan);
         opticsName.setSingleLine(true);
         opticsName.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -4368,16 +4251,16 @@ card.setOnClickListener(v -> {
         final LinearLayout values = new LinearLayout(this);
         values.setOrientation(LinearLayout.HORIZONTAL);
         values.setGravity(android.view.Gravity.BOTTOM);
-        opticsValue = m3Label("", M3Tokens.TypeRole.HEADLINE_SMALL,
+        opticsValue = type.m3Label("", M3Tokens.TypeRole.HEADLINE_SMALL,
                 m3Primary(), tfDisplay);
         values.addView(opticsValue);
-        opticsUnit = m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
+        opticsUnit = type.m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
                 m3OnSurfaceVariant(), tfBody);
         final LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
         unitLp.leftMargin = dp(4);
         unitLp.bottomMargin = dp(4);
         values.addView(opticsUnit, unitLp);
-        opticsDelta = m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
+        opticsDelta = type.m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
                 m3OnSurfaceVariant(), tfDisplay);
         final LinearLayout.LayoutParams deltaLp = new LinearLayout.LayoutParams(-2, -2);
         deltaLp.leftMargin = dp(10);
@@ -4385,7 +4268,7 @@ card.setOnClickListener(v -> {
         values.addView(opticsDelta, deltaLp);
         block.addView(values, new LinearLayout.LayoutParams(-1, -2));
 
-        opticsRange = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+        opticsRange = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
                 m3OnSurfaceVariant(), tfHan);
         opticsRange.setSingleLine(false);
         block.addView(opticsRange, new LinearLayout.LayoutParams(-1, -2));
@@ -4400,7 +4283,7 @@ card.setOnClickListener(v -> {
         row.setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
         row.setMinimumHeight(dp(MIN_TOUCH_DP));
-        final TextView titleView = m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM,
+        final TextView titleView = type.m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM,
                 m3OnSurfaceVariant(), tfHan);
         row.addView(titleView, stacked
                 ? new LinearLayout.LayoutParams(-1, -2)
@@ -4662,11 +4545,11 @@ card.setOnClickListener(v -> {
         final LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
         titles.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView titleView = mixedM3Label("OPTICS / 光学调整",
+        TextView titleView = type.mixedM3Label("OPTICS / 光学调整",
                 M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
         titles.addView(titleView, new LinearLayout.LayoutParams(-1, -2));
 
-        opticsLockNote = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+        opticsLockNote = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
                 m3OnSurfaceVariant(), tfHan);
         opticsLockNote.setSingleLine(true);
         opticsLockNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -4676,13 +4559,13 @@ card.setOnClickListener(v -> {
                 ? new LinearLayout.LayoutParams(-1, -2)
                 : new LinearLayout.LayoutParams(0, -2, 1f));
         final MaterialButton viewAction = actionButton(
-                mixedText("视图"), "打开视图调整：白平衡、亮度、颜色、分级");
+                type.mixedText("视图"), "打开视图调整：白平衡、亮度、颜色、分级");
         viewAction.setOnClickListener(v -> showViewAdjustSheet());
         final MaterialButton meterAction = actionButton(
-                mixedText("测光"), "选择相机测光方式");
+                type.mixedText("测光"), "选择相机测光方式");
         meterAction.setOnClickListener(v -> showMeterPicker());
         final MaterialButton scanAction = actionButton(
-                mixedText("扫描仪"), "打开扫描页：SP-3000 模型预设与黑白校正");
+                type.mixedText("扫描仪"), "打开扫描页：SP-3000 模型预设与黑白校正");
         scanAction.setOnClickListener(v -> showScanSheet());
         if (largeText()) {
             // A vertical head gave each action its own 48 dp row, so at 2.0x
@@ -4731,17 +4614,17 @@ card.setOnClickListener(v -> {
                 -1, dp(FormatCardLayout.stripHeightDp(fontScale()))));
 
         final MaterialButton compose = actionButton(
-                mixedText("构图 / COMPOSE"), "打开构图：旋转、翻转、裁切");
+                type.mixedText("构图 / COMPOSE"), "打开构图：旋转、翻转、裁切");
         compose.setOnClickListener(v -> showComposeSheet());
         panel.addView(compose, new LinearLayout.LayoutParams(-2, dp(48)));
 
         LinearLayout foot = new LinearLayout(this);
         foot.setOrientation(LinearLayout.HORIZONTAL);
         foot.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        foot.addView(m3Label("片门与尺度联动 · 不裁切构图",
+        foot.addView(type.m3Label("片门与尺度联动 · 不裁切构图",
                 M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant(), tfHan),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        formatFootValue = m3Label(
+        formatFootValue = type.m3Label(
                 mmText(GateScale.resolve(live().overscanFormat, live().filmFormatMm).longEdgeMm) + " mm",
                 M3Tokens.TypeRole.LABEL_LARGE, m3Primary(), tfBody);
         foot.addView(formatFootValue);
@@ -4780,8 +4663,8 @@ card.setOnClickListener(v -> {
             card.setCardElevation(0f);
             card.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
             card.setStrokeWidth(dp(1));
-            card.setCardBackgroundColor(checkedColors(selectedSurface, surface));
-            card.setStrokeColor(checkedColors(selectedOutline, outline));
+            card.setCardBackgroundColor(M3Chrome.checkedColors(selectedSurface, surface));
+            card.setStrokeColor(M3Chrome.checkedColors(selectedOutline, outline));
             card.setCheckable(true);
             card.setChecked(active);
             card.setCheckedIconResource(
@@ -4821,10 +4704,10 @@ card.setOnClickListener(v -> {
     LinearLayout valueRow = new LinearLayout(this);
     valueRow.setOrientation(LinearLayout.HORIZONTAL);
     valueRow.setGravity(android.view.Gravity.BOTTOM);
-    TextView value = m3Label(mmText(gate.longEdgeMm),
+    TextView value = type.m3Label(mmText(gate.longEdgeMm),
             M3Tokens.TypeRole.TITLE_LARGE, active ? onSelected : onSurface, tfDisplay);
     valueRow.addView(value);
-    TextView unit = m3Label("mm", M3Tokens.TypeRole.LABEL_SMALL,
+    TextView unit = type.m3Label("mm", M3Tokens.TypeRole.LABEL_SMALL,
             onSurfaceVariant, tfBody);
     LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
     unitLp.leftMargin = dp(2);
@@ -4832,7 +4715,7 @@ card.setOnClickListener(v -> {
     valueRow.addView(unit, unitLp);
     stack.addView(valueRow);
 
-    TextView kind = m3Label(gate.panoramic() ? "宽幅" : "常规",
+    TextView kind = type.m3Label(gate.panoramic() ? "宽幅" : "常规",
             M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
     LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-2, -2);
     kindLp.topMargin = dp(4);
@@ -4841,7 +4724,7 @@ card.setOnClickListener(v -> {
     View spacer = new View(this);
     stack.addView(spacer, new LinearLayout.LayoutParams(1, 0, 1f));
 
-    TextView name = m3Label(gate.label, M3Tokens.TypeRole.LABEL_MEDIUM,
+    TextView name = type.m3Label(gate.label, M3Tokens.TypeRole.LABEL_MEDIUM,
             active ? onSelected : onSurface, tfHan);
     name.setSingleLine(true);
     name.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -4852,7 +4735,7 @@ card.setOnClickListener(v -> {
 
     /** The empty Scale strip when no Gate fits the frame. */
     private void showNoFormatCards() {
-            TextView none = m3Label("这张长宽比没有可用片门",
+            TextView none = type.m3Label("这张长宽比没有可用片门",
                     M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant(), tfHan);
             LinearLayout.LayoutParams noneLp = new LinearLayout.LayoutParams(
                     -2, dp(FormatCardLayout.heightDp(fontScale())));
@@ -4959,7 +4842,7 @@ card.setOnClickListener(v -> {
         scroll.addView(strip, new android.widget.FrameLayout.LayoutParams(-2, -2));
         home.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
 
-        final TextView note = m3Label("片门与尺度联动；片边只在这张图可用的片门里选",
+        final TextView note = type.m3Label("片门与尺度联动；片边只在这张图可用的片门里选",
                 M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfHan);
         final LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
         noteLp.topMargin = dp(8);
@@ -4999,13 +4882,13 @@ card.setOnClickListener(v -> {
         final LinearLayout titleRow = new LinearLayout(this);
         titleRow.setOrientation(LinearLayout.HORIZONTAL);
         titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        final TextView name = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
+        final TextView name = type.mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
         name.setMaxLines(2);
         titleRow.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
-        titleRow.addView(m3Label("›", M3Tokens.TypeRole.TITLE_SMALL, m3OnSurfaceVariant(), tfBody));
+        titleRow.addView(type.m3Label("›", M3Tokens.TypeRole.TITLE_SMALL, m3OnSurfaceVariant(), tfBody));
         stack.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
 
-        final TextView summaryView = m3Label(summary.get(),
+        final TextView summaryView = type.m3Label(summary.get(),
                 M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfHan);
         final LinearLayout.LayoutParams summaryLp = new LinearLayout.LayoutParams(-1, -2);
         summaryLp.topMargin = dp(6);
@@ -5028,7 +4911,7 @@ card.setOnClickListener(v -> {
      */
     /** The rebate gate card and its live label. */
     private void addRebateGateCard(int onSurface, int onSurfaceVariant) {
-rebateGateValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+rebateGateValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
 rebateGateCard = new MaterialCardView(this);
 rebateGateCard.setCardElevation(0f);
 rebateGateCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
@@ -5044,11 +4927,11 @@ final LinearLayout gateRow = new LinearLayout(this);
 gateRow.setOrientation(LinearLayout.HORIZONTAL);
 gateRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
 gateRow.setPadding(dp(14), 0, dp(14), 0);
-gateRow.addView(m3Label("片门格式", M3Tokens.TypeRole.BODY_MEDIUM,
+gateRow.addView(type.m3Label("片门格式", M3Tokens.TypeRole.BODY_MEDIUM,
         onSurfaceVariant, tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
 rebateGateValue.setGravity(android.view.Gravity.END);
 gateRow.addView(rebateGateValue, new LinearLayout.LayoutParams(-2, -2));
-final TextView gateArrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
+final TextView gateArrow = type.m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
         onSurfaceVariant, tfBody);
 final LinearLayout.LayoutParams gateArrowLp = new LinearLayout.LayoutParams(-2, -2);
 gateArrowLp.leftMargin = dp(7);
@@ -5077,7 +4960,7 @@ rebateControls.addView(switchRow("片边文字（厂标 / 张数）", null,
             commitRebate();
         }), new LinearLayout.LayoutParams(-1, dp(56)));
 
-rebateFogValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+rebateFogValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
 rebateFogSlider = rebateSliderRow(rebateControls, "片基雾",
         "片基本身的灰雾。0 是完全透明，越大越脏",
         RebateControls.FOG_MIN, RebateControls.FOG_MAX, 0.05f,
@@ -5086,7 +4969,7 @@ rebateFogSlider = rebateSliderRow(rebateControls, "片基雾",
         value -> live().edgeFog = RebateControls.clampFog(value),
         () -> live().edgeFog, rebateFogValue);
 
-rebateLeaksValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+rebateLeaksValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
 rebateLeaksSlider = rebateSliderRow(rebateControls, "漏光",
         "卷轴漏进来的光，从片边渗向画面",
         RebateControls.LEAKS_MIN, RebateControls.LEAKS_MAX, 0.05f,
@@ -5095,7 +4978,7 @@ rebateLeaksSlider = rebateSliderRow(rebateControls, "漏光",
         value -> live().edgeLeaks = RebateControls.clampLeaks(value),
         () -> live().edgeLeaks, rebateLeaksValue);
 
-rebateFrameNoValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+rebateFrameNoValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
 rebateFrameNoSlider = rebateSliderRow(rebateControls, "片边张数",
         "片边上印的张数。0 = 按 seed 随机",
         RebateControls.FRAME_NUMBER_MIN, RebateControls.FRAME_NUMBER_MAX, 1f,
@@ -5104,7 +4987,7 @@ rebateFrameNoSlider = rebateSliderRow(rebateControls, "片边张数",
         value -> live().frameNumber = RebateControls.clampFrameNumber(value),
         () -> live().frameNumber, rebateFrameNoValue);
 
-rebateFNumberValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+rebateFNumberValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
 rebateFNumberSlider = rebateSliderRow(rebateControls, "光圈值",
         "相机记录的 f 值。决定片门边缘的虚化。0 = 未知（按 f/5.6）",
         RebateControls.F_NUMBER_MIN, RebateControls.F_NUMBER_MAX, 1f,
@@ -5119,7 +5002,7 @@ rebateFNumberSlider = rebateSliderRow(rebateControls, "光圈值",
 
     /** The rebate mode, gate, holes, carrier and seed rows. */
     private void addRebateStructureControls(int onSurface) {
-rebateModeValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+rebateModeValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
 rebateControls.addView(edgeChoiceRow("片边模式", rebateModeValue, RebateControls.MODES,
         () -> live().edgeMode, id -> {
             live().edgeMode = id;
@@ -5127,7 +5010,7 @@ rebateControls.addView(edgeChoiceRow("片边模式", rebateModeValue, RebateCont
             commitRebate();
         }), new LinearLayout.LayoutParams(-1, -2));
 
-rebateGateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+rebateGateStyleValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
 rebateControls.addView(edgeChoiceRow("片门形状", rebateGateStyleValue,
         RebateControls.GATE_STYLES, () -> live().edgeGate, id -> {
             live().edgeGate = id;
@@ -5135,7 +5018,7 @@ rebateControls.addView(edgeChoiceRow("片门形状", rebateGateStyleValue,
             commitRebate();
         }), new LinearLayout.LayoutParams(-1, -2));
 
-rebateHolesValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+rebateHolesValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
 rebateControls.addView(edgeChoiceRow("齿孔", rebateHolesValue, RebateControls.HOLES,
         () -> live().edgeHoles, id -> {
             live().edgeHoles = id;
@@ -5143,7 +5026,7 @@ rebateControls.addView(edgeChoiceRow("齿孔", rebateHolesValue, RebateControls.
             commitRebate();
         }), new LinearLayout.LayoutParams(-1, -2));
 
-rebateCarrierValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+rebateCarrierValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
 rebateControls.addView(edgeChoiceRow("片夹", rebateCarrierValue,
         RebateControls.CARRIERS, () -> live().edgeCarrier, id -> {
             live().edgeCarrier = id;
@@ -5151,7 +5034,7 @@ rebateControls.addView(edgeChoiceRow("片夹", rebateCarrierValue,
             commitRebate();
         }), new LinearLayout.LayoutParams(-1, -2));
 
-rebateCameraSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+rebateCameraSeedValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
 rebateControls.addView(rebateValueRow("片边种子", rebateCameraSeedValue,
         () -> String.valueOf(live().cameraSeed),
         () -> askSeed("片边随机种子（0 – 2147483647）", live().cameraSeed, value -> {
@@ -5160,7 +5043,7 @@ rebateControls.addView(rebateValueRow("片边种子", rebateCameraSeedValue,
             commitRebate();
         })), new LinearLayout.LayoutParams(-1, -2));
 
-rebateFrameSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+rebateFrameSeedValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
 rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         () -> String.valueOf(live().frameSeed),
         () -> askSeed("帧随机种子（0 – 2147483647）", live().frameSeed, value -> {
@@ -5213,7 +5096,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
      */
     /** The editable date imprint field. */
     private void addDateTextField(int onSurface) {
-        dateTextValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateTextValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(rebateValueRow("日期文字", dateTextValue,
                 this::effectiveDateText, () -> {
                     askText("印在画面上的日期（可以自己写）", effectiveDateText(), value -> {
@@ -5227,7 +5110,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
 
     /** The date inset, size and exposure sliders. */
     private void addDateGeometryControls(int onSurface) {
-        dateInsetXValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        dateInsetXValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
         dateInsetXSlider = rebateSliderRow(dateControls, "左右内边距",
                 "字到片门左右边的距离，毫米",
                 DateBack.INSET_MIN, DateBack.INSET_MAX, 0.1f,
@@ -5236,7 +5119,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                 value -> live().dateInsetX = DateBack.clampInset(value),
                 () -> live().dateInsetX, dateInsetXValue);
 
-        dateInsetYValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        dateInsetYValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
         dateInsetYSlider = rebateSliderRow(dateControls, "上下内边距",
                 "字到片门上下边的距离，毫米",
                 DateBack.INSET_MIN, DateBack.INSET_MAX, 0.1f,
@@ -5245,7 +5128,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                 value -> live().dateInsetY = DateBack.clampInset(value),
                 () -> live().dateInsetY, dateInsetYValue);
 
-        dateSizeValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        dateSizeValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
         dateSizeSlider = rebateSliderRow(dateControls, "日期大小",
                 "相对该样式的字高",
                 DateBack.SIZE_MIN, DateBack.SIZE_MAX, 0.05f,
@@ -5254,7 +5137,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                 value -> live().dateSize = DateBack.clampSize(value),
                 () -> live().dateSize, dateSizeValue);
 
-        dateEvValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
+        dateEvValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
         dateEvSlider = rebateSliderRow(dateControls, "日期亮度",
                 "红光在 18% 灰之上的曝光，单位挡",
                 DateBack.EV_MIN, DateBack.EV_MAX, 0.1f,
@@ -5266,7 +5149,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
 
     /** The date placement, corner and style choices. */
     private void addDateStyleControls(int onSurface) {
-        datePlacementValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        datePlacementValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(edgeChoiceRow("日期位置", datePlacementValue,
                 DateBack.PLACEMENTS, () -> live().datePlacement, id -> {
                     live().datePlacement = id;
@@ -5274,7 +5157,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                     commitRebate();
                 }), new LinearLayout.LayoutParams(-1, -2));
 
-        dateCornerValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateCornerValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(edgeChoiceRow("日期角位", dateCornerValue,
                 DateBack.CORNERS, () -> live().dateCorner, id -> {
                     live().dateCorner = id;
@@ -5282,7 +5165,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                     commitRebate();
                 }), new LinearLayout.LayoutParams(-1, -2));
 
-        dateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateStyleValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(edgeChoiceRow("日期样式", dateStyleValue,
                 DateBack.STYLES, () -> live().dateStyle, id -> {
                     live().dateStyle = id;
@@ -5293,7 +5176,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
 
     /** The capture-data and second-frame text fields. */
     private void addDateDataControls(int onSurface) {
-        dateDataValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateDataValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(rebateValueRow("拍摄数据", dateDataValue,
                 () -> live().dataText.isEmpty() ? "（空）" : live().dataText,
                 () -> askText("拍摄数据（和日期一起印在片边）", live().dataText, value -> {
@@ -5316,7 +5199,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                 Palette.Role.MUTED_INK);
 
         dateSwitch = new MaterialSwitch(this);
-        dateDetail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
+        dateDetail = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
         page.addView(switchRow("开启日期水印", dateDetail, dateSwitch, () -> live().dateOn, on -> {
             live().dateOn = on;
             syncDatePage();
@@ -5333,7 +5216,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         addDateStyleControls(onSurface);
         addDateDataControls(onSurface);
 
-        dateTextBValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
+        dateTextBValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
         dateControls.addView(rebateValueRow("第二帧日期", dateTextBValue,
                 () -> live().dateTextB.isEmpty() ? "（空）" : live().dateTextB,
                 () -> askText("半格对的第二帧日期（用不到就留空）", live().dateTextB, value -> {
@@ -5354,7 +5237,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         final MaterialButton back = m3TextButton("‹ 返回", "返回边框页",
                 m3Primary(), () -> openEdgePage(-1));
         head.addView(back, new LinearLayout.LayoutParams(-2, dp(48)));
-        final TextView name = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL,
+        final TextView name = type.mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL,
                 m3OnSurfaceVariant());
         final LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
                 largeText() ? -1 : 0, -2, largeText() ? 0f : 1f);
@@ -5510,17 +5393,17 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         final LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        head.addView(m3Label(name, M3Tokens.TypeRole.BODY_MEDIUM,
+        head.addView(type.m3Label(name, M3Tokens.TypeRole.BODY_MEDIUM,
                 m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
                 tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
         valueView.setText(format.apply(initial));
-        applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfBody);
+        type.applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfBody);
         valueView.setTextColor(m3Primary());
         head.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
         row.addView(head, new LinearLayout.LayoutParams(-1, -2));
 
         if (hint != null && !hint.isEmpty()) {
-            final TextView note = m3Label(hint, M3Tokens.TypeRole.LABEL_SMALL,
+            final TextView note = type.m3Label(hint, M3Tokens.TypeRole.LABEL_SMALL,
                     m3OnSurfaceVariant(), tfHan);
             note.setLineSpacing(dp(2), 1f);
             final LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
@@ -5599,15 +5482,15 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
         row.setMinimumHeight(dp(52));
         row.setPadding(dp(2), 0, dp(2), 0);
-        row.addView(m3Label(labelText, M3Tokens.TypeRole.BODY_MEDIUM,
+        row.addView(type.m3Label(labelText, M3Tokens.TypeRole.BODY_MEDIUM,
                 m3Role(com.google.android.material.R.attr.colorOnSurfaceVariant,
                         Palette.Role.MUTED_INK), tfHan),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfHan);
+        type.applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfHan);
         valueView.setTextColor(m3OnSurface());
         valueView.setGravity(android.view.Gravity.END);
         row.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
-        final TextView arrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
+        final TextView arrow = type.m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
                 m3OnSurfaceVariant(), tfBody);
         final LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(-2, -2);
         arrowLp.leftMargin = dp(7);
@@ -5744,7 +5627,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             }
             // A span keeps the Chinese label on OPPOSans through the rail's
             // active/inactive text-appearance changes.
-            item.setTitle(typed(TAB_NAMES[i], tfHan));
+            item.setTitle(type.typed(TAB_NAMES[i], tfHan));
             if (android.os.Build.VERSION.SDK_INT >= 26) {
                 item.setContentDescription(TAB_NAMES[i] + " " + TAB_ENGLISH[i]);
             }
@@ -5903,7 +5786,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         head.setPadding(dp(16), 0, dp(8), 0);
-        final TextView titleView = m3Label(String.valueOf(title),
+        final TextView titleView = type.m3Label(String.valueOf(title),
                 M3Tokens.TypeRole.TITLE_MEDIUM, m3OnSurface(), tfHan);
         ViewCompat.setAccessibilityHeading(titleView, true);
         head.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1f));
@@ -5917,7 +5800,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         close.setInsetBottom(0);
         close.setPadding(dp(12), 0, dp(12), 0);
         close.setContentDescription("关闭");
-        applyTypeRole(close, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
+        type.applyTypeRole(close, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
         close.setOnClickListener(v -> dialog.dismiss());
         head.addView(close, new LinearLayout.LayoutParams(-2, dp(48)));
         column.addView(head, new LinearLayout.LayoutParams(-1, -2));
@@ -5994,7 +5877,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         final LinearLayout column = sheetColumn(dialog, title);
 
         if (pinned != null && !pinned.isEmpty()) {
-            final TextView pinView = m3Label(pinned, M3Tokens.TypeRole.BODY_MEDIUM,
+            final TextView pinView = type.m3Label(pinned, M3Tokens.TypeRole.BODY_MEDIUM,
                     m3OnSurface(), tfHan);
             pinView.setPadding(dp(16), 0, dp(16), dp(8));
             column.addView(pinView, new LinearLayout.LayoutParams(-1, -2));
@@ -6005,7 +5888,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         final LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         if (note != null && !note.isEmpty()) {
-            final TextView noteView = m3Label(note, M3Tokens.TypeRole.BODY_MEDIUM,
+            final TextView noteView = type.m3Label(note, M3Tokens.TypeRole.BODY_MEDIUM,
                     m3OnSurfaceVariant(), tfHan);
             noteView.setLineSpacing(dp(3), 1f);
             noteView.setPadding(dp(16), 0, dp(16), dp(8));
@@ -6024,7 +5907,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             row.setMinimumHeight(dp(48));
             row.setSingleLine(false);
             row.setPadding(dp(16), dp(6), dp(16), dp(6));
-            applyTypeRole(row, M3Tokens.TypeRole.BODY_LARGE, tfHan);
+            type.applyTypeRole(row, M3Tokens.TypeRole.BODY_LARGE, tfHan);
             row.setOnClickListener(v -> {
                 dialog.dismiss();
                 onPick.accept(index);
@@ -6065,10 +5948,10 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         head.setPadding(dp(16), 0, dp(16), 0);
-        head.addView(mixedM3Label("FEEDBACK / 反馈与交流",
+        head.addView(type.mixedM3Label("FEEDBACK / 反馈与交流",
                         M3Tokens.TypeRole.LABEL_LARGE, m3Primary()),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView close = m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
+        TextView close = type.m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
                 m3OnSurfaceVariant(), tfHan);
         close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         close.setPadding(dp(12), dp(14), 0, dp(14));
@@ -6082,10 +5965,10 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(dp(16), 0, dp(16), 4);
-        TextView title = m3Label("遇到问题，或者想聊冲印？",
+        TextView title = type.m3Label("遇到问题，或者想聊冲印？",
                 M3Tokens.TypeRole.HEADLINE_SMALL, m3OnSurface(), tfHan);
         body.addView(title);
-        TextView copyText = m3Label("渲染报错、导出异常、想要某支胶片，直接发在群里。"
+        TextView copyText = type.m3Label("渲染报错、导出异常、想要某支胶片，直接发在群里。"
                 + "问题能复现的话，把「复制错误信息」的内容一起贴上。",
                 M3Tokens.TypeRole.BODY_MEDIUM, m3OnSurfaceVariant(), tfHan);
         copyText.setLineSpacing(dp(4), 1f);
@@ -6093,12 +5976,12 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         copyTextLp.topMargin = dp(9);
         body.addView(copyText, copyTextLp);
 
-        TextView number = m3Label(QQ_GROUP, M3Tokens.TypeRole.DISPLAY_SMALL,
+        TextView number = type.m3Label(QQ_GROUP, M3Tokens.TypeRole.DISPLAY_SMALL,
                 m3Primary(), tfDisplay);
         LinearLayout.LayoutParams numberLp = new LinearLayout.LayoutParams(-1, -2);
         numberLp.topMargin = dp(16);
         body.addView(number, numberLp);
-        TextView hint = m3Label("QQ 群号，点下面按钮复制后搜索加入",
+        TextView hint = type.m3Label("QQ 群号，点下面按钮复制后搜索加入",
                 M3Tokens.TypeRole.LABEL_MEDIUM, m3OnSurfaceVariant(), tfHan);
         LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(-1, -2);
         hintLp.topMargin = dp(5);
@@ -6112,7 +5995,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setPadding(dp(16), dp(16), dp(16), dp(16));
 
-        TextView open = m3Label("打开 QQ", M3Tokens.TypeRole.LABEL_LARGE,
+        TextView open = type.m3Label("打开 QQ", M3Tokens.TypeRole.LABEL_LARGE,
                 m3Primary(), tfHan);
         open.setGravity(android.view.Gravity.CENTER);
         android.graphics.drawable.GradientDrawable openBg = new android.graphics.drawable.GradientDrawable();
@@ -6125,7 +6008,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         openLp.rightMargin = dp(8);
         actions.addView(open, openLp);
 
-        TextView copy = m3Label("复制群号", M3Tokens.TypeRole.LABEL_LARGE,
+        TextView copy = type.m3Label("复制群号", M3Tokens.TypeRole.LABEL_LARGE,
                 m3Role(com.google.android.material.R.attr.colorOnPrimary,
                         Palette.Role.ON_ACCENT), tfHan);
         copy.setGravity(android.view.Gravity.CENTER);
@@ -6151,7 +6034,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
     /** The mute link shown on the automatic popup. */
     private void addFeedbackMute(LinearLayout card, android.app.Dialog dialog,
                                           android.content.SharedPreferences p) {
-        TextView mute = m3Label("不再自动弹出", M3Tokens.TypeRole.LABEL_MEDIUM,
+        TextView mute = type.m3Label("不再自动弹出", M3Tokens.TypeRole.LABEL_MEDIUM,
                 m3OnSurfaceVariant(), tfHan);
         mute.setGravity(android.view.Gravity.CENTER);
         mute.setPaintFlags(mute.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
@@ -6253,7 +6136,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         final LinearLayout column = sheetColumn(dialog, title);
 
         if (note != null && !note.isEmpty()) {
-            final TextView noteView = m3Label(note, M3Tokens.TypeRole.BODY_MEDIUM,
+            final TextView noteView = type.m3Label(note, M3Tokens.TypeRole.BODY_MEDIUM,
                     m3OnSurfaceVariant(), tfHan);
             noteView.setLineSpacing(dp(3), 1f);
             noteView.setPadding(dp(16), 0, dp(16), dp(4));
@@ -6548,7 +6431,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
 
         LinearLayout textCol = new LinearLayout(this);
         textCol.setOrientation(LinearLayout.VERTICAL);
-        textCol.addView(m3Label(labelText, M3Tokens.TypeRole.LABEL_LARGE,
+        textCol.addView(type.m3Label(labelText, M3Tokens.TypeRole.LABEL_LARGE,
                 m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK), tfHan));
         if (detail != null) {
             LinearLayout.LayoutParams detailLp = new LinearLayout.LayoutParams(-1, -2);
@@ -8052,10 +7935,10 @@ refreshEdgeFormats();
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         head.setPadding(dp(16), 0, dp(16), 0);
-        TextView kicker = mixedM3Label("ERROR / 错误详情",
+        TextView kicker = type.mixedM3Label("ERROR / 错误详情",
                 M3Tokens.TypeRole.LABEL_LARGE, m3Primary());
         head.addView(kicker, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView close = m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
+        TextView close = type.m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
                 m3OnSurfaceVariant(), tfHan);
         close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         close.setPadding(dp(12), dp(14), 0, dp(14));
@@ -8070,15 +7953,15 @@ refreshEdgeFormats();
         LinearLayout bodyBox = new LinearLayout(this);
         bodyBox.setOrientation(LinearLayout.VERTICAL);
         bodyBox.setPadding(dp(16), 0, dp(16), 4);
-        TextView titleView = m3Label(shownTitle, M3Tokens.TypeRole.TITLE_LARGE,
+        TextView titleView = type.m3Label(shownTitle, M3Tokens.TypeRole.TITLE_LARGE,
                 m3OnSurface(), tfHan);
         bodyBox.addView(titleView);
-        TextView advice = m3Label("请复制下面的完整信息，方便定位问题。",
+        TextView advice = type.m3Label("请复制下面的完整信息，方便定位问题。",
                 M3Tokens.TypeRole.BODY_MEDIUM, m3OnSurfaceVariant(), tfHan);
         LinearLayout.LayoutParams adviceLp = new LinearLayout.LayoutParams(-1, -2);
         adviceLp.topMargin = dp(8);
         bodyBox.addView(advice, adviceLp);
-        TextView detail = m3Label(shownBody, M3Tokens.TypeRole.BODY_SMALL,
+        TextView detail = type.m3Label(shownBody, M3Tokens.TypeRole.BODY_SMALL,
                 m3OnSurface(), tfHan);
         detail.setTextIsSelectable(true);
         detail.setPadding(dp(12), dp(11), dp(12), dp(11));
@@ -8101,7 +7984,7 @@ refreshEdgeFormats();
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setPadding(dp(16), dp(14), dp(16), dp(16));
-        TextView closeAction = m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
+        TextView closeAction = type.m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
                 m3Primary(), tfHan);
         closeAction.setGravity(android.view.Gravity.CENTER);
         android.graphics.drawable.GradientDrawable closeBg = new android.graphics.drawable.GradientDrawable();
@@ -8114,7 +7997,7 @@ refreshEdgeFormats();
         LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(0, dp(48), 1f);
         closeLp.rightMargin = dp(8);
         actions.addView(closeAction, closeLp);
-        TextView copy = m3Label("复制错误信息", M3Tokens.TypeRole.LABEL_LARGE,
+        TextView copy = type.m3Label("复制错误信息", M3Tokens.TypeRole.LABEL_LARGE,
                 m3Role(com.google.android.material.R.attr.colorOnPrimary,
                         Palette.Role.ON_ACCENT), tfHan);
         copy.setGravity(android.view.Gravity.CENTER);

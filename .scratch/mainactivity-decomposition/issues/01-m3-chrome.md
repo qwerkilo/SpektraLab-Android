@@ -2,7 +2,15 @@
 
 **Type:** task
 **Blocked by:** None
-**Status:** ready
+**Status:** in progress
+
+**Resolution so far:** `ui/M3Chrome` (checked colour pair, alpha, M3
+opacity, weight synthesis, CJK ranges) and `ui/ConsoleType` (label,
+mixedText, typed, m3Label, mixedM3Label, applyTypeRole, applyM3LineHeight,
+TfSpan) now own the shared typography and colour primitives. `MainActivity`
+delegates through one `type` object; 117 net lines removed. `M3ChromeCheck` 8;
+all gates green. Remaining theme/card wrappers and the top-bar builder are
+still in `MainActivity`.
 
 **What to build:** Move the theme/typography/M3 helpers out of `MainActivity`
 into `app.spektralab.ui.M3Chrome`, with no visual change.

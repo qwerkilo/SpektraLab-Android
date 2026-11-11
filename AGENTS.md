@@ -44,6 +44,8 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `core/RenderEpoch.java` — the canvas generation; a render from an ended epoch must not paint.
 - `core/ExportMatch.java` — 48-column grayscale NCC between an exported JPEG and the canvas, with the retry threshold.
 - `ui/GlassStyle.java` — Prism Table glass radii, alpha, outline and elevation tokens, guarded by `GlassStyleCheck`.
+- `ui/M3Chrome.java` — shared checked-colour pair, alpha, M3 opacity, weight synthesis and CJK ranges; guarded by `M3ChromeCheck`.
+- `ui/ConsoleType.java` — the brand typography instance (label, mixed CJK/Latin runs, M3 type roles, line height). Build labels through it; do not add another `TfSpan` or text-size literal.
 - `core/ExportDigest.java` — length + SHA-256 verification for a gallery export.
 - `ui/widget/` — extracted custom views (`SpectralRail`, `ToolGlyph`, `ArrowView`, `GuideView`, `EdgeBackdrop`, `SnackbarHost`, `CompareView`, `ScanOverlayView`, `SpectrumCurveView`, `HistogramView`). New views go here. See “Material 3 components” before adding one.
 - `core/` — framework-free rules and format helpers (`Metering`, `HueCorrection`, `Histogram`, `LivePreviewGate`, `ScanProfile`, …). `model/` — immutable records (`FilmStock`, `Frame`). `ui/` — presentation state (`UiState`, `ThemeMode`). The root package keeps the composition root and the remaining domain seams (`Look`, `GateScale`, `OpticsDelta`, `Palette`, `M3Tokens`, `UpdateGate`, `SpkError`).
