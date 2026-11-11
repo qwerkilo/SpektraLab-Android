@@ -11,6 +11,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
 /**
@@ -115,6 +116,25 @@ public final class PanelRowsTest {
         org.junit.Assert.assertEquals(
                 "a scan edit with no film must still reveal undo",
                 View.VISIBLE, undo.getVisibility());
+    }
+
+    @Test
+    public void scaleCardsGrowWithTheFont() throws Exception {
+        RuntimeEnvironment.setFontScale(2f);
+        try {
+            final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+            click(activity, "尺度");
+            final ViewGroup strip = (ViewGroup) privateView(activity, "formatCardStrip");
+            assertTrue("no Scale format cards", strip.getChildCount() > 0);
+            final float density = activity.getResources().getDisplayMetrics().density;
+            final View card = strip.getChildAt(0);
+            org.junit.Assert.assertEquals("2.0x card width",
+                    Math.round(116 * density), card.getLayoutParams().width);
+            org.junit.Assert.assertEquals("2.0x card height",
+                    Math.round(125 * density), card.getLayoutParams().height);
+        } finally {
+            RuntimeEnvironment.setFontScale(1f);
+        }
     }
 
     @Test

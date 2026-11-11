@@ -33,6 +33,7 @@ import app.spektralab.core.ScanSample;
 import app.spektralab.core.SessionDocument;
 import app.spektralab.core.ExportDigest;
 import app.spektralab.core.GalleryExport;
+import app.spektralab.core.FormatCardLayout;
 import app.spektralab.core.SpectrumCurve;
 import app.spektralab.core.SpectrumSamples;
 import app.spektralab.core.StockNames;
@@ -4707,8 +4708,11 @@ card.setOnClickListener(v -> {
         formatCardStrip.setOrientation(LinearLayout.HORIZONTAL);
         formatCardStrip.setPadding(0, dp(10), 0, 0);
         formatScroll = scroll;
-        scroll.addView(formatCardStrip, new android.widget.FrameLayout.LayoutParams(-2, dp(127)));
-        panel.addView(scroll, new LinearLayout.LayoutParams(-1, dp(127)));
+        scroll.addView(formatCardStrip,
+                new android.widget.FrameLayout.LayoutParams(
+                        -2, dp(FormatCardLayout.stripHeightDp(fontScale()))));
+        panel.addView(scroll, new LinearLayout.LayoutParams(
+                -1, dp(FormatCardLayout.stripHeightDp(fontScale()))));
 
         final MaterialButton compose = actionButton(
                 mixedText("构图 / COMPOSE"), "打开构图：旋转、翻转、裁切");
@@ -4834,7 +4838,8 @@ card.setOnClickListener(v -> {
     private void showNoFormatCards() {
             TextView none = m3Label("这张长宽比没有可用片门",
                     M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant(), tfHan);
-            LinearLayout.LayoutParams noneLp = new LinearLayout.LayoutParams(-2, dp(105));
+            LinearLayout.LayoutParams noneLp = new LinearLayout.LayoutParams(
+                    -2, dp(FormatCardLayout.heightDp(fontScale())));
             noneLp.leftMargin = dp(2);
             formatCardStrip.addView(none, noneLp);
             return;
@@ -4849,6 +4854,8 @@ card.setOnClickListener(v -> {
         if (edgeIds.isEmpty()) {
             showNoFormatCards();
         }
+        final int cardWidth = FormatCardLayout.widthDp(fontScale());
+        final int cardHeight = FormatCardLayout.heightDp(fontScale());
         for (int i = 0; i < edgeIds.size(); ++i) {
             final String gateId = edgeIds.get(i);
             final GateScale.Gate gate = GateScale.byId(gateId);
@@ -4858,11 +4865,16 @@ card.setOnClickListener(v -> {
             final boolean active = gate.id.equals(live().overscanFormat);
 
             final MaterialCardView card = buildFormatCard(gate, active);
-            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(dp(84), dp(105));
+            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                    dp(cardWidth), dp(cardHeight));
             cardLp.rightMargin = dp(9);
             formatCardStrip.addView(card, cardLp);
             formatCards.add(card);
         }
+    }
+
+    private float fontScale() {
+        return Math.max(1f, getResources().getConfiguration().fontScale);
     }
 
     /** A Scale card and its Gate are one choice, so one tap moves both. */
