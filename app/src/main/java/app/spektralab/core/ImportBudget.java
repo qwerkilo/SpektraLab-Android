@@ -2,12 +2,24 @@ package app.spektralab.core;
 
 /** Pure import-size arithmetic shared by the budget dialog and the decoder. */
 public final class ImportBudget {
-    /** The memory the engine needs for one 12-byte working pixel. */
-    private static final long BYTES_PER_PIXEL = 12L;
-    /** Keep this much headroom for the rest of the process. */
-    private static final long MEMORY_RESERVE_BYTES = 128L << 20;
+
+    private static final long MIN_PIXELS = 1_000_000L;
 
     private ImportBudget() {
+    }
+
+    /**
+     * The area cap: the native frame cap when the renderer has one, and the
+     * memory estimate otherwise. A zero native cap means the banded renderer
+     * has no binding ceiling; a zero memory cap means there is no room left,
+     * so the floor is used rather than reading it as unlimited.
+     */
+    public static int areaCap(int nativeCapPixels, long memoryCapPixels) {
+        long cap = memoryCapPixels > 0 ? memoryCapPixels : MIN_PIXELS;
+        if (nativeCapPixels > 0) {
+            cap = Math.min(cap, nativeCapPixels);
+        }
+        return (int) Math.min(Math.max(cap, MIN_PIXELS), Integer.MAX_VALUE);
     }
 
     /**
@@ -17,11 +29,12 @@ public final class ImportBudget {
      * @param height source height in pixels
      * @param capPixels largest area this device may render
      * @param longEdge longest allowed edge, or 0 for no edge cap
-     * @param availableBytes free heap, or 0 when unknown
+     * @param memoryCapPixels the same memory estimate used for the area cap,
+     *                        or 0 when unknown
      * @return a scale in (0, 1]
      */
     public static double scale(int width, int height, int capPixels, int longEdge,
-                               long availableBytes) {
+                               long memoryCapPixels) {
         if (width <= 0 || height <= 0 || capPixels <= 0) {
             return 1.0;
         }
@@ -34,12 +47,8 @@ public final class ImportBudget {
         if (longEdge > 0 && sourceLongEdge > longEdge) {
             k = Math.min(k, (double) longEdge / sourceLongEdge);
         }
-        if (availableBytes > 0) {
-            final long budget = Math.max(1L << 20, availableBytes - MEMORY_RESERVE_BYTES);
-            final double wantBytes = (double) area * BYTES_PER_PIXEL;
-            if (wantBytes > budget) {
-                k = Math.min(k, Math.sqrt((double) budget / wantBytes));
-            }
+        if (memoryCapPixels > 0 && area > memoryCapPixels) {
+            k = Math.min(k, Math.sqrt((double) memoryCapPixels / (double) area));
         }
         return Math.min(k, 1.0);
     }

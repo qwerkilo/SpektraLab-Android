@@ -6833,13 +6833,11 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         // stated reason. Name both, and say which one is temporary.
         final String driverLine;
         if (probe.maxStorageBufferRange > 0) {
-            final double driverMp = probe.maxStorageBufferRange / 12.0 * 0.80 / 1e6;
-            final double budgetMp = maxImportPixels() / 1e6;
             driverLine = String.format(java.util.Locale.US,
-                    "驱动单缓冲 %.0f MiB，可达 %.0f MP；当前版本按 %.1f MP 预算（分块引擎优化中）",
-                    probe.maxStorageBufferRange / 1048576.0, driverMp, budgetMp);
+                    "驱动单缓冲 %.0f MiB（分块渲染）；本机内存预算约 %.1f MP",
+                    probe.maxStorageBufferRange / 1048576.0, maxImportPixels() / 1e6);
         } else {
-            driverLine = probe.valid ? "驱动未报单缓冲上限" : "设备信息读取失败";
+            driverLine = probe.valid ? "驱动未报单缓冲上限（分块渲染）" : "设备信息读取失败";
         };
         // One sheet, six rows. It was two -- format, then size -- and the first
         // thing that did was hide "全尺寸（原图）" behind a tap that nobody
@@ -6932,7 +6930,9 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
      * `loadImage` below.
      */
     private double importScale(int w, int h, int capPixels) {
-        return ImportBudget.scale(w, h, capPixels, IMPORT_LONG_EDGE, availableMemoryBytes());
+        final long available = availableMemoryBytes();
+        return ImportBudget.scale(w, h, capPixels, IMPORT_LONG_EDGE,
+                available > 0 ? DeviceProbe.maxPixelsByMemory(available) : 0);
     }
 
     private static String megapixels(int w, int h) {
@@ -7637,13 +7637,13 @@ refreshEdgeFormats();
      * `maxImportPixels()` does, and it is derived from this device's binding
      * range and the memory the phone has free right now.
      *
-     * 8000 is where a frame stops being plausible rather than where it stops
-     * working: measured on the SM8735 here, 7500 x 5000 (37.5 MP) renders in
-     * 32 s with a 2.7 GB pool, 8000 x 5333 (42.7 MP) in 57 s, and 8192 x 5464
-     * (44.8 MP) loses the device inside `spk_iir_df_acc`. A 45 MP camera raw
-     * is 8256 x 5504, so this lands it at 8000 x 5333 rather than at 4700.
+     * 12000 is where a frame stops being plausible rather than where it stops
+     * working: the engine banners every pass that would bind a whole plane, so
+     * the area budget (`maxImportPixels`) is the real ceiling. A 45 MP camera
+     * raw stays at its own 8256 x 5504, and a 77 MP rebate canvas is exported
+     * from the frame the phone actually imported.
      */
-    private static final int IMPORT_LONG_EDGE = 8000;
+    private static final int IMPORT_LONG_EDGE = 12000;
     /** Used when the profile cannot be read at all. */
     private static final int IMPORT_PIXEL_FALLBACK = 16490040;
 
@@ -7678,65 +7678,50 @@ refreshEdgeFormats();
      */
     private long availableMemoryBytes() {
         try {
-            android.app.ActivityManager am =
-                    (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
-            android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
-            am.getMemoryInfo(mi);
-            return mi.availMem;
+            return memoryInfo().availMem;
         } catch (Throwable t) {
             return 0;
         }
     }
 
-    /**
-     * Pixels of **source** this device will render, from three ceilings.
-     *
-     * The binding ceiling comes from the engine itself (`spk_max_plane_bytes`,
-     * a direct call) and only falls back to the parsed profile -- because the
-     * profile is JSON and the JSON can fail to parse, and a failed parse used to
-     * read as "no limit". A device whose driver reports the Vulkan minimum
-     * (128 MiB = 11.2 MP) then accepted a 14.8 MP import and died at render.
-     *
-     * `withRebate` divides by the film canvas's growth: the ceiling applies to
-     * the **canvas**, not to the source, and the canvas is wider than the frame
-     * by the film's own width and by the margin along it. Measured from the
-     * engine's gate table (`overscan.cpp`, kFormats) and confirmed against real
-     * renders:
-     *
-     *     135        1.51   (4700x3133 -> 4914x4538)
-     *     135 half   1.53
-     *     120 645    1.18   (1952x2604 -> 2116x2833, measured)
-     *     120 6x9    1.13
-     *     135 XPan   1.50
-     *
-     * 1.6 covers the worst of them with margin. A frame that lands a little
-     * small is a picture; one that lands over the limit is a dead end.
-     */
-    private int maxImportPixels(boolean withRebate) {
-        try { ensureEngine(); } catch (Throwable ignored) { }
-        probeNow();
-        long byBinding = Long.MAX_VALUE;
+    /** Total RAM is a property of the phone; free memory moves by gigabytes. */
+    private long totalMemoryBytes() {
         try {
-            final int byNative = engine == null ? 0 : engine.maxFramePixels();
-            if (byNative > 0) {
-                byBinding = byNative;
-            }
-        } catch (Throwable ignored) { }
-        if (byBinding == Long.MAX_VALUE) {
-            byBinding = probe.maxPixelsByBinding();
+            return memoryInfo().totalMem;
+        } catch (Throwable t) {
+            return 0;
         }
-        final long byMemory = DeviceProbe.maxPixelsByMemory(availableMemoryBytes());
-        // The hard cap is measured, not chosen: 42.7 MP renders here, 44.8 MP
-        // takes the device down, and the pool's peak is 6.3 planes (76 B/px).
-        long px = Math.min(Math.min(byBinding, byMemory), DeviceProbe.HARD_PIXEL_CAP);
-        if (withRebate) {
-            px = (long) (px / 1.6);
-        }
-        return (int) Math.min(Math.max(px, 1_000_000L), Integer.MAX_VALUE);
     }
 
+    private android.app.ActivityManager.MemoryInfo memoryInfo() {
+        final android.app.ActivityManager am =
+                (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        final android.app.ActivityManager.MemoryInfo mi =
+                new android.app.ActivityManager.MemoryInfo();
+        am.getMemoryInfo(mi);
+        return mi;
+    }
+
+    /**
+     * Pixels of source this device will render.
+     *
+     * <p>The engine bands every pass that would otherwise bind a whole plane,
+     * so {@link SpektraLabEngine#maxFramePixels()} returns 0 and a missing
+     * binding ceiling is not a reason to fall back to the driver range. The
+     * memory estimate is the only remaining ceiling; the user is asked before
+     * a frame is shrunk, rather than silently refused.
+     */
     private int maxImportPixels() {
-        return maxImportPixels(live().overscanOn);
+        try { ensureEngine(); } catch (Throwable ignored) { }
+        probeNow();
+        int byNative = 0;
+        try {
+            byNative = engine == null ? 0 : engine.maxFramePixels();
+        } catch (Throwable ignored) { }
+        final long available = Math.max(availableMemoryBytes(),
+                (long) (totalMemoryBytes() * 0.45));
+        return ImportBudget.areaCap(byNative,
+                DeviceProbe.maxPixelsByMemory(available));
     }
 
     /** Put a decoded RAW frame on the canvas before its first print. */
