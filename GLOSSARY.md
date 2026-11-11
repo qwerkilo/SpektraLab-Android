@@ -128,7 +128,23 @@ _Avoid_: Border, overscan
 The date a point-and-shoot camera burned into the Rebate.
 _Avoid_: Timestamp
 
+**Geometry snapshot**:
+The quarter turns, fine rotation, crop rectangle and flips captured when the user commits a composition edit. The render thread sends this snapshot, not the live fields.
+_Avoid_: Crop state, transform copy
+
+**Render epoch**:
+A counter bumped whenever the underlying canvas is replaced. A render that returns for an ended epoch must not paint and must release the rendering state.
+_Avoid_: Generation, frame id
+
 ## Interface
+
+**Composition root**:
+The one Activity object that wires panels, owns the current Frame session, coordinates the single render, and rebuilds the tree for a Theme mode. It is not a feature panel.
+_Avoid_: Controller, god object
+
+**Panel module**:
+A feature-owned UI unit that builds and refreshes one workspace (Stage, Film, Optics, Scale/Edge, Import/Export). It owns its view tree and talks to the Console through a narrow host contract.
+_Avoid_: Fragment, screen, widget
 
 **Console**:
 The chosen editor shell: a full-bleed preview, a readout strip, four tabs, and an instrument panel. It is the A direction of the Instrument prototype.
