@@ -2,7 +2,13 @@
 
 **Type:** task
 **Blocked by:** 02
-**Status:** ready
+**Status:** completed
+
+**Resolution:** the upstream `geoSnap*` race cannot occur here: preview,
+export and RAW import already take one `RenderSnapshot` on the UI thread and the
+worker never reads live geometry fields. The crop re-cut and gate-index fixes
+are already covered by the existing `GateScale`/composition draft path. No new
+code; the invariant is recorded in ADR-0011 and the code map.
 
 **What to build:** Capture composition values when the user commits, and send
 the snapshot from the render thread.

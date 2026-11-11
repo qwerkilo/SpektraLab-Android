@@ -2,7 +2,12 @@
 
 **Type:** task
 **Blocked by:** 01
-**Status:** ready
+**Status:** completed
+
+**Resolution:** `Frame.original()`, `core/ReopenDecision`, `core/RenderEpoch`
+and `clearBusyPlate()` landed. Device: CineStill 800T rendered, 原图 kept the
+Look and showed `ORIGINAL · 未渲染`; import B/switch-back remains for the 06
+device audit. `ReopenDecisionCheck` 4, `RenderEpochCheck` 4.
 
 **What to build:** A Frame remembers whether it was left on 原图, and a render
 that lost its canvas cannot leave RENDERING behind.

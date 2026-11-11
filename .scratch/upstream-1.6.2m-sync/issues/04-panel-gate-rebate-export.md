@@ -2,7 +2,14 @@
 
 **Type:** task
 **Blocked by:** 03
-**Status:** ready
+**Status:** completed
+
+**Resolution:** panel gating already deep-disables the optics strip, chips,
+slider and reset via `setOpticsUnlocked(false)` on load; portrait rebate
+legibility ships inside the 1.6.2m native engine. The export self-check is new:
+`core/ExportMatch` (48-column grayscale NCC, threshold 0.55) plus
+`exportMatchesCanvas`, one automatic re-render, `export-corrupt` logging and a
+suspect result that is not announced as success. `ExportMatchCheck` 7.
 
 **What to build:** Three upstream behaviour fixes that share the render path.
 

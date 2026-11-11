@@ -2,7 +2,14 @@
 
 **Type:** task
 **Blocked by:** 05
-**Status:** ready
+**Status:** in progress
+
+**Resolution so far:** preview is 385 / `1.6.2m-m3` in the manifest, Gradle,
+`VersionCheck` and `preview.json`; `update.json` stays 156. `checkstyleGovernance`,
+`checkJvm` (including the three new checks), `lintDebug`, `testDebugUnitTest`
+and `align16k` + `ApkPolicy` 15/15 pass. Device: clean install, CineStill 800T
+render, 原图 state; the switch-back and export self-check remain because the
+wireless endpoint dropped.
 
 **What to build:** Close the sync.
 

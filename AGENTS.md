@@ -6,7 +6,7 @@ Unofficial Android port of the SpektraLab film/paper simulation engine (Vulkan).
 
 On this Windows checkout use `.\gradlew.bat`; the wrapper is committed. Gradle needs `local.properties` with `sdk.dir=F:\\android-sdk`, JDK 17 or 21, SDK 36.
 
-- `assembleDebug` stages `assets/` and `arm64-v8a` libraries from a donor APK, default `app/build/SpektraLab-1.6.0e-qa.apk`; override with `-PbaseApk=<path>`.
+- `assembleDebug` stages `assets/` and `arm64-v8a` libraries from a donor APK, default `app/build/SpektraLab-1.6.2m-arm64-v8a.apk`; override with `-PbaseApk=<path>`.
 - The donor's `stock_catalog.json` is excluded on purpose. `generateStockCatalog` rebuilds it from the staged profiles, so `targetPrint` and spectral arrays match the profiles. A donor catalogue without `targetPrint` silently disables automatic paper selection.
 - Sign with `SPK_KEYSTORE`, `SPK_KS_PASS`, `SPK_KEY_PASS`, `SPK_KEY_ALIAS`. Without them Gradle uses a debug key that cannot update an installed release build.
 - For Android 15/16 (16 KB pages): run `.\gradlew.bat align16k` and install `app/build/outputs/apk/debug/app-debug-16k-signed.apk`; the plain debug APK is only 4 KB zip-aligned.
@@ -40,6 +40,9 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `PresetAmount.java` — the 0–1 draft blend used by the built-in/preset strength sheet. Numbers and equal-length numeric arrays interpolate; booleans, strings and seeds/turns switch at 50 %.
 - `StockCatalogue.java` — the single store for film/print entries. The Activity exposes read-only views; do not add a parallel list.
 - `core/SessionDocument.java` — the current source URI, Look JSON, tab, Scan state and Original/developed display state; written atomically under `noBackupFilesDir` and restored only when the source is still readable.
+- `core/ReopenDecision.java` — whether a reopened Frame develops its saved Look or stays on 原图.
+- `core/RenderEpoch.java` — the canvas generation; a render from an ended epoch must not paint.
+- `core/ExportMatch.java` — 48-column grayscale NCC between an exported JPEG and the canvas, with the retry threshold.
 - `ui/GlassStyle.java` — Prism Table glass radii, alpha, outline and elevation tokens, guarded by `GlassStyleCheck`.
 - `core/ExportDigest.java` — length + SHA-256 verification for a gallery export.
 - `ui/widget/` — extracted custom views (`SpectralRail`, `ToolGlyph`, `ArrowView`, `GuideView`, `EdgeBackdrop`, `SnackbarHost`, `CompareView`, `ScanOverlayView`, `SpectrumCurveView`, `HistogramView`). New views go here. See “Material 3 components” before adding one.
@@ -85,12 +88,12 @@ Use the global `droidmind` MCP; do not start with raw `adb`.
 ## Upstreams
 
 - **Engine**: `JamesQiu2005/SpektraLab`, branch `assist/vulkan-engine-1.3.4` at `445e314`. Sync by reapplying `patches/engine-android.patch`; never merge the desktop app.
-- **Android app**: `SAINTTaiYi/SpektraLab-Android` at `1.6.0e` (`08183cd`). The fork's `origin` is `qwerkilo/SpektraLab-Android`; pushing there does not update the upstream channel. The 1.6.0e native core is merged; live preview, batch import/export, metering, hue, histogram and preview gamut are in the M3 console. Upstream 58/77 MP controls remain the follow-up M3 port.
+- **Android app**: `SAINTTaiYi/SpektraLab-Android` at `1.6.2m` (`b17f6d2`). The fork's `origin` is `qwerkilo/SpektraLab-Android`; pushing there does not update the upstream channel. The 1.6.2m native core is merged; per-frame 原图, render epoch and export self-check are ported. Upstream feedback QR and old Console chrome are intentionally not ported.
 - On Windows, build-tools 34 `d8` crashes on `MainActivity$1.class`. Use the R8 jar in `android-sdk/cmdline-tools/latest/lib/r8.jar` with JDK 17.
 
 ## Release
 
-- Version is duplicated in `AndroidManifest.xml`, `app/build.gradle` and the channel files; `VersionCheck` fails `checkJvm` on a mismatch. Current stable: **156 / `1.4.4-m3a`** (`update.json`). Current preview: **326 / `1.6.0e-m3`** (`preview.json`).
+- Version is duplicated in `AndroidManifest.xml`, `app/build.gradle` and the channel files; `VersionCheck` fails `checkJvm` on a mismatch. Current stable: **156 / `1.4.4-m3a`** (`update.json`). Current preview: **385 / `1.6.2m-m3`** (`preview.json`).
 - `UpdateCheck` compares version **and** channel, and reads only the fork's endpoints. `ReleaseUrl` allowlists `spektralab.workshop.skin`, the update host, and the fork's GitHub release paths.
 - Stable is gated by `docs/known-issues.md`. KI-1 (>16.7 MP rebate bottom print) is fixed in the 1.4.4 engine and recorded as `Release gate: accepted`; do not reopen it without a new reproduction.
 - `[CHANNEL=preview|stable] CF_TOKEN=... ./scripts/announce.sh <code> <name> <apk|-> "note"...` writes and pushes the channel file, purges jsDelivr, uploads a stable APK to KV (24 MiB limit), and creates a GitHub Release. It targets `qwerkilo/SpektraLab-Android`; confirm the identity before announcing.

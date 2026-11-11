@@ -2,7 +2,13 @@
 
 **Type:** task
 **Blocked by:** None
-**Status:** ready
+**Status:** completed
+
+**Resolution:** `CMakeLists.txt`, `spektralab_jni.cpp` and
+`engine/SpektraLabEngine.java` taken from `1.6.2m`; donor switched to
+`SpektraLab-1.6.2m-arm64-v8a.apk`; the old `throw_runtime(env, msg)` format
+string regression was repaired. `align16k` + `ApkPolicy` 15/15 pass; JPEG
+import/render verified on device. Full export re-check remains in 06.
 
 **What to build:** Take the upstream `1.6.2m` native/JNI delta into the fork
 without adopting its `MainActivity`.

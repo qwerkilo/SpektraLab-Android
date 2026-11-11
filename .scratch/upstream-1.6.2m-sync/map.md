@@ -13,3 +13,6 @@ Order (all touch `MainActivity`, so run sequentially):
 6. 06 version + device audit
 
 Preview target: 385 / `1.6.2m-m3`. Stable remains 156.
+
+Status: 01–05 completed; 06 in progress (device audit interrupted by the
+wireless endpoint going offline).

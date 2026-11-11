@@ -7645,9 +7645,9 @@ refreshEdgeFormats();
             setOriginalVisual(true);
             finishImportRender();
         } catch (Throwable t) {
+            restoringOriginal = false;
             if (pendingSession != null) {
                 pendingSession = null;
-                restoringOriginal = false;
                 SessionDocument.file(getNoBackupFilesDir()).delete();
             }
             lastImportError = describeImportFailure(t);
