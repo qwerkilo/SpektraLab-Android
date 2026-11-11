@@ -7427,7 +7427,10 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         setOpticsUnlocked(false);
         setStage(0, null);
         sourceBitmap = null;
-        sourcePixels = null;
+        if (sourcePixels != null) {
+            SpektraLabEngine.freeDirect(sourcePixels);
+            sourcePixels = null;
+        }
         // The canvas is not a control: CompareView holds the last render and
         // it survives a new session unless it is cleared here.
         if (compare != null) {
@@ -7440,9 +7443,15 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
     /** Pack the decoded still into the engine's float RGB buffer, one row at a time. */
     private void packSourcePixels() {
         // A full int[] of 20 MP would be another 80 MB on the Java heap next
-        // to the direct buffer.
-        sourcePixels = ByteBuffer.allocateDirect(sourceWidth * sourceHeight * 3 * 4)
-                .order(ByteOrder.nativeOrder());
+        // to the direct buffer. `allocateDirect` is capped at the heap growth
+        // limit (512 MB on many phones), so a 45 MP frame is malloc'd through
+        // the engine instead; the buffer has no cleaner and must be freed.
+        if (sourcePixels != null) {
+            SpektraLabEngine.freeDirect(sourcePixels);
+            sourcePixels = null;
+        }
+        final long bytes = (long) sourceWidth * sourceHeight * 3L * 4L;
+        sourcePixels = SpektraLabEngine.allocDirect(bytes).order(ByteOrder.nativeOrder());
         final int[] rowPixels = new int[sourceWidth];
         for (int y = 0; y < sourceHeight; y++) {
             sourceBitmap.getPixels(rowPixels, 0, sourceWidth, 0, y, sourceWidth, 1);
