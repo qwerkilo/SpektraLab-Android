@@ -12,6 +12,8 @@ Android version, and Theme mode.
 - [ ] With three Frames loaded and a film on each, export all: three files appear, the canvas returns to the starting Frame, and Back stops after the current file.
 - [ ] Save a preset from a developed Frame, change two sliders, apply it: the Look returns, one undo step appears, and the canvas renders once.
 - [ ] Share a preset to another app, copy the JSON back, import it: the preset appears in the list and applies.
+- [ ] Open 预设 and apply `外观 · Portra 400` at 100%: film and paper change, composition/crop/date/view stay, one undo entry appears, and one render follows.
+- [ ] Apply the same built-in look at 50% and 0%: continuous values cross-fade, categorical values switch at the midpoint, and 0% leaves the Frame untouched.
 - [ ] Import a JPEG and a RAW: the JPEG starts with 测光 off, the RAW with 保护高光; choosing 平均 renders once and survives undo/frame switch.
 - [ ] Tap the SPECTRUM readout cell: the histogram appears over the stage without a new render, follows later renders, and hides on a second tap.
 - [ ] Open 视图 and toggle 胶片原色 on Portra 400 and CineStill 800T: Portra renders once and keeps the choice across undo; CineStill shows the fixed-configuration message and does not change.
@@ -20,6 +22,8 @@ Android version, and Theme mode.
 - [ ] From a file manager, "open with" offers no SpektraLab image entry (the dead `VIEW` filter is gone); use the in-app picker.
 - [ ] `adb shell dumpsys package app.spektralab` shows only `READ_EXTERNAL_STORAGE` (maxSdk 32) and `INTERNET`.
 - [ ] `adb shell cmd netpolicy` is not needed; the app only reaches HTTPS endpoints and the loopback debug sink.
+- [ ] Import a JPEG, choose a film and a tab, then force-stop and relaunch: the same source, Look and tab return; the saved Look is not re-rendered if the Frame was left on Original.
+- [ ] Revoke the source (delete it or remove the provider) before relaunch: the app drops the session document and opens the empty state instead of a broken Frame.
 
 ## Normal and boundary
 
@@ -47,6 +51,8 @@ Android version, and Theme mode.
 - [ ] Select a stock with gaps; the curve breaks at gaps and the sample count matches the shipped data.
 - [ ] Corrupt `update.json` on a scratch build; manual update check reports E-2002 and does not open a browser.
 - [ ] Reversal stock (Provia 100F): preview and export both say direct scan; paper is not used.
+- [ ] Force an export failure (revoke the gallery write or fill the target volume): no invisible `IS_PENDING` row remains, the failure message is readable, and the app stays usable.
+- [ ] Export a normal JPEG: the debug sink logs `export-verify` with the copied byte count and SHA-256, and the gallery row is published.
 
 ## Upstream 1.4.0 export and release gate
 

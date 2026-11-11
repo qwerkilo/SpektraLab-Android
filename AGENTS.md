@@ -9,10 +9,7 @@ On this Windows checkout use `.\gradlew.bat`; the wrapper is committed. Gradle n
 - `assembleDebug` stages `assets/` and `arm64-v8a` libraries from a donor APK, default `app/build/SpektraLab-1.6.0e-qa.apk`; override with `-PbaseApk=<path>`.
 - The donor's `stock_catalog.json` is excluded on purpose. `generateStockCatalog` rebuilds it from the staged profiles, so `targetPrint` and spectral arrays match the profiles. A donor catalogue without `targetPrint` silently disables automatic paper selection.
 - Sign with `SPK_KEYSTORE`, `SPK_KS_PASS`, `SPK_KEY_PASS`, `SPK_KEY_ALIAS`. Without them Gradle uses a debug key that cannot update an installed release build.
-- For Android 15/16 (16 KB pages):
-  - `.\gradlew.bat align16k`
-  - install `app/build/outputs/apk/debug/app-debug-16k-signed.apk`
-  - do not install plain `app-debug.apk`; it is only 4 KB zip-aligned.
+- For Android 15/16 (16 KB pages): run `.\gradlew.bat align16k` and install `app/build/outputs/apk/debug/app-debug-16k-signed.apk`; the plain debug APK is only 4 KB zip-aligned.
 - **Never run `.\gradlew.bat clean`.** `app/build/` holds tracked scripts (`gen-stock-catalog.py`, `check-*.py`, build helpers) and `clean` deletes them. Use `--rerun-tasks`, or delete only generated outputs.
 
 Legacy Termux build, only when rebuilding native code: `build-libs-raw.sh` (once) → `build-engine.sh` → `build-native.sh` → `build-libs.sh`. `build-libs.sh` renames `libjpeg.so.8` / `libz.so.1` and rewrites every `DT_NEEDED`; hand-copying `libspektrafilm_engine.so` ships a library that cannot load (E-9000).
@@ -36,22 +33,25 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 
 ## Code map
 
-- `MainActivity.java` — ~9.1k lines, the composition root and programmatic `View` UI. No XML layouts. M3 theme, color roles and type attrs live in `app/src/main/res/values/*`; the rail menu is `res/menu/console_nav.xml`.
+- `MainActivity.java` — large single-file composition root and programmatic `View` UI. No XML layouts; use CodeGraph before editing. M3 theme, color roles and type attrs live in `app/src/main/res/values/*`; the rail menu is `res/menu/console_nav.xml`.
 - `FrameLookSession.java` — the live per-Frame `Look` plus undo. The Activity holds only the current session; `look()` is read-only, edits go through `edit`/`record`. Never add a second copy of a Look value.
 - `RenderSnapshot.java` — one UI-thread snapshot of the Look, engine JSON, stock, long edge and view-adjust. Preview, export and RAW import build it once; workers must not re-read live state. Preview and export share the snapshot; export forces sRGB.
+- `BuiltInLook.java` — six shipped film/paper looks authored as **sparse** overlays. Applying keeps every field the look does not name, including composition, crop, date and view.
+- `PresetAmount.java` — the 0–1 draft blend used by the built-in/preset strength sheet. Numbers and equal-length numeric arrays interpolate; booleans, strings and seeds/turns switch at 50 %.
 - `StockCatalogue.java` — the single store for film/print entries. The Activity exposes read-only views; do not add a parallel list.
+- `core/SessionDocument.java` — the current source URI, Look JSON, tab, Scan state and Original/developed display state; written atomically under `noBackupFilesDir` and restored only when the source is still readable.
+- `ui/GlassStyle.java` — Prism Table glass radii, alpha, outline and elevation tokens, guarded by `GlassStyleCheck`.
+- `core/ExportDigest.java` — length + SHA-256 verification for a gallery export.
 - `ui/widget/` — extracted custom views (`SpectralRail`, `ToolGlyph`, `ArrowView`, `GuideView`, `EdgeBackdrop`, `SnackbarHost`, `CompareView`, `ScanOverlayView`, `SpectrumCurveView`, `HistogramView`). New views go here. See “Material 3 components” before adding one.
 - `core/` — framework-free rules and format helpers (`Metering`, `HueCorrection`, `Histogram`, `LivePreviewGate`, `ScanProfile`, …). `model/` — immutable records (`FilmStock`, `Frame`). `ui/` — presentation state (`UiState`, `ThemeMode`). The root package keeps the composition root and the remaining domain seams (`Look`, `GateScale`, `OpticsDelta`, `Palette`, `M3Tokens`, `UpdateGate`, `SpkError`).
 - `SpektraLabEngine.java` — JNI facade; loads bundled `.so` by absolute path, no `static {}` loader. `spektralab_jni.cpp` — session/render/export; `spektralab_raw_jni.cpp` — LibRaw decode. The engine is not in this repo; only `patches/engine-android.patch` and `docs/tiling.md` are.
-
-- `ui/GlassStyle.java` — Prism Table glass radii, alpha, outline and elevation tokens, guarded by `GlassStyleCheck`.
 
 ## Material 3 components
 
 Prefer Material Components over framework widgets for every control and chrome surface: `MaterialToolbar` + `AppBarLayout`, `TabLayout`, `NavigationRailView` / `NavigationBarView`, `MaterialButton`, `MaterialCardView`, `Chip` / `ChipGroup`, `Slider`, `MaterialSwitch`, `MaterialRadioButton`, `MaterialAlertDialogBuilder`, `BottomSheetDialog`, `Snackbar`, `LinearProgressIndicator`, and `TextInputLayout` / `TextInputEditText`. Style text through `m3Label` / `mixedM3Label` / `applyTypeRole`, and colours through `m3Role` / `m3Primary` / `Palette.Role`; never hardcode a colour or text size.
 
 - A raw `TextView` is only a typographic surface. Free-text dialogs use `TextInputLayout` + `TextInputEditText`; do not add a framework `EditText`. `M3ComponentCheck` fails `checkJvm` when `MainActivity` constructs a framework interactive widget.
-- Custom Views in `ui/widget` are only for canvas or data visuals with no M3 equivalent (`CompareView`, `ScanOverlayView`, `SpectrumCurveView`, `HistogramView`, `SpectralRail`, decorative glyphs). A new interactive control needs an M3 component first, a 48 dp touch target, and a TalkBack role/state description.
+- Custom Views in `ui/widget` are only for canvas or data visuals with no M3 equivalent. A new interactive control needs an M3 component first, a 48 dp touch target, and a TalkBack role/state description.
 - Every screen must work in both themes, with dynamic colour, at 390 dp and at the ≥600 dp rail; M3 defaults must not be overridden with fixed colours.
 
 ## Traps
@@ -64,6 +64,8 @@ Prefer Material Components over framework widgets for every control and chrome s
 - `[E-xxxx]` codes in `SpkError.java` are user-facing. Keep the number when changing the text: E-1001 binding range, E-1108 HE/HE*, E-9000 native load, E-2001/2002 update.
 - `Bitmap#setColorSpace` is API 29, not 26. Guard it with `SDK_INT >= 29`; `lintDebug` fails the build otherwise. `ColorSpace.get` alone is API 26.
 - A one-line policy added to an 80-line method trips `MethodLength`. Put the reset in the callee (for example `openStillSession`) instead of growing the caller, and do not spend its blank-line budget.
+- Restored sessions need a persistable URI grant. Add the read/persistable flags to every `ACTION_OPEN_DOCUMENT` path; `GET_CONTENT` and the Photo Picker may not survive a process death.
+- A gallery export is published only after length + SHA-256 readback. Any copy, truncation or digest failure must delete the `IS_PENDING` row; do not update it to 0 in a catch.
 - GitHub compares **ancestry**, not trees. Upstream syncs must be merge commits, never squash, or the fork shows as behind even when files match.
 
 ## Device: DroidMind first
@@ -76,6 +78,7 @@ Use the global `droidmind` MCP; do not start with raw `adb`.
 - Fall back to `F:\android-sdk\platform-tools\adb.exe` only when the MCP is unavailable.
 - Installing, clearing data, uninstalling and rebooting are state-changing: name the target serial explicitly.
 - For a wide-window check use `wm size 1800x2608` and restore it. Never use `wm density`: it recreates the Activity and clears in-memory Frames, so it cannot prove state preservation.
+- On the 1200×2608 test phone the chat screenshot is shown at about 943×2048; multiply by 1.273 before `input tap`. The film section head (预设 / 全部胶片 / 重置当前页) sits below the 2×2 readout table, not inside it.
 - MIUI `GestureStub` / `AntiMistakeTouch` and other apps' full-screen windows can swallow taps over the app; an ignored tap is not proof of an app bug.
 
 ## Upstreams
@@ -110,3 +113,4 @@ Use the global `droidmind` MCP; do not start with raw `adb`.
 - Triage labels: `docs/agents/triage-labels.md`.
 - Domain docs: `GLOSSARY.md` and `docs/adr/`; see `docs/agents/domain.md`.
 - Code style and layering: `docs/agents/code-style.md`.
+- Current borrow spec: `docs/specs/spektrafilm-borrow.md`; decisions in `docs/adr/0009-spektrafilm-app-layer-borrow.md`.
