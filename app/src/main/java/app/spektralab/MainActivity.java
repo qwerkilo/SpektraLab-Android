@@ -32,6 +32,7 @@ import app.spektralab.core.ScanProfile;
 import app.spektralab.core.ScanSample;
 import app.spektralab.core.SessionDocument;
 import app.spektralab.core.ExportDigest;
+import app.spektralab.core.GalleryExport;
 import app.spektralab.core.SpectrumCurve;
 import app.spektralab.core.SpectrumSamples;
 import app.spektralab.core.StockNames;
@@ -9099,50 +9100,40 @@ refreshEdgeFormats();
         if (outUri == null) {
             throw new RuntimeException("无法创建媒体文件");
         }
+        final ExportDigest.Result copied = GalleryExport.write(tmp, new GalleryExport.Sink() {
+            @Override
+            public java.io.OutputStream openOutput() throws java.io.IOException {
+                return resolver.openOutputStream(outUri);
+            }
+
+            @Override
+            public java.io.InputStream openInput() throws java.io.IOException {
+                return resolver.openInputStream(outUri);
+            }
+
+            @Override
+            public void publish() throws java.io.IOException {
+                values.clear();
+                values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0);
+                if (resolver.update(outUri, values, null, null) <= 0) {
+                    throw new java.io.IOException("导出发布失败：媒体行未更新");
+                }
+            }
+
+            @Override
+            public void discard() {
+                try {
+                    resolver.delete(outUri, null, null);
+                } catch (Throwable ignored) {
+                    // The row may already be gone; the original failure matters more.
+                }
+            }
+        });
         try {
-            try (java.io.InputStream in = new java.io.FileInputStream(tmp);
-                 java.io.OutputStream out = resolver.openOutputStream(outUri)) {
-                if (out == null) {
-                    throw new RuntimeException("无法打开输出流");
-                }
-                final byte[] buf = new byte[262144];
-                int len;
-                while ((len = in.read(buf)) > 0) {
-                    out.write(buf, 0, len);
-                }
-            }
-            final ExportDigest.Result staged = ExportDigest.scan(tmp);
-            final ExportDigest.Result copied;
-            try (java.io.InputStream in = resolver.openInputStream(outUri)) {
-                if (in == null) {
-                    throw new RuntimeException("无法回读导出文件");
-                }
-                copied = ExportDigest.scan(in);
-            }
-            if (!ExportDigest.matches(staged, copied)) {
-                throw new java.io.IOException("导出校验失败：长度或摘要不一致");
-            }
-            values.clear();
-            values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0);
-            if (resolver.update(outUri, values, null, null) <= 0) {
-                throw new java.io.IOException("导出发布失败：媒体行未更新");
-            }
-            try {
-                DebugSink.text("export-verify", "bytes=" + copied.length
-                        + " sha256=" + ExportDigest.hex(copied.sha256));
-            } catch (Throwable ignored) { }
-            return outUri;
-        } catch (Throwable failure) {
-            try {
-                resolver.delete(outUri, null, null);
-            } catch (Throwable ignored) {
-                // The row may already be gone; the original failure matters more.
-            }
-            if (failure instanceof Exception) {
-                throw (Exception) failure;
-            }
-            throw new RuntimeException(failure);
-        }
+            DebugSink.text("export-verify", "bytes=" + copied.length
+                    + " sha256=" + ExportDigest.hex(copied.sha256));
+        } catch (Throwable ignored) { }
+        return outUri;
     }
 
     private void exportImage(String format, String tier) {
