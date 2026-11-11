@@ -1,11 +1,11 @@
 {
-  "latest_version_code": 326,
-  "latest_version_name": "1.6.0e-m3",
+  "latest_version_code": 385,
+  "latest_version_name": "1.6.2m-m3",
   "url": "https://spektralab.workshop.skin/",
   "notes": [
-    "1.6.0e-m3：同步上游 1.6.0e 的原生核心、JNI 与引擎 facade",
-    "带入 58/77 MP 渲染、RAW 缓存与崩溃/诊断链修复",
-    "保留 M3 控制台；live preview、批量导入导出与 hue 界面随后移植"
+    "1.6.2m-m3：同步上游 1.6.2m 的原生核心、JNI 与引擎 facade",
+    "带入竖幅片边、逐帧原图、渲染纪元、导出自我校验等修复",
+    "保留 M3 控制台；反馈二维码与上游专属界面不移植"
   ],
   "updated_at": "2026-11-09T00:00:00Z",
   "channel": "preview"

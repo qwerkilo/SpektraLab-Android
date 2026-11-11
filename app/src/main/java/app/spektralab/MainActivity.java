@@ -28,10 +28,13 @@ import app.spektralab.core.LivePreviewGate;
 import app.spektralab.core.Metering;
 import app.spektralab.core.SafeFileName;
 import app.spektralab.core.PrintTarget;
+import app.spektralab.core.RenderEpoch;
+import app.spektralab.core.ReopenDecision;
 import app.spektralab.core.ScanProfile;
 import app.spektralab.core.ScanSample;
 import app.spektralab.core.SessionDocument;
 import app.spektralab.core.ExportDigest;
+import app.spektralab.core.ExportMatch;
 import app.spektralab.core.GalleryExport;
 import app.spektralab.core.FormatCardLayout;
 import app.spektralab.core.SpectrumCurve;
@@ -457,6 +460,10 @@ public class MainActivity extends AppCompatActivity {
     /** A stock change that arrived while a render held the session. Folded into
      *  one follow-up render when the current one lands. */
     private volatile boolean pendingRender = false;
+    /** Bumped whenever the canvas is replaced; stale callbacks cannot paint. */
+    private final RenderEpoch renderEpoch = new RenderEpoch();
+    private int activeRenderEpoch;
+    private int activeRenderFrame = -1;
     private static final int PREVIEW_LONG_EDGE = 2048;
     /** Live frames are small enough to finish inside a drag; full render follows. */
     private static final int LIVE_LONG_EDGE = 800;
@@ -2452,6 +2459,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         // The current Frame owns the live session already; captureLook writes
         // the legacy Film/Scale/Edge fields into it before the switch.
         captureLook();
+        frames.get(currentFrame).setOriginal(showingOriginal);
     }
 
     private void updateShelfHandle() {
@@ -2551,11 +2559,14 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
     /** Finish a still or RAW import: develop a restored/selected Look or stay on Original. */
     private void finishImportRender() {
         refreshFilmPanel();
-        if (!restoringOriginal && live().filmStock != null) {
+        final boolean shouldRender = ReopenDecision.rendersOnReopen(
+                restoringOriginal, live().filmStock != null);
+        if (shouldRender) {
             showingOriginal = false;
             refreshFilmPanel();
             renderImage();
         } else {
+            showingOriginal = true;
             statusText.setText(restoringOriginal
                     ? "已恢复 · 原图" : "未渲染 · 选择胶片开始");
         }
@@ -2570,6 +2581,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         frame.session().reset(Look.fromJson(pendingSession.look()));
         frame.setScanFraction(pendingSession.scanFraction());
         frame.setScanVisible(pendingSession.scanVisible());
+        frame.setOriginal(pendingSession.original());
         pendingSession = null;
     }
 
@@ -2803,6 +2815,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             currentFrame = -1;
             currentSession = null;
             cancelLivePreview();
+            renderEpoch.bump();
+            clearBusyPlate();
             optics = new Look();
             lastRenderedBitmap = null;
             scanVisible = false;
@@ -2834,6 +2848,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         saveScanStateIntoFrame();
         currentFrame = index;
         reopeningFrame = true;
+        restoringOriginal = frame.original();
         suppressBudgetDialog = true;
         rebuildFrameChips();
         loadImage(frame.uri());
@@ -2849,6 +2864,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         saveScanStateIntoFrame();
         currentFrame = index;
         reopeningFrame = true;
+        restoringOriginal = frame.original();
         suppressBudgetDialog = true;
         rebuildFrameChips();
         loadImage(frame.uri());
@@ -6349,6 +6365,9 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             return;
         }
         showingOriginal = !showingOriginal;
+        if (currentFrame >= 0 && currentFrame < frames.size()) {
+            frames.get(currentFrame).setOriginal(showingOriginal);
+        }
         if (showingOriginal) {
             compare.setAfter(null);
             emptyState.setVisibility(View.GONE);
@@ -7563,6 +7582,7 @@ refreshEdgeFormats();
 
     private void loadImage(Uri uri) {
         final boolean reopening = reopeningFrame;
+        renderEpoch.bump();
         sourceUri = uri;
         prepareImportState(reopening);
         try {
@@ -7998,6 +8018,7 @@ refreshEdgeFormats();
 
     private void loadRawImage(Uri uri) {
         final boolean reopening = reopeningFrame;
+        renderEpoch.bump();
         // The Look the RAW session must carry, snapshotted here on the UI
         // thread: `solve` below meters with it, and the worker never reads a
         // control.
@@ -8763,6 +8784,8 @@ refreshEdgeFormats();
             showErrorSnackbar("渲染参数有误", describe(t));
             return;
         }
+        activeRenderEpoch = renderEpoch.current();
+        activeRenderFrame = currentFrame;
         rendering = true;
         progressBar.setVisibility(View.VISIBLE);
         busyLabel.setVisibility(View.VISIBLE);
@@ -8867,8 +8890,32 @@ refreshEdgeFormats();
         }).start();
     }
 
+    /** Take the RENDERING plate off the canvas. Safe to call twice. */
+    private void clearBusyPlate() {
+        if (progressBar != null) {
+            progressBar.setVisibility(View.GONE);
+        }
+        if (busyLabel != null) {
+            busyLabel.setVisibility(View.GONE);
+        }
+    }
+
     /** Show a finished preview and clear the busy state. */
     private void applyPreviewResult(Bitmap bmp, int fw, int fh) {
+        if (!renderEpoch.isCurrent(activeRenderEpoch) || currentFrame != activeRenderFrame
+                || session == null) {
+            try { DebugSink.text("render", "frame changed mid-render; dropped"); }
+            catch (Throwable ignored) { }
+            rendering = false;
+            clearBusyPlate();
+            if (pendingRender) {
+                pendingRender = false;
+                if (live().filmStock != null && session != null) {
+                    renderImage();
+                }
+            }
+            return;
+        }
         showingOriginal = false;
         compare.setAfter(bmp);
         setStage(1, null);
@@ -9368,10 +9415,62 @@ refreshEdgeFormats();
         }
     }
 
+    /**
+     * Gray correlation between the exported JPEG and the canvas on screen.
+     *
+     * @return the score in [-1, 1], or -1 when the file or canvas cannot be read
+     */
+    private static double exportMatchesCanvas(java.io.File file, Bitmap canvas) {
+        if (file == null || canvas == null || canvas.getWidth() <= 0) {
+            return -1;
+        }
+        try {
+            final android.graphics.BitmapFactory.Options bounds =
+                    new android.graphics.BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                return -1;
+            }
+            int sample = 1;
+            while (Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 200) {
+                sample *= 2;
+            }
+            final android.graphics.BitmapFactory.Options opts =
+                    new android.graphics.BitmapFactory.Options();
+            opts.inSampleSize = sample;
+            final Bitmap decoded = android.graphics.BitmapFactory.decodeFile(
+                    file.getAbsolutePath(), opts);
+            if (decoded == null) {
+                return -1;
+            }
+            final int gw = 48;
+            final int gh = Math.max(8, Math.round(gw * (float) decoded.getHeight()
+                    / decoded.getWidth()));
+            final Bitmap a = Bitmap.createScaledBitmap(decoded, gw, gh, true);
+            final Bitmap b = Bitmap.createScaledBitmap(canvas, gw, gh, true);
+            final int[] pa = new int[gw * gh];
+            final int[] pb = new int[gw * gh];
+            a.getPixels(pa, 0, gw, 0, 0, gw, gh);
+            b.getPixels(pb, 0, gw, 0, 0, gw, gh);
+            if (a != decoded) {
+                a.recycle();
+            }
+            if (b != canvas) {
+                b.recycle();
+            }
+            decoded.recycle();
+            return ExportMatch.ncc(pa, pb);
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
     /** Write the rendered file to the gallery and publish the result. */
     private void finishExport(java.io.File tmp, int[] info, String canvas, long t0,
                                   String format, String tier, String ext, String mime,
-                                  boolean tiff, boolean dng, java.util.function.IntConsumer onDone) throws Exception {
+                                  boolean tiff, boolean dng, boolean suspect,
+                                  java.util.function.IntConsumer onDone) throws Exception {
         uploadExportProgress(tmp);
         uploadVkLog();
         int w = info[0], h = info[1];
@@ -9406,10 +9505,17 @@ refreshEdgeFormats();
         final String sizeLabel = bytes > 0
                 ? String.format(java.util.Locale.getDefault(), "%.1f MB", bytes / 1048576.0) : "?";
         runOnUiThread(() -> {
-            applyExportResult(outUri, mime, canvas, fw, fh,
-                    fRender, secs, sizeLabel, tiff, dng);
+            if (suspect) {
+                statusText.setText("导出结构异常：可能花屏，请再导一次");
+                showSnackbar("导出结构异常：文件已保存，但可能花屏，请再导一次");
+                exportProgressBar.setVisibility(View.GONE);
+                setStep(2);
+            } else {
+                applyExportResult(outUri, mime, canvas, fw, fh,
+                        fRender, secs, sizeLabel, tiff, dng);
+            }
             if (onDone != null) {
-                onDone.accept(1);
+                onDone.accept(suspect ? 0 : 1);
             }
         });
         }
@@ -9451,18 +9557,15 @@ refreshEdgeFormats();
                 }
             };
                 runOnUiThread(tick);
-                int[] info;
-                final String canvas;
+                final ExportOutcome outcome;
                 try {
-                final ExportRender rendered = renderExportFile(tmp, exportParams,
-                        exportViewAdjust, rawExportPath, tier, dng, tiff);
-                info = rendered.info;
-                canvas = rendered.canvas;
+                    outcome = renderExportAttempts(tmp, exportParams, exportViewAdjust,
+                            rawExportPath, tier, dng, tiff);
                 } finally {
                     spinning.set(false);
                 }
-                finishExport(tmp, info, canvas, t0, format, tier, ext, mime, tiff, dng,
-                        onDone);
+                finishExport(tmp, outcome.info, outcome.canvas, t0, format, tier, ext, mime,
+                        tiff, dng, outcome.suspect, onDone);
             } catch (Throwable e) {
                 final String msg = describe(e);
                 try { DebugSink.text("export-error", "tier=" + tier + " " + msg); } catch (Throwable ignored) {}
@@ -9484,6 +9587,63 @@ refreshEdgeFormats();
                 }
             }
         }).start();
+    }
+
+    /** Render, and retry once when the written JPEG does not match the canvas. */
+    private ExportOutcome renderExportAttempts(java.io.File tmp, String exportParams,
+                                               double[] viewAdjust, String rawPath,
+                                               String tier, boolean dng, boolean tiff) {
+        ExportOutcome outcome = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            final ExportRender rendered = renderExportFile(tmp, exportParams, viewAdjust,
+                    rawPath, tier, dng, tiff);
+            outcome = new ExportOutcome(rendered.info, rendered.canvas, false);
+            if (tiff || dng) {
+                return outcome;
+            }
+            final double ncc = exportMatchesCanvas(tmp, lastRenderedBitmap);
+            if (!ExportMatch.suspect(ncc)) {
+                logExportNcc(ncc);
+                return outcome;
+            }
+            outcome = new ExportOutcome(rendered.info, rendered.canvas, true);
+            logExportCorrupt(ncc, rendered.info, tier, attempt);
+            if (attempt == 1) {
+                return outcome;
+            }
+            tmp.delete();
+        }
+        return outcome;
+    }
+
+    private static void logExportNcc(double ncc) {
+        if (ncc >= 0) {
+            try {
+                DebugSink.text("export-selfcheck",
+                        String.format(java.util.Locale.US, "canvas NCC %.3f", ncc));
+            } catch (Throwable ignored) { }
+        }
+    }
+
+    private static void logExportCorrupt(double ncc, int[] info, String tier, int attempt) {
+        try {
+            DebugSink.textNow("export-corrupt", String.format(java.util.Locale.US,
+                    "canvas NCC %.3f at %dx%d tier=%s attempt=%d",
+                    ncc, info[0], info[1], tier, attempt));
+        } catch (Throwable ignored) { }
+    }
+
+    /** The engine's export result, the canvas it drew, and the self-check verdict. */
+    private static final class ExportOutcome {
+        private final int[] info;
+        private final String canvas;
+        private final boolean suspect;
+
+        private ExportOutcome(int[] info, String canvas, boolean suspect) {
+            this.info = info;
+            this.canvas = canvas;
+            this.suspect = suspect;
+        }
     }
 
     /**

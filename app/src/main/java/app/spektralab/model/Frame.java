@@ -23,6 +23,8 @@ public final class Frame {
     /** Scan inspect belongs to the Frame it was moved on, not to the Look. */
     private float scanFraction = ScanSample.DEFAULT_FRACTION;
     private boolean scanVisible;
+    /** Whether the Frame was last left on 原图 rather than developed. */
+    private boolean original = true;
 
     public Frame(Uri uri, boolean raw, String name, Look initial) {
         this.uri = uri;
@@ -69,5 +71,13 @@ public final class Frame {
 
     public void setScanVisible(boolean value) {
         scanVisible = value;
+    }
+
+    public boolean original() {
+        return original;
+    }
+
+    public void setOriginal(boolean value) {
+        original = value;
     }
 }

@@ -24,8 +24,8 @@ public final class VersionCheck {
     private static int checks;
 
     /** The fork's version. Not upstream's 100 / 1.4.0. */
-    private static final int CODE = 326;
-    private static final String NAME = "1.6.0e-m3";
+    private static final int CODE = 385;
+    private static final String NAME = "1.6.2m-m3";
     private static final String SITE = "https://spektralab.workshop.skin/";
 
     public static void main(String[] args) throws Exception {
