@@ -20,4 +20,5 @@ Status: 01, 02 completed — `M3Chrome`, `ConsoleType`, `ConsoleTheme` and
 `ui.panel.FilmPanel` owns the film view tree and the shelf scroll survives a
 theme rebuild. 04 OpticsPanel completed — head, 22-chip strip, readout, slider
 and both choice rows are panel-built; only the Look and commit policy stay in
-the Activity. 05 Scale/Edge is next.
+the Activity. 05 Scale/Edge in progress — `ScalePanel` owns the Gate strip and
+cards; Edge/rebate/date/compose still live in the Activity.

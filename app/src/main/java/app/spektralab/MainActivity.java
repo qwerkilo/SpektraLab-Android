@@ -36,7 +36,6 @@ import app.spektralab.core.SessionDocument;
 import app.spektralab.core.ExportDigest;
 import app.spektralab.core.ExportMatch;
 import app.spektralab.core.GalleryExport;
-import app.spektralab.core.FormatCardLayout;
 import app.spektralab.core.SpectrumCurve;
 import app.spektralab.core.SpectrumSamples;
 import app.spektralab.core.StockNames;
@@ -44,6 +43,7 @@ import app.spektralab.ui.ConsoleTheme;
 import app.spektralab.ui.ConsoleType;
 import app.spektralab.ui.panel.FilmPanel;
 import app.spektralab.ui.panel.OpticsPanel;
+import app.spektralab.ui.panel.ScalePanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
 import app.spektralab.core.ImportBudget;
@@ -384,14 +384,14 @@ public class MainActivity extends AppCompatActivity {
         syncRebatePage();
     }
     /** The shell: `body` stacks or splits into `mainCol` and `controls`. */
-    private LinearLayout body, mainCol, controls, panelHolder, formatCardStrip;
+    private LinearLayout body, mainCol, controls, panelHolder;
+    private ScalePanel scalePanel;
     private View stageView;
     private StagePanel stagePanel;
     private FilmPanel filmPanel;
     private OpticsPanel opticsPanelView;
     /** True while the window is at the two-column Console width. */
     private boolean wideLayout = false;
-    private HorizontalScrollView formatScroll;
 
     /** The Gate the Scale/Edge readout is showing, or the honest empty state. */
     private void updateEdgeValue() {
@@ -487,7 +487,6 @@ public class MainActivity extends AppCompatActivity {
     private Thread liveThread;
     private long liveLastStart;
     private int[] livePixels;
-    private final List<View> formatCards = new ArrayList<>();
     private static final int TOP_APP_BAR_HEIGHT_DP = 64;
     /** The floating Prism top bar sits 8 dp below the status bar. */
     private static final int TOP_BAR_MARGIN_DP = 8;
@@ -3934,30 +3933,29 @@ card.setOnClickListener(v -> {
         return session == null ? "先导入一张照片" : "先选择胶片或相纸，完成一次渲染";
     }
 
-    private LinearLayout buildFormatPanel() {
-        LinearLayout panel = new LinearLayout(this);
+        private LinearLayout buildFormatPanel() {
+        final LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.addView(sectionHead("PHYSICAL SCALE / 光学尺度", this::resetFormatPanel),
                 new LinearLayout.LayoutParams(-1, -2));
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
-        scroll.setClipToPadding(false);
-        formatCardStrip = new LinearLayout(this);
-        formatCardStrip.setOrientation(LinearLayout.HORIZONTAL);
-        formatCardStrip.setPadding(0, dp(10), 0, 0);
-        formatScroll = scroll;
-        scroll.addView(formatCardStrip,
-                new android.widget.FrameLayout.LayoutParams(
-                        -2, dp(FormatCardLayout.stripHeightDp(fontScale()))));
-        panel.addView(scroll, new LinearLayout.LayoutParams(
-                -1, dp(FormatCardLayout.stripHeightDp(fontScale()))));
+        scalePanel = new ScalePanel(this, type, theme, tfDisplay, tfBody, tfHan,
+                new ScalePanel.Host() {
+                    @Override public GateScale.Gate activeGate() {
+                        return GateScale.byId(live().overscanFormat);
+                    }
+                    @Override public void onPick(String gateId) {
+                        pickScale(gateId);
+                    }
+                });
+        panel.addView(scalePanel.view(), new LinearLayout.LayoutParams(
+                -1, scalePanel.stripHeight()));
 
         final MaterialButton compose = actionButton(
                 type.mixedText("构图 / COMPOSE"), "打开构图：旋转、翻转、裁切");
         compose.setOnClickListener(v -> showComposeSheet());
         panel.addView(compose, new LinearLayout.LayoutParams(-2, dp(48)));
 
-        LinearLayout foot = new LinearLayout(this);
+        final LinearLayout foot = new LinearLayout(this);
         foot.setOrientation(LinearLayout.HORIZONTAL);
         foot.setGravity(android.view.Gravity.CENTER_VERTICAL);
         foot.addView(type.m3Label("片门与尺度联动 · 不裁切构图",
@@ -3974,141 +3972,11 @@ card.setOnClickListener(v -> {
         return panel;
     }
 
-    /** Build one Scale card for a Gate. */
-    private MaterialCardView buildFormatCard(GateScale.Gate gate, boolean active) {
-            final int surface = theme.role(
-                    com.google.android.material.R.attr.colorSurfaceContainerLow,
-                    Palette.Role.SURFACE_ELEVATED);
-            final int selectedSurface = theme.role(
-                    com.google.android.material.R.attr.colorSecondaryContainer,
-                    Palette.Role.SURFACE_ELEVATED);
-            final int outline = theme.role(
-                    com.google.android.material.R.attr.colorOutlineVariant,
-                    Palette.Role.LINE);
-            final int selectedOutline = theme.role(
-                    com.google.android.material.R.attr.colorPrimary,
-                    Palette.Role.ACCENT);
-            final int onSurface = theme.role(
-                    com.google.android.material.R.attr.colorOnSurface,
-                    Palette.Role.INK);
-            final int onSelected = theme.role(
-                    com.google.android.material.R.attr.colorOnSecondaryContainer,
-                    Palette.Role.INK);
-            final int onSurfaceVariant = theme.role(
-                    com.google.android.material.R.attr.colorOnSurfaceVariant,
-                    Palette.Role.MUTED_INK);
-
-            final MaterialCardView card = new MaterialCardView(this);
-            card.setCardElevation(0f);
-            card.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
-            card.setStrokeWidth(dp(1));
-            card.setCardBackgroundColor(M3Chrome.checkedColors(selectedSurface, surface));
-            card.setStrokeColor(M3Chrome.checkedColors(selectedOutline, outline));
-            card.setCheckable(true);
-            card.setChecked(active);
-            card.setCheckedIconResource(
-                    com.google.android.material.R.drawable.mtrl_ic_check_mark);
-            card.setCheckedIconTint(android.content.res.ColorStateList.valueOf(onSelected));
-            card.setCheckedIconSize(dp(14));
-            card.setCheckedIconMargin(dp(4));
-            card.setCheckedIconGravity(MaterialCardView.CHECKED_ICON_GRAVITY_TOP_END);
-            card.setClickable(true);
-            card.setFocusable(true);
-            card.setContentDescription(gate.label + "，" + mmText(gate.longEdgeMm) + " 毫米"
-                    + (active ? "，已选" : ""));
-
-                card.addView(buildFormatCardContent(gate, active, onSurface, onSurfaceVariant, onSelected),
-                        new android.widget.FrameLayout.LayoutParams(-1, -1));
-            card.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-                @Override public void onInitializeAccessibilityNodeInfo(
-                        View host, android.view.accessibility.AccessibilityNodeInfo info) {
-                    super.onInitializeAccessibilityNodeInfo(host, info);
-                    info.setClassName(android.widget.RadioButton.class.getName());
-                    info.setCheckable(true);
-                    info.setChecked(active);
-                }
-            });
-            card.setOnClickListener(v -> pickScale(gate.id));
-                return card;
-    }
-
-    /** The value, unit, kind and name inside a Scale card. */
-    private LinearLayout buildFormatCardContent(GateScale.Gate gate, boolean active,
-                                                int onSurface, int onSurfaceVariant,
-                                                int onSelected) {
-    LinearLayout stack = new LinearLayout(this);
-    stack.setOrientation(LinearLayout.VERTICAL);
-    stack.setPadding(dp(9), dp(11), dp(8), dp(7));
-
-    LinearLayout valueRow = new LinearLayout(this);
-    valueRow.setOrientation(LinearLayout.HORIZONTAL);
-    valueRow.setGravity(android.view.Gravity.BOTTOM);
-    TextView value = type.m3Label(mmText(gate.longEdgeMm),
-            M3Tokens.TypeRole.TITLE_LARGE, active ? onSelected : onSurface, tfDisplay);
-    valueRow.addView(value);
-    TextView unit = type.m3Label("mm", M3Tokens.TypeRole.LABEL_SMALL,
-            onSurfaceVariant, tfBody);
-    LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
-    unitLp.leftMargin = dp(2);
-    unitLp.bottomMargin = dp(2);
-    valueRow.addView(unit, unitLp);
-    stack.addView(valueRow);
-
-    TextView kind = type.m3Label(gate.panoramic() ? "宽幅" : "常规",
-            M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
-    LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-2, -2);
-    kindLp.topMargin = dp(4);
-    stack.addView(kind, kindLp);
-
-    View spacer = new View(this);
-    stack.addView(spacer, new LinearLayout.LayoutParams(1, 0, 1f));
-
-    TextView name = type.m3Label(gate.label, M3Tokens.TypeRole.LABEL_MEDIUM,
-            active ? onSelected : onSurface, tfHan);
-    name.setSingleLine(true);
-    name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-    stack.addView(name);
-
-        return stack;
-    }
-
-    /** The empty Scale strip when no Gate fits the frame. */
-    private void showNoFormatCards() {
-            TextView none = type.m3Label("这张长宽比没有可用片门",
-                    M3Tokens.TypeRole.LABEL_LARGE, theme.onSurfaceVariant(), tfHan);
-            LinearLayout.LayoutParams noneLp = new LinearLayout.LayoutParams(
-                    -2, dp(FormatCardLayout.heightDp(fontScale())));
-            noneLp.leftMargin = dp(2);
-            formatCardStrip.addView(none, noneLp);
-            return;
-    }
-
     private void rebuildFormatCards() {
-        if (formatCardStrip == null) {
+        if (scalePanel == null) {
             return;
         }
-        formatCardStrip.removeAllViews();
-        formatCards.clear();
-        if (edgeIds.isEmpty()) {
-            showNoFormatCards();
-        }
-        final int cardWidth = FormatCardLayout.widthDp(fontScale());
-        final int cardHeight = FormatCardLayout.heightDp(fontScale());
-        for (int i = 0; i < edgeIds.size(); ++i) {
-            final String gateId = edgeIds.get(i);
-            final GateScale.Gate gate = GateScale.byId(gateId);
-            if (gate == null) {
-                continue;
-            }
-            final boolean active = gate.id.equals(live().overscanFormat);
-
-            final MaterialCardView card = buildFormatCard(gate, active);
-            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
-                    dp(cardWidth), dp(cardHeight));
-            cardLp.rightMargin = dp(9);
-            formatCardStrip.addView(card, cardLp);
-            formatCards.add(card);
-        }
+        scalePanel.rebuild(edgeIds);
     }
 
     private float fontScale() {
@@ -4132,10 +4000,8 @@ card.setOnClickListener(v -> {
             formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
         }
         rebuildFormatCards();
-        final int index = edgeIds.indexOf(gate.id);
-        if (index >= 0 && index < formatCards.size() && formatScroll != null) {
-            final View target = formatCards.get(index);
-            formatScroll.post(() -> formatScroll.smoothScrollTo(Math.max(0, target.getLeft() - dp(8)), 0));
+        if (scalePanel != null) {
+            scalePanel.revealSelected();
         }
         syncRebatePage();
         onEdgeChanged();
