@@ -2,7 +2,7 @@
 
 **Type:** task
 **Blocked by:** 05
-**Status:** ready
+**Status:** in progress — export sheet extracted, import path remains
 
 **What to build:** Move picking, budget, batch and export into
 `ui.panel.ImportExportController`.
@@ -11,6 +11,12 @@
   sheet.
 - Host: current session, register frame, start render, export callback.
 - Keep persistable URI grants and transactional gallery writes.
+
+**Landed:** `ui.panel.ExportSheet` owns both export sheets (eight single rows
+including the batch entry, four batch rows) and their format/tier routing;
+`ExportSheetCheck` pins the order. The Activity still builds the explanatory
+note from the device probe and budget, and still owns the writers, batch runner,
+picker launchers and budget dialog. Device-checked on `10.110.67.69:38555`.
 
 **TDD seams**
 

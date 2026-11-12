@@ -45,6 +45,7 @@ import app.spektralab.ui.panel.FilmPanel;
 import app.spektralab.ui.panel.OpticsPanel;
 import app.spektralab.ui.panel.EdgeHomePanel;
 import app.spektralab.ui.panel.EdgePagesPanel;
+import app.spektralab.ui.panel.ExportSheet;
 import app.spektralab.ui.panel.ScalePanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
@@ -5410,35 +5411,24 @@ card.setOnClickListener(v -> {
                 + "\n" + driverLine
                 + "\nDNG 只给电脑上的 Lightroom / ACR 用：手机版 Lr 打不开是已知问题，"
                   + "遇到报错不必反馈。";
-        showActionSheet("导出照片", note, new String[]{
-                "JPEG · 实时画质",
-                "JPEG · 预览画质 · 长边 3400",
-                "JPEG · 全尺寸（原图）",
-                "TIFF 16 位 · 实时画质",
-                "TIFF 16 位 · 预览画质 · 长边 3400",
-                "TIFF 16 位 · 全尺寸（原图）",
-                "DNG · 全尺寸（电脑用 · 手机版打不开）",
-                "批量导出全部帧…"
-        }, which -> {
-            if (which == 7) { showBatchExportDialog(); return; }
-            if (which == 6) { exportImage("dng", "full"); return; }
-            exportImage(which >= 3 ? "tiff" : "jpeg",
-                        which % 3 == 0 ? "live" : which % 3 == 1 ? "preview" : "full");
-        });
-    }
+        new ExportSheet(new ExportSheet.Host() {
+            @Override public String note() {
+                return note;
+            }
 
-    /** Pick a format for the whole strip; each Frame reopens before its export. */
-    private void showBatchExportDialog() {
-        showActionSheet("批量导出全部帧",
-                "逐帧重开并导出；没有胶片的帧会跳过",
-                new String[]{"JPEG · 实时画质", "JPEG · 全尺寸",
-                        "TIFF 16 位 · 全尺寸", "DNG · 全尺寸"},
-                which -> {
-                    if (which == 0) { startBatchExport("jpeg", "live"); }
-                    else if (which == 1) { startBatchExport("jpeg", "full"); }
-                    else if (which == 2) { startBatchExport("tiff", "full"); }
-                    else if (which == 3) { startBatchExport("dng", "full"); }
-                });
+            @Override public void showSheet(String title, String body, String[] rows,
+                                            java.util.function.IntConsumer onPick) {
+                showActionSheet(title, body, rows, onPick::accept);
+            }
+
+            @Override public void export(String format, String tier) {
+                exportImage(format, tier);
+            }
+
+            @Override public void exportBatch(String format, String tier) {
+                startBatchExport(format, tier);
+            }
+        }).show();
     }
 
     /** Reset from the old single control strip: delegate to the film page. */
