@@ -2,7 +2,7 @@
 
 **Type:** task
 **Blocked by:** 04
-**Status:** in progress
+**Status:** completed (rebate/date/compose split into 05b)
 
 **Resolution so far:** `ui.panel.ScalePanel` owns the Scale gate strip and its
 cards: card geometry from `FormatCardLayout`, checked/selected styling, the
@@ -24,8 +24,9 @@ their 176 dp width with the live summaries (`未开启 · 点进去设置`), and
 片边 opens the REBATE page with 开启片边, 片门格式 135 全画幅, 片边文字, 片基雾
 and 漏光. Screenshots `edge-home.png` / `edge-rebate-page.png`.
 
-**Remaining:** the rebate page, date page and compose sheet still live in the
-Activity.
+**Split:** the rebate page, date page and compose sheet need the Activity's row
+factories, so they are carried by `05b-edge-pages-panel.md` rather than forcing
+a second styling tree here.
 
 **TDD seams**
 
