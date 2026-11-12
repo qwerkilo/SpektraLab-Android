@@ -2,14 +2,20 @@
 
 **Type:** task
 **Blocked by:** 03
-**Status:** ready
+**Status:** in progress
 
-**What to build:** Move the optics workspace into `ui.panel.OpticsPanel`.
+**Resolution so far:** `ui.panel.OpticsPanel` builds the head, the 22-parameter
+strip, the active-parameter readout and the lock surface; the shared filter-chip
+style is `OpticsPanel.styleChip`. The Activity still builds the slider and the
+two choice rows, owns the Look, and supplies `Host` for chip selection, reset
+and the View/Meter/Scanner pages.
 
-- Own the parameter strip, one slider, View/Meter/Scanner entries and the panel
-  lock.
-- Host: `look`, edit optics, open a secondary page.
-- Every release renders once; no hardcoded ranges (use `OpticsDelta.Param`).
+**Verification:** device 800T frame unlocks the panel; H 高光保护 is one
+selection with range 0–3 EV; a track tap moves the value to 1.50 EV and the
+readout/Δ update; 22 chips are guarded by `PanelRowsTest`.
+
+**Remaining:** move the slider and choice rows into the panel, then move the
+one-render-per-release policy behind it.
 
 **TDD seams**
 

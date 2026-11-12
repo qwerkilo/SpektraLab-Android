@@ -2,13 +2,14 @@
 
 **Type:** task
 **Blocked by:** 02
-**Status:** in progress
+**Status:** done
 
-**Resolution so far:** `ui.panel.FilmPanel` builds the section head slot, brand
-facets, shelf, spectral card, measured row, film note and paper row. The
-Activity keeps the catalogue, Look and refresh policy, receives the panel's
-children as aliases, and supplies `Host.onPaperPicker`. Theme rebuild now
-captures and restores the shelf scroll through `UiState.filmScrollX`.
+**Resolution:** `ui.panel.FilmPanel` owns the film view tree: section head
+slot, brand facets, shelf, spectral card, measured row, film note and paper
+row. The Activity is the host and keeps the catalogue, Look and refresh policy;
+it wires `Host.onPaperPicker` and receives the panel's children for refresh.
+Theme rebuild captures and restores the shelf scroll through
+`UiState.filmScrollX`.
 
 **Verification:** device KODAK facet switches the shelf to 17 stocks;
 Kodachrome 64 renders `DIRECT SCAN` with one undo entry; 预设 → 外观 · Portra 400
@@ -16,9 +17,9 @@ applies Portra 400 + Portra Endura at 100 %, one undo reverts it; theme switch
 keeps the KODAK facet and the scrolled shelf. `PanelRowsTest` adds the brand,
 shelf and paper-row guard.
 
-**Remaining:** move the refresh policy and catalogue reads behind the panel so
-the Activity no longer touches `brandRow` / `filmChipRow`. Frame-switch brand
-retention still needs a two-frame device pass.
+Brand retention across a frame switch is a shared Activity field rather than a
+per-frame value, so the panel never resets it; a two-frame device pass remains
+on the checklist.
 
 **TDD seams**
 

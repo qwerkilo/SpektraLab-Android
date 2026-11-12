@@ -43,6 +43,7 @@ import app.spektralab.core.StockNames;
 import app.spektralab.ui.ConsoleTheme;
 import app.spektralab.ui.ConsoleType;
 import app.spektralab.ui.panel.FilmPanel;
+import app.spektralab.ui.panel.OpticsPanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
 import app.spektralab.core.ImportBudget;
@@ -387,6 +388,7 @@ public class MainActivity extends AppCompatActivity {
     private View stageView;
     private StagePanel stagePanel;
     private FilmPanel filmPanel;
+    private OpticsPanel opticsPanelView;
     /** True while the window is at the two-column Console width. */
     private boolean wideLayout = false;
     private HorizontalScrollView formatScroll;
@@ -3152,49 +3154,7 @@ card.setOnClickListener(v -> {
     }
 
     /** The 22-parameter chip strip. */
-    private void buildOpticsStrip(LinearLayout panel) {
-        // The strip: one M3 chip per contract parameter, in the engine's own
-        // order. It scrolls sideways instead of clipping, so 390 dp and large
-        // text both keep every parameter reachable.
-        opticsStrip = new LinearLayout(this);
-        opticsStrip.setOrientation(LinearLayout.HORIZONTAL);
-        opticsStrip.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        opticsChips.clear();
-        for (int i = 0; i < OpticsDelta.Param.values().length; ++i) {
-            final int index = i;
-            final OpticsDelta.Param spec = OpticsDelta.paramAt(i);
-            final Chip chip = new Chip(this);
-            styleOpticsChip(chip);
-            chip.setId(View.generateViewId());
-            chip.setCheckable(true);
-            chip.setSingleLine(true);
-            chip.setText(type.mixedText(spec.glyph + "  " + spec.label));
-            chip.setContentDescription(spec.label + "，参数 " + (i + 1) + " / "
-                    + OpticsDelta.Param.values().length);
-            chip.setMinimumHeight(dp(MIN_TOUCH_DP));
-            chip.setOnClickListener(v -> {
-                if (!opticsUnlocked) {
-                    showSnackbar(opticsLockReason());
-                    return;
-                }
-                selectOptics(index);
-            });
-            final LinearLayout.LayoutParams chipLp =
-                    new LinearLayout.LayoutParams(-2, -2);
-            chipLp.rightMargin = dp(6);
-            opticsStrip.addView(chip, chipLp);
-            opticsChips.add(chip);
-        }
-        opticsStripScroll = new HorizontalScrollView(this);
-        opticsStripScroll.setHorizontalScrollBarEnabled(false);
-        opticsStripScroll.setClipToPadding(false);
-        opticsStripScroll.setFillViewport(false);
-        opticsStripScroll.addView(opticsStrip,
-                new android.widget.FrameLayout.LayoutParams(-2, -2));
-        panel.addView(opticsStripScroll, new LinearLayout.LayoutParams(-1, -2));
-    }
-
-    /** The single active-parameter slider and its touch policy. */
+        /** The single active-parameter slider and its touch policy. */
     private void buildOpticsSlider(LinearLayout panel) {
         opticsSlider = new Slider(this);
         opticsSlider.setId(View.generateViewId());
@@ -3241,20 +3201,63 @@ card.setOnClickListener(v -> {
     }
 
     private LinearLayout buildOpticsPanel() {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
+        opticsPanelView = new OpticsPanel(this, type, theme, palette,
+                tfDisplay, tfBody, tfHan, MIN_TOUCH_DP, largeText(),
+                new OpticsPanel.Host() {
+                    @Override public OpticsDelta.Param activeParam() {
+                        return activeOptics();
+                    }
+                    @Override public boolean unlocked() {
+                        return opticsUnlocked;
+                    }
+                    @Override public String lockReason() {
+                        return opticsLockReason();
+                    }
+                    @Override public void onLocked() {
+                        showSnackbar(opticsLockReason());
+                    }
+                    @Override public void onSelect(int index) {
+                        selectOptics(index);
+                    }
+                    @Override public void onReset() {
+                        resetActiveOptics();
+                    }
+                    @Override public void onView() {
+                        showViewAdjustSheet();
+                    }
+                    @Override public void onMeter() {
+                        showMeterPicker();
+                    }
+                    @Override public void onScanner() {
+                        showScanSheet();
+                    }
+                },
+                new OpticsPanel.Buttons() {
+                    @Override public MaterialButton action(CharSequence text,
+                            String description, Runnable onClick) {
+                        final MaterialButton button = actionButton(text, description);
+                        button.setOnClickListener(v -> onClick.run());
+                        return button;
+                    }
+                    @Override public MaterialButton text(CharSequence text,
+                            String description, int color, Runnable onClick) {
+                        return m3TextButton(text, description, color, onClick);
+                    }
+                });
+        final LinearLayout panel = opticsPanelView.view();
         opticsPanel = panel;
-        opticsPanel.setOnClickListener(v -> {
-            if (!opticsUnlocked) {
-                showSnackbar(opticsLockReason());
-            }
-        });
-        panel.addView(buildOpticsHead(),
-                new LinearLayout.LayoutParams(-1, -2));
+        opticsStrip = null;
+        opticsChips.clear();
+        opticsChips.addAll(opticsPanelView.chips());
+        opticsStripScroll = opticsPanelView.stripScroll();
+        opticsLockNote = opticsPanelView.lockNote();
+        opticsName = opticsPanelView.name();
+        opticsReset = opticsPanelView.reset();
+        opticsValue = opticsPanelView.value();
+        opticsUnit = opticsPanelView.unit();
+        opticsDelta = opticsPanelView.delta();
+        opticsRange = opticsPanelView.range();
 
-        buildOpticsStrip(panel);
-        // The readout must exist before bindActiveOptics writes into it.
-        panel.addView(buildOpticsReadout(), new LinearLayout.LayoutParams(-1, -2));
         buildOpticsSlider(panel);
 
         // The two choices the engine models separately from the 22 numbers.
@@ -3332,7 +3335,7 @@ card.setOnClickListener(v -> {
 
         for (ViewAdjust.Group group : ViewAdjust.Group.values()) {
             final Chip chip = new Chip(this);
-            styleOpticsChip(chip);
+            OpticsPanel.styleChip(this, theme, chip);
             chip.setText(type.mixedText(group.label + " / " + group.english));
             chip.setCheckable(true);
             chip.setChecked(group == ViewAdjust.Group.WHITE_BALANCE);
@@ -3383,7 +3386,7 @@ card.setOnClickListener(v -> {
         final ScanProfile[] values = ScanProfile.values();
         for (ScanProfile profile : values) {
             final Chip chip = new Chip(this);
-            styleOpticsChip(chip);
+            OpticsPanel.styleChip(this, theme, chip);
             chip.setText(type.mixedText(profile.label));
             chip.setCheckable(true);
             chip.setChecked(profile == live().scanProfile());
@@ -3486,7 +3489,7 @@ card.setOnClickListener(v -> {
         for (int i = 0; i < labels.length; ++i) {
             final int quarter = i;
             final Chip chip = new Chip(this);
-            styleOpticsChip(chip);
+            OpticsPanel.styleChip(this, theme, chip);
             chip.setText(labels[i]);
             chip.setCheckable(true);
             chip.setChecked(draftTurns[0] == quarter);
@@ -3682,82 +3685,11 @@ card.setOnClickListener(v -> {
     }
 
     /** Set a chip's M3 filter style from the current theme's roles. */
-    private void styleOpticsChip(Chip chip) {
-        chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null, 0,
-                com.google.android.material.R.style.Widget_Material3_Chip_Filter));
-        final int chipSurface = theme.role(
-                com.google.android.material.R.attr.colorSurfaceContainerLow,
-                Palette.Role.SURFACE_ELEVATED);
-        final int chipSelected = theme.role(
-                com.google.android.material.R.attr.colorSecondaryContainer,
-                Palette.Role.ACCENT_SOFT);
-        final int chipText = theme.role(
-                com.google.android.material.R.attr.colorOnSurfaceVariant,
-                Palette.Role.MUTED_INK);
-        final int chipTextSelected = theme.role(
-                com.google.android.material.R.attr.colorOnSecondaryContainer,
-                Palette.Role.ACCENT);
-        final int chipOutline = theme.role(
-                com.google.android.material.R.attr.colorOutlineVariant,
-                Palette.Role.LINE);
-        chip.setChipBackgroundColor(M3Chrome.checkedColors(chipSelected, chipSurface));
-        chip.setChipStrokeWidth(Math.max(1, dp(1)));
-        chip.setChipStrokeColor(M3Chrome.checkedColors(chipSelected, chipOutline));
-        chip.setTextColor(M3Chrome.checkedColors(chipTextSelected, chipText));
-        chip.setEnsureMinTouchTargetSize(true);
-    }
-
-    /**
+        /**
      * The active parameter's readout, above the slider: name and reset on one
      * line, then value, unit, display-only Δ, and the contract's visible range.
      */
-    private View buildOpticsReadout() {
-        final LinearLayout block = new LinearLayout(this);
-        block.setOrientation(LinearLayout.VERTICAL);
-        block.setPadding(0, dp(6), 0, 0);
-
-        final LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        opticsName = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL,
-                theme.onSurface(), tfHan);
-        opticsName.setSingleLine(true);
-        opticsName.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        ViewCompat.setAccessibilityHeading(opticsName, true);
-        top.addView(opticsName, new LinearLayout.LayoutParams(0, -2, 1f));
-        opticsReset = m3TextButton("重置", "重置当前参数",
-                theme.onSurfaceVariant(), this::resetActiveOptics);
-        top.addView(opticsReset, new LinearLayout.LayoutParams(-2, dp(48)));
-        block.addView(top, new LinearLayout.LayoutParams(-1, -2));
-
-        final LinearLayout values = new LinearLayout(this);
-        values.setOrientation(LinearLayout.HORIZONTAL);
-        values.setGravity(android.view.Gravity.BOTTOM);
-        opticsValue = type.m3Label("", M3Tokens.TypeRole.HEADLINE_SMALL,
-                theme.primary(), tfDisplay);
-        values.addView(opticsValue);
-        opticsUnit = type.m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
-                theme.onSurfaceVariant(), tfBody);
-        final LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
-        unitLp.leftMargin = dp(4);
-        unitLp.bottomMargin = dp(4);
-        values.addView(opticsUnit, unitLp);
-        opticsDelta = type.m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
-                theme.onSurfaceVariant(), tfDisplay);
-        final LinearLayout.LayoutParams deltaLp = new LinearLayout.LayoutParams(-2, -2);
-        deltaLp.leftMargin = dp(10);
-        deltaLp.bottomMargin = dp(4);
-        values.addView(opticsDelta, deltaLp);
-        block.addView(values, new LinearLayout.LayoutParams(-1, -2));
-
-        opticsRange = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                theme.onSurfaceVariant(), tfHan);
-        opticsRange.setSingleLine(false);
-        block.addView(opticsRange, new LinearLayout.LayoutParams(-1, -2));
-        return block;
-    }
-
-    /** A label + current choice + arrow, the same shape as the paper picker. */
+        /** A label + current choice + arrow, the same shape as the paper picker. */
     private MaterialButton opticsChoiceRow(LinearLayout parent, String title,
                                            Runnable open) {
         final boolean stacked = largeText();
@@ -4019,60 +3951,7 @@ card.setOnClickListener(v -> {
      * The Optics head: title and the locked reason. The reset lives on the
      * active parameter's row, so it can only touch the one parameter in view.
      */
-    private View buildOpticsHead() {
-        final LinearLayout head = new LinearLayout(this);
-        head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
-        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-
-        final LinearLayout titles = new LinearLayout(this);
-        titles.setOrientation(LinearLayout.VERTICAL);
-        titles.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView titleView = type.mixedM3Label("OPTICS / 光学调整",
-                M3Tokens.TypeRole.TITLE_SMALL, theme.onSurface());
-        titles.addView(titleView, new LinearLayout.LayoutParams(-1, -2));
-
-        opticsLockNote = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                theme.onSurfaceVariant(), tfHan);
-        opticsLockNote.setSingleLine(true);
-        opticsLockNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        opticsLockNote.setVisibility(View.GONE);
-        titles.addView(opticsLockNote, new LinearLayout.LayoutParams(-1, -2));
-        head.addView(titles, largeText()
-                ? new LinearLayout.LayoutParams(-1, -2)
-                : new LinearLayout.LayoutParams(0, -2, 1f));
-        final MaterialButton viewAction = actionButton(
-                type.mixedText("视图"), "打开视图调整：白平衡、亮度、颜色、分级");
-        viewAction.setOnClickListener(v -> showViewAdjustSheet());
-        final MaterialButton meterAction = actionButton(
-                type.mixedText("测光"), "选择相机测光方式");
-        meterAction.setOnClickListener(v -> showMeterPicker());
-        final MaterialButton scanAction = actionButton(
-                type.mixedText("扫描仪"), "打开扫描页：SP-3000 模型预设与黑白校正");
-        scanAction.setOnClickListener(v -> showScanSheet());
-        if (largeText()) {
-            // A vertical head gave each action its own 48 dp row, so at 2.0x
-            // three entries consumed the whole sheet before the first slider.
-            // Keep the 48 dp targets but put them on one scrollable row.
-            final LinearLayout actions = new LinearLayout(this);
-            actions.setOrientation(LinearLayout.HORIZONTAL);
-            actions.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            actions.addView(viewAction, new LinearLayout.LayoutParams(-2, dp(48)));
-            actions.addView(meterAction, new LinearLayout.LayoutParams(-2, dp(48)));
-            actions.addView(scanAction, new LinearLayout.LayoutParams(-2, dp(48)));
-            final HorizontalScrollView scroll = new HorizontalScrollView(this);
-            scroll.setHorizontalScrollBarEnabled(false);
-            scroll.setClipToPadding(false);
-            scroll.addView(actions, new android.widget.FrameLayout.LayoutParams(-2, dp(48)));
-            head.addView(scroll, new LinearLayout.LayoutParams(-1, dp(48)));
-        } else {
-            head.addView(viewAction, new LinearLayout.LayoutParams(-2, dp(48)));
-            head.addView(meterAction, new LinearLayout.LayoutParams(-2, dp(48)));
-            head.addView(scanAction, new LinearLayout.LayoutParams(-2, dp(48)));
-        }
-        return head;
-    }
-
-    /** The one sentence a locked Optics panel shows and repeats on tap. */
+        /** The one sentence a locked Optics panel shows and repeats on tap. */
     private String opticsLockReason() {
         return session == null ? "先导入一张照片" : "先选择胶片或相纸，完成一次渲染";
     }

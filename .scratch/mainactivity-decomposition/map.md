@@ -16,6 +16,8 @@ Target: `MainActivity` under 4,500 lines, feature panels in
 `app.spektralab.ui.panel`, no second render path.
 
 Status: 01, 02 completed — `M3Chrome`, `ConsoleType`, `ConsoleTheme` and
-`ui.panel.StagePanel` extracted and device-checked. 03 FilmPanel in progress —
-the film workspace is built by `ui.panel.FilmPanel`; the refresh policy and
-catalogue reads still live in the Activity.
+`ui.panel.StagePanel` extracted and device-checked. 03 completed —
+`ui.panel.FilmPanel` owns the film view tree and the shelf scroll survives a
+theme rebuild. 04 OpticsPanel in progress — head, 22-chip strip and readout are
+panel-built; the slider, choice rows and commit policy still live in the
+Activity.

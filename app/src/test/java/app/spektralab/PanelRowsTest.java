@@ -50,6 +50,18 @@ public final class PanelRowsTest {
     }
 
     @Test
+    public void opticsPanelKeepsAllChipsAndChoices() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "光学");
+        final ViewGroup panel = (ViewGroup) privateView(activity, "opticsPanel");
+        final java.util.List<View> chips = new java.util.ArrayList<>();
+        collectByType(panel, com.google.android.material.chip.Chip.class, chips);
+        org.junit.Assert.assertEquals("expected the 22-parameter strip", 22, chips.size());
+        assertShown(activity, "镜头滤镜 / CAMERA FILTER");
+        assertShown(activity, "保护基准 / PROTECTION NORM");
+    }
+
+    @Test
     public void viewSheetKeepsHueAndGamut() {
         final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
         click(activity, "光学");
