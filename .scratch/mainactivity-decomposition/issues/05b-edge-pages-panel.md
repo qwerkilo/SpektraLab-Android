@@ -32,6 +32,14 @@ tests still pass.
 `testDebugUnitTest` (21 Robolectric tests, including the new rebate switch) and
 `python app/build/check-manifest.py` (30 checks) are green in the worktree.
 
+**Device (verified):** `10.110.67.69:43657`, release-signed 16 KB build. The 片边
+page renders with 开启片边 off, 片门格式 `135 全画幅`, 片边文字, 片基雾 and 漏光;
+the 日期 page shows 日期文字 `'26 11 12`, 左右内边距 3.0 mm, 上下内边距 2.4 mm,
+日期位置 画面, 日期角位 右下, 日期样式 LCD 七段, 拍摄数据 and 第二帧日期. Switching
+to the dark theme with the 日期 page open rebuilds and keeps that page open.
+Screenshots `edge-pages-rebate.png`, `edge-pages-date.png`,
+`edge-pages-date-dark.png` in `prototypes/shots/u162/`.
+
 **Device risk:** the JVM suite cannot measure the page's pixel rows. On a
 device, verify the rebate page still shows 开启片边, the gate card, 片边文字,
 片基雾, 漏光, 片边张数, 光圈值, 片边模式, 片门形状, 齿孔, 片夹, 片边种子 and
