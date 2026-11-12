@@ -46,6 +46,7 @@ import app.spektralab.ui.panel.OpticsPanel;
 import app.spektralab.ui.panel.EdgeHomePanel;
 import app.spektralab.ui.panel.EdgePagesPanel;
 import app.spektralab.ui.panel.ExportSheet;
+import app.spektralab.ui.panel.ImportBudgetSheet;
 import app.spektralab.ui.panel.ScalePanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
@@ -5443,35 +5444,27 @@ card.setOnClickListener(v -> {
      * story: what the file is, and what this phone renders in one go.
      */
     private void showImportBudgetDialog(final Uri uri, final int w, final int h, final int capPixels) {
-        final double fit = importScale(w, h, capPixels);
-        final int sw = Math.max(1, (int) Math.round(w * fit));
-        final int sh = Math.max(1, (int) Math.round(h * fit));
-        final String budgetMessage = "原图 " + w + "×" + h + "（" + megapixels(w, h) + " MP），这台机器一次能渲染约 "
-                + String.format(java.util.Locale.US, "%.1f", capPixels / 1e6) + " MP"
-                + (live().overscanOn ? "（已按片边预留画布，片边会把画布再撑大约 1.5 倍）" : "") + "。"
-                + "\n\n按 " + sw + "×" + sh + " 导入一定出得来；按原尺寸可能在本机渲染失败（E-1001）。";
-        showActionSheet("这张图超过本机预算", budgetMessage, new String[]{
-                "按 " + sw + "×" + sh + " 导入", "按原尺寸", "取消"
-        }, which -> {
-            if (which == 0) {
-                importBudgetAccepted = true;
-                loadImage(uri);
-            } else if (which == 1) {
-                importAtNativeSize = true;
-                loadImage(uri);
-            }
-        });
-    }
-
-    /**
-     * The scale the import will actually apply, so the dialog can name the size
-     * it is about to deliver -- the same three ceilings, in the same order, as
-     * `loadImage` below.
-     */
-    private double importScale(int w, int h, int capPixels) {
         final long available = availableMemoryBytes();
-        return ImportBudget.scale(w, h, capPixels, IMPORT_LONG_EDGE,
-                available > 0 ? DeviceProbe.maxPixelsByMemory(available) : 0);
+        final ImportBudgetSheet.Request request = new ImportBudgetSheet.Request(
+                uri, w, h, capPixels, IMPORT_LONG_EDGE,
+                available > 0 ? (int) DeviceProbe.maxPixelsByMemory(available) : 0,
+                live().overscanOn);
+        new ImportBudgetSheet(new ImportBudgetSheet.Host() {
+            @Override public void showSheet(String title, String body, String[] rows,
+                                            java.util.function.IntConsumer onPick) {
+                showActionSheet(title, body, rows, onPick::accept);
+            }
+
+            @Override public void importFit(Uri picked) {
+                importBudgetAccepted = true;
+                loadImage(picked);
+            }
+
+            @Override public void importOriginal(Uri picked) {
+                importAtNativeSize = true;
+                loadImage(picked);
+            }
+        }).show(request);
     }
 
     private static String megapixels(int w, int h) {
