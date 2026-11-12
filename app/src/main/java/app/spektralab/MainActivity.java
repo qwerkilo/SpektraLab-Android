@@ -43,6 +43,7 @@ import app.spektralab.ui.ConsoleTheme;
 import app.spektralab.ui.ConsoleType;
 import app.spektralab.ui.panel.FilmPanel;
 import app.spektralab.ui.panel.OpticsPanel;
+import app.spektralab.ui.panel.EdgeHomePanel;
 import app.spektralab.ui.panel.ScalePanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
@@ -386,6 +387,7 @@ public class MainActivity extends AppCompatActivity {
     /** The shell: `body` stacks or splits into `mainCol` and `controls`. */
     private LinearLayout body, mainCol, controls, panelHolder;
     private ScalePanel scalePanel;
+    private EdgeHomePanel edgeHomePanel;
     private View stageView;
     private StagePanel stagePanel;
     private FilmPanel filmPanel;
@@ -4024,89 +4026,25 @@ card.setOnClickListener(v -> {
     }
 
     /** The Edge landing page: one card per edge feature. */
+        /** The Edge landing page: one card per edge feature. */
     private LinearLayout buildEdgeHome() {
-        final LinearLayout home = new LinearLayout(this);
-        home.setOrientation(LinearLayout.VERTICAL);
-        home.addView(sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
-                new LinearLayout.LayoutParams(-1, -2));
-
-        final HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
-        scroll.setClipToPadding(false);
-        final LinearLayout strip = new LinearLayout(this);
-        strip.setOrientation(LinearLayout.HORIZONTAL);
-        strip.setPadding(0, dp(4), 0, dp(4));
-
-        final MaterialCardView rebateCard = edgeEntryCard("片边  REBATE",
-                this::rebateSummary, "打开片边设置", () -> openEdgePage(0));
-        strip.addView(rebateCard, edgeCardParams());
-        final MaterialCardView dateCard = edgeEntryCard("日期水印  DATE BACK",
-                this::dateSummary, "打开日期水印设置", () -> openEdgePage(1));
-        strip.addView(dateCard, edgeCardParams());
-
-        scroll.addView(strip, new android.widget.FrameLayout.LayoutParams(-2, -2));
-        home.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
-
-        final TextView note = type.m3Label("片门与尺度联动；片边只在这张图可用的片门里选",
-                M3Tokens.TypeRole.LABEL_SMALL, theme.onSurfaceVariant(), tfHan);
-        final LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
-        noteLp.topMargin = dp(8);
-        home.addView(note, noteLp);
-        return home;
-    }
-
-    private LinearLayout.LayoutParams edgeCardParams() {
-        final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(176), -2);
-        lp.rightMargin = dp(8);
-        return lp;
-    }
-
-    /**
-     * One Edge entry card: the feature name, a live summary, and a chevron.
-     * The summary is a supplier so the card never keeps a second copy of the
-     * Look; {@link #refreshEdgeCards()} repaints it after every change.
-     */
-    private MaterialCardView edgeEntryCard(String title,
-                                           java.util.function.Supplier<String> summary,
-                                           String description, Runnable onOpen) {
-        final MaterialCardView card = new MaterialCardView(this);
-        card.setCardElevation(0f);
-        card.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
-        card.setStrokeWidth(dp(1));
-        card.setCardBackgroundColor(theme.role(
-                com.google.android.material.R.attr.colorSurfaceContainerLow,
-                Palette.Role.SURFACE_ELEVATED));
-        card.setStrokeColor(theme.outlineVariant());
-        card.setClickable(true);
-        card.setFocusable(true);
-
-        final LinearLayout stack = new LinearLayout(this);
-        stack.setOrientation(LinearLayout.VERTICAL);
-        stack.setPadding(dp(12), dp(10), dp(12), dp(10));
-
-        final LinearLayout titleRow = new LinearLayout(this);
-        titleRow.setOrientation(LinearLayout.HORIZONTAL);
-        titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        final TextView name = type.mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, theme.onSurface());
-        name.setMaxLines(2);
-        titleRow.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
-        titleRow.addView(type.m3Label("›", M3Tokens.TypeRole.TITLE_SMALL, theme.onSurfaceVariant(), tfBody));
-        stack.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
-
-        final TextView summaryView = type.m3Label(summary.get(),
-                M3Tokens.TypeRole.LABEL_SMALL, theme.onSurfaceVariant(), tfHan);
-        final LinearLayout.LayoutParams summaryLp = new LinearLayout.LayoutParams(-1, -2);
-        summaryLp.topMargin = dp(6);
-        stack.addView(summaryView, summaryLp);
-
-        card.addView(stack, new android.widget.FrameLayout.LayoutParams(-1, -2));
-        card.setOnClickListener(v -> onOpen.run());
-        rebateRefreshers.add(() -> {
-            final String text = summary.get();
-            summaryView.setText(text);
-            card.setContentDescription(description + "，" + text);
-        });
-        return card;
+        edgeHomePanel = new EdgeHomePanel(this, type, theme, tfBody, tfHan,
+                sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
+                new EdgeHomePanel.Host() {
+                    @Override public String rebateSummary() {
+                        return MainActivity.this.rebateSummary();
+                    }
+                    @Override public String dateSummary() {
+                        return MainActivity.this.dateSummary();
+                    }
+                    @Override public void onOpenRebate() {
+                        openEdgePage(0);
+                    }
+                    @Override public void onOpenDate() {
+                        openEdgePage(1);
+                    }
+                }, rebateRefreshers::add);
+        return (LinearLayout) edgeHomePanel.view();
     }
 
     /**

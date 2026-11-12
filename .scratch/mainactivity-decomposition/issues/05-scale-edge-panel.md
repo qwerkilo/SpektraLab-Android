@@ -14,8 +14,14 @@ the header, compose entry, foot value, `pickScale` and the Look.
 and the strip recomputes to `24 / 65 / 56 / 6×6`; `scaleCardsGrowWithTheFont`
 reads the panel strip and still asserts 116×125 dp at 2.0×. Four gates green.
 
-**Remaining:** Edge home, rebate page, date page and the compose sheet still
-live in the Activity; move them into the same panel in the next slice.
+**Also landed:** `ui.panel.EdgeHomePanel` owns the 边框 landing page — section
+head slot, the 片边 / 日期水印 entry cards, live summaries through the Activity's
+refresher list, and the footer note. Its `Host` supplies both summaries and
+page entries.
+
+**Remaining:** the rebate page, date page and compose sheet still live in the
+Activity. Device verification of the Edge home was blocked by the phone going
+offline after install.
 
 **TDD seams**
 
