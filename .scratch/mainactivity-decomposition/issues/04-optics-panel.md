@@ -2,20 +2,23 @@
 
 **Type:** task
 **Blocked by:** 03
-**Status:** in progress
+**Status:** completed
 
-**Resolution so far:** `ui.panel.OpticsPanel` builds the head, the 22-parameter
-strip, the active-parameter readout and the lock surface; the shared filter-chip
-style is `OpticsPanel.styleChip`. The Activity still builds the slider and the
-two choice rows, owns the Look, and supplies `Host` for chip selection, reset
-and the View/Meter/Scanner pages.
+**Resolution:** `ui.panel.OpticsPanel` builds the whole optics workspace: head,
+lock note, View/Meter/Scanner entries, 22-parameter strip, active readout
+(name, reset, value, unit, Δ, range), the 48 dp slider and both choice rows
+(camera filter, protection norm). `OpticsPanel.Host` carries chip selection,
+reset, page entries, slider value/start/stop and the two pickers; the Activity
+still owns the Look and the one-render-per-release policy.
 
-**Verification:** device 800T frame unlocks the panel; H 高光保护 is one
-selection with range 0–3 EV; a track tap moves the value to 1.50 EV and the
-readout/Δ update; 22 chips are guarded by `PanelRowsTest`.
+**Verification:** device 800T frame unlocks the panel; H 高光保护 switches in
+one tap with range 0–3 EV; a track tap moves the value to 1.50 EV and Δ +1.50;
+the norm row opens the 幂律/亮度/峰值 sheet; 22 chips are guarded by
+`PanelRowsTest`. Four gates green.
 
-**Remaining:** move the slider and choice rows into the panel, then move the
-one-render-per-release policy behind it.
+**Remaining:** move the explicit commit policy (`onOpticsSliderValue` /
+`commitOptics`) behind the panel only if a later slice needs it; no UI rows are
+left in the Activity.
 
 **TDD seams**
 

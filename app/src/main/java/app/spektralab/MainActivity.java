@@ -3155,97 +3155,75 @@ card.setOnClickListener(v -> {
 
     /** The 22-parameter chip strip. */
         /** The single active-parameter slider and its touch policy. */
-    private void buildOpticsSlider(LinearLayout panel) {
-        opticsSlider = new Slider(this);
-        opticsSlider.setId(View.generateViewId());
-        opticsSlider.setMinimumHeight(dp(SLIDER_HEIGHT_DP));
-        // The head already shows the live value; a floating tooltip would be
-        // clipped by the row and repeat it.
-        opticsSlider.setLabelBehavior(
-                com.google.android.material.slider.LabelFormatter.LABEL_GONE);
-        opticsSlider.setLabelFormatter(value -> {
-            final OpticsDelta.Param spec = activeOptics();
-            return OpticsDelta.valueText(value) + " " + spec.unit;
-        });
-        opticsSlider.addOnChangeListener((slider, value, fromUser) -> {
-            if (syncingOptics) {
-                return;
-            }
-            final OpticsDelta.Param spec = activeOptics();
-            optics.set(spec, value);
-            showActiveOptics(value);
-            refreshReadoutStrip();
-            // One render per completed gesture: a touch release commits at
-            // once; keyboard, switch access, and TalkBack changes coalesce so
-            // a held arrow key does not queue a render per key. The guard at
-            // the top keeps a Look restore and a chip rebind silent.
-            if (trackingOpticsTouch) {
-                requestLivePreview();
-            } else {
-                scheduleOpticsCommit(slider);
-            }
-        });
-        opticsSlider.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
-            @Override public void onStartTrackingTouch(Slider slider) {
-                trackingOpticsTouch = true;
-                slider.removeCallbacks(opticsCommitRunnable);
-            }
-            @Override public void onStopTrackingTouch(Slider slider) {
-                trackingOpticsTouch = false;
-                slider.removeCallbacks(opticsCommitRunnable);
-                commitOptics();
-            }
-        });
-        panel.addView(opticsSlider,
-                new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
-    }
-
     private LinearLayout buildOpticsPanel() {
-        opticsPanelView = new OpticsPanel(this, type, theme, palette,
+        opticsPanelView = new OpticsPanel(this, type, theme,
                 tfDisplay, tfBody, tfHan, MIN_TOUCH_DP, largeText(),
-                new OpticsPanel.Host() {
-                    @Override public OpticsDelta.Param activeParam() {
-                        return activeOptics();
-                    }
-                    @Override public boolean unlocked() {
-                        return opticsUnlocked;
-                    }
-                    @Override public String lockReason() {
-                        return opticsLockReason();
-                    }
-                    @Override public void onLocked() {
-                        showSnackbar(opticsLockReason());
-                    }
-                    @Override public void onSelect(int index) {
-                        selectOptics(index);
-                    }
-                    @Override public void onReset() {
-                        resetActiveOptics();
-                    }
-                    @Override public void onView() {
-                        showViewAdjustSheet();
-                    }
-                    @Override public void onMeter() {
-                        showMeterPicker();
-                    }
-                    @Override public void onScanner() {
-                        showScanSheet();
-                    }
-                },
-                new OpticsPanel.Buttons() {
-                    @Override public MaterialButton action(CharSequence text,
-                            String description, Runnable onClick) {
-                        final MaterialButton button = actionButton(text, description);
-                        button.setOnClickListener(v -> onClick.run());
-                        return button;
-                    }
-                    @Override public MaterialButton text(CharSequence text,
-                            String description, int color, Runnable onClick) {
-                        return m3TextButton(text, description, color, onClick);
-                    }
-                });
+                opticsHost(), opticsButtons());
         final LinearLayout panel = opticsPanelView.view();
         opticsPanel = panel;
+        bindOpticsPanel();
+        bindActiveOptics();
+        syncOpticsChoices();
+        return panel;
+    }
+
+    /** The panel's callbacks into the Activity's Look and navigation. */
+    private OpticsPanel.Host opticsHost() {
+        return new OpticsPanel.Host() {
+            @Override public OpticsDelta.Param activeParam() {
+                return activeOptics();
+            }
+            @Override public boolean unlocked() {
+                return opticsUnlocked;
+            }
+            @Override public String lockReason() {
+                return opticsLockReason();
+            }
+            @Override public void onLocked() {
+                showSnackbar(opticsLockReason());
+            }
+            @Override public void onSelect(int index) {
+                selectOptics(index);
+            }
+            @Override public void onReset() {
+                resetActiveOptics();
+            }
+            @Override public void onView() {
+                showViewAdjustSheet();
+            }
+            @Override public void onMeter() {
+                showMeterPicker();
+            }
+            @Override public void onScanner() {
+                showScanSheet();
+            }
+            @Override public void onSliderValue(float value) {
+                onOpticsSliderValue(value);
+            }
+            @Override public void onSliderStart() {
+                trackingOpticsTouch = true;
+                if (opticsSlider != null) {
+                    opticsSlider.removeCallbacks(opticsCommitRunnable);
+                }
+            }
+            @Override public void onSliderStop() {
+                trackingOpticsTouch = false;
+                if (opticsSlider != null) {
+                    opticsSlider.removeCallbacks(opticsCommitRunnable);
+                }
+                commitOptics();
+            }
+            @Override public void onCameraFilter() {
+                showCameraFilterPicker();
+            }
+            @Override public void onProtectionNorm() {
+                showProtectionNormPicker();
+            }
+        };
+    }
+
+    /** Keep the Activity's aliases on the panel's children. */
+    private void bindOpticsPanel() {
         opticsStrip = null;
         opticsChips.clear();
         opticsChips.addAll(opticsPanelView.chips());
@@ -3257,18 +3235,25 @@ card.setOnClickListener(v -> {
         opticsUnit = opticsPanelView.unit();
         opticsDelta = opticsPanelView.delta();
         opticsRange = opticsPanelView.range();
+        opticsSlider = opticsPanelView.slider();
+        opticsFilterButton = opticsPanelView.filterButton();
+        opticsNormButton = opticsPanelView.normButton();
+    }
 
-        buildOpticsSlider(panel);
-
-        // The two choices the engine models separately from the 22 numbers.
-        opticsFilterButton = opticsChoiceRow(panel, "镜头滤镜 / CAMERA FILTER",
-                this::showCameraFilterPicker);
-        opticsNormButton = opticsChoiceRow(panel, "保护基准 / PROTECTION NORM",
-                this::showProtectionNormPicker);
-
-        bindActiveOptics();
-        syncOpticsChoices();
-        return panel;
+    /** Build the Activity's M3 buttons without changing their style. */
+    private OpticsPanel.Buttons opticsButtons() {
+        return new OpticsPanel.Buttons() {
+            @Override public MaterialButton action(CharSequence text,
+                    String description, Runnable onClick) {
+                final MaterialButton button = actionButton(text, description);
+                button.setOnClickListener(v -> onClick.run());
+                return button;
+            }
+            @Override public MaterialButton text(CharSequence text,
+                    String description, int color, Runnable onClick) {
+                return m3TextButton(text, description, color, onClick);
+            }
+        };
     }
 
     /**
@@ -3690,32 +3675,7 @@ card.setOnClickListener(v -> {
      * line, then value, unit, display-only Δ, and the contract's visible range.
      */
         /** A label + current choice + arrow, the same shape as the paper picker. */
-    private MaterialButton opticsChoiceRow(LinearLayout parent, String title,
-                                           Runnable open) {
-        final boolean stacked = largeText();
-        final LinearLayout row = new LinearLayout(this);
-        row.setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
-        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(dp(MIN_TOUCH_DP));
-        final TextView titleView = type.m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM,
-                theme.onSurfaceVariant(), tfHan);
-        row.addView(titleView, stacked
-                ? new LinearLayout.LayoutParams(-1, -2)
-                : new LinearLayout.LayoutParams(0, -2, 1f));
-        final MaterialButton button = m3TextButton("", title, theme.primary(), open);
-        button.setGravity(stacked
-                ? (android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL)
-                : (android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL));
-        button.setSingleLine(false);
-        button.setMaxLines(2);
-        row.addView(button, stacked
-                ? new LinearLayout.LayoutParams(-1, dp(MIN_TOUCH_DP))
-                : new LinearLayout.LayoutParams(-2, dp(MIN_TOUCH_DP)));
-        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
-        return button;
-    }
-
-    private OpticsDelta.Param activeOptics() {
+        private OpticsDelta.Param activeOptics() {
         return OpticsDelta.paramAt(activeOptics);
     }
 
@@ -3746,6 +3706,24 @@ card.setOnClickListener(v -> {
         }
         showActiveOptics(stored);
         refreshOpticsChips();
+    }
+
+    /** One slider change: update the Look and its head; commit on release. */
+    private void onOpticsSliderValue(float value) {
+        if (syncingOptics) {
+            return;
+        }
+        final OpticsDelta.Param spec = activeOptics();
+        optics.set(spec, value);
+        showActiveOptics(value);
+        refreshReadoutStrip();
+        // One render per completed gesture: a touch release commits at once;
+        // keyboard, switch access and TalkBack changes coalesce.
+        if (trackingOpticsTouch) {
+            requestLivePreview();
+        } else {
+            scheduleOpticsCommit(opticsSlider);
+        }
     }
 
     /** Show a value in the head without moving the slider or committing. */

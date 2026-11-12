@@ -18,6 +18,6 @@ Target: `MainActivity` under 4,500 lines, feature panels in
 Status: 01, 02 completed — `M3Chrome`, `ConsoleType`, `ConsoleTheme` and
 `ui.panel.StagePanel` extracted and device-checked. 03 completed —
 `ui.panel.FilmPanel` owns the film view tree and the shelf scroll survives a
-theme rebuild. 04 OpticsPanel in progress — head, 22-chip strip and readout are
-panel-built; the slider, choice rows and commit policy still live in the
-Activity.
+theme rebuild. 04 OpticsPanel completed — head, 22-chip strip, readout, slider
+and both choice rows are panel-built; only the Look and commit policy stay in
+the Activity. 05 Scale/Edge is next.

@@ -14,6 +14,8 @@ import androidx.core.view.ViewCompat;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipDrawable;
+import com.google.android.material.slider.LabelFormatter;
+import com.google.android.material.slider.Slider;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -50,6 +52,16 @@ public final class OpticsPanel {
         void onMeter();
 
         void onScanner();
+
+        void onSliderValue(float value);
+
+        void onSliderStart();
+
+        void onSliderStop();
+
+        void onCameraFilter();
+
+        void onProtectionNorm();
     }
 
     /** Builds the Activity's M3 buttons so the panel keeps the exact style. */
@@ -81,9 +93,12 @@ public final class OpticsPanel {
     private TextView unit;
     private TextView delta;
     private TextView range;
+    private Slider slider;
+    private MaterialButton filterButton;
+    private MaterialButton normButton;
 
     public OpticsPanel(Activity activity, ConsoleType type, ConsoleTheme theme,
-                       Palette palette, Typeface tfDisplay, Typeface tfBody,
+                       Typeface tfDisplay, Typeface tfBody,
                        Typeface tfHan, int touchDp, boolean largeText,
                        Host host, Buttons buttons) {
         this.activity = activity;
@@ -107,6 +122,9 @@ public final class OpticsPanel {
         root.addView(buildHead(), new LinearLayout.LayoutParams(-1, -2));
         root.addView(buildStrip(), new LinearLayout.LayoutParams(-1, -2));
         root.addView(buildReadout(), new LinearLayout.LayoutParams(-1, -2));
+        buildSlider();
+        filterButton = choiceRow("镜头滤镜 / CAMERA FILTER", host::onCameraFilter);
+        normButton = choiceRow("保护基准 / PROTECTION NORM", host::onProtectionNorm);
     }
 
     public LinearLayout view() {
@@ -147,6 +165,18 @@ public final class OpticsPanel {
 
     public TextView range() {
         return range;
+    }
+
+    public Slider slider() {
+        return slider;
+    }
+
+    public MaterialButton filterButton() {
+        return filterButton;
+    }
+
+    public MaterialButton normButton() {
+        return normButton;
     }
 
     private View buildHead() {
@@ -278,6 +308,54 @@ public final class OpticsPanel {
         range.setSingleLine(false);
         block.addView(range, new LinearLayout.LayoutParams(-1, -2));
         return block;
+    }
+
+    private void buildSlider() {
+        slider = new Slider(activity);
+        slider.setId(View.generateViewId());
+        slider.setMinimumHeight(dp(48));
+        // The head already shows the live value; a floating tooltip would be
+        // clipped by the row and repeat it.
+        slider.setLabelBehavior(LabelFormatter.LABEL_GONE);
+        slider.setLabelFormatter(value -> {
+            final OpticsDelta.Param spec = host.activeParam();
+            return OpticsDelta.valueText(value) + " " + spec.unit;
+        });
+        slider.addOnChangeListener((s, value, fromUser) -> host.onSliderValue(value));
+        slider.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+            @Override public void onStartTrackingTouch(Slider s) {
+                host.onSliderStart();
+            }
+
+            @Override public void onStopTrackingTouch(Slider s) {
+                host.onSliderStop();
+            }
+        });
+        root.addView(slider, new LinearLayout.LayoutParams(-1, dp(48)));
+    }
+
+    private MaterialButton choiceRow(String title, Runnable open) {
+        final boolean stacked = largeText;
+        final LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(touchDp));
+        final TextView titleView = type.m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM,
+                theme.onSurfaceVariant(), tfHan);
+        row.addView(titleView, stacked
+                ? new LinearLayout.LayoutParams(-1, -2)
+                : new LinearLayout.LayoutParams(0, -2, 1f));
+        final MaterialButton button = buttons.text("", title, theme.primary(), open);
+        button.setGravity(stacked
+                ? (Gravity.START | Gravity.CENTER_VERTICAL)
+                : (Gravity.END | Gravity.CENTER_VERTICAL));
+        button.setSingleLine(false);
+        button.setMaxLines(2);
+        row.addView(button, stacked
+                ? new LinearLayout.LayoutParams(-1, dp(touchDp))
+                : new LinearLayout.LayoutParams(-2, dp(touchDp)));
+        root.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return button;
     }
 
     /** One filter-chip style from the current theme; the sheets share it. */
