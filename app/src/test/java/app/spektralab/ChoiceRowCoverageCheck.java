@@ -20,13 +20,20 @@ import java.util.regex.Pattern;
  */
 public final class ChoiceRowCoverageCheck {
     private static final Class<?>[] CONTAINERS = {DateBack.class, RebateControls.class};
-    private static final String SOURCE = "app/src/main/java/app/spektralab/MainActivity.java";
+    private static final String[] SOURCES = {
+        "app/src/main/java/app/spektralab/MainActivity.java",
+        "app/src/main/java/app/spektralab/ui/panel/EdgePagesPanel.java",
+    };
 
     private ChoiceRowCoverageCheck() {
     }
 
     public static void main(String[] args) throws Exception {
-        final String source = Files.readString(Path.of(SOURCE));
+        final StringBuilder all = new StringBuilder();
+        for (String source : SOURCES) {
+            all.append(Files.readString(Path.of(source))).append('\n');
+        }
+        final String source = all.toString();
         int checks = 0;
         for (Class<?> container : CONTAINERS) {
             for (Field field : container.getDeclaredFields()) {

@@ -44,6 +44,7 @@ import app.spektralab.ui.ConsoleType;
 import app.spektralab.ui.panel.FilmPanel;
 import app.spektralab.ui.panel.OpticsPanel;
 import app.spektralab.ui.panel.EdgeHomePanel;
+import app.spektralab.ui.panel.EdgePagesPanel;
 import app.spektralab.ui.panel.ScalePanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
@@ -328,27 +329,10 @@ public class MainActivity extends AppCompatActivity {
      *  carries them and switching Frame must not drop them. */
     /** -1 = the two Edge entry cards, 0 = Rebate, 1 = Date back. */
     private int edgePageIndex = -1;
-    /** True while a Look restore fills the page; its listeners must not render. */
-    private boolean syncingRebate = false;
-    private LinearLayout edgeHome, rebatePage, datePage, rebateControls, dateControls;
-    private MaterialSwitch rebateSwitch, edgeTextSwitch;
-    private MaterialCardView rebateGateCard;
-    private TextView rebateGateValue, rebateModeValue, rebateGateStyleValue;
-    private TextView rebateHolesValue, rebateCarrierValue;
-    private TextView rebateCameraSeedValue, rebateFrameSeedValue;
-    private TextView rebateFogValue, rebateLeaksValue, rebateFrameNoValue, rebateFNumberValue;
-    private Slider rebateFogSlider, rebateLeaksSlider, rebateFrameNoSlider, rebateFNumberSlider;
     /** Each chosen row repaints its value and description from the live field. */
     private final List<Runnable> rebateRefreshers = new ArrayList<>();
     /** True while a Look restore sets switch state; the listener must not render. */
     private boolean syncingToggles = false;
-    private MaterialSwitch dateSwitch;
-    /** The date back's own line: the text shown while the imprint is on. */
-    private TextView dateDetail;
-    private TextView dateTextValue, datePlacementValue, dateCornerValue, dateStyleValue;
-    private TextView dateDataValue, dateTextBValue;
-    private TextView dateInsetXValue, dateInsetYValue, dateSizeValue, dateEvValue;
-    private Slider dateInsetXSlider, dateInsetYSlider, dateSizeSlider, dateEvSlider;
 
     /** 片边: the Gates this Frame's shape can actually carry, in catalogue order. */
     private final List<String> edgeLabels = new ArrayList<>(), edgeIds = new ArrayList<>();
@@ -382,12 +366,15 @@ public class MainActivity extends AppCompatActivity {
             formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
         }
         rebuildFormatCards();
-        syncRebatePage();
+        if (edgePagesPanel != null) {
+            edgePagesPanel.syncRebate();
+        }
     }
     /** The shell: `body` stacks or splits into `mainCol` and `controls`. */
     private LinearLayout body, mainCol, controls, panelHolder;
     private ScalePanel scalePanel;
     private EdgeHomePanel edgeHomePanel;
+    private EdgePagesPanel edgePagesPanel;
     private View stageView;
     private StagePanel stagePanel;
     private FilmPanel filmPanel;
@@ -1899,7 +1886,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         }
         syncOpticsChoices();
         syncToggleRows();
-        syncDateDetail();
+        syncEdgeDateDetail();
         if (edgeValue != null) {
             edgeValue.setText(pair.label);
         }
@@ -3041,7 +3028,7 @@ card.setOnClickListener(v -> {
         refreshReadoutStrip();
         refreshPaperLabel();
         syncToggleRows();
-        syncDateDetail();
+        syncEdgeDateDetail();
         updateUndoAction();
         renderImage();
     }
@@ -4005,7 +3992,9 @@ card.setOnClickListener(v -> {
         if (scalePanel != null) {
             scalePanel.revealSelected();
         }
-        syncRebatePage();
+        if (edgePagesPanel != null) {
+            edgePagesPanel.syncRebate();
+        }
         onEdgeChanged();
     }
 
@@ -4013,20 +4002,96 @@ card.setOnClickListener(v -> {
         rebateRefreshers.clear();
         final LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        edgeHome = buildEdgeHome();
-        rebatePage = buildRebatePage();
-        datePage = buildDatePage();
-        root.addView(edgeHome, new LinearLayout.LayoutParams(-1, -2));
-        root.addView(rebatePage, new LinearLayout.LayoutParams(-1, -2));
-        root.addView(datePage, new LinearLayout.LayoutParams(-1, -2));
+        final View home = buildEdgeHome();
+        edgePagesPanel = new EdgePagesPanel(this, type, theme, tfBody, tfHan,
+                new EdgePagesPanel.Host() {
+                    @Override public EdgeLookAccess look() {
+                        return new EdgeLookAccess(MainActivity.this.live());
+                    }
+                    @Override public void onBack() {
+                        openEdgePage(-1);
+                    }
+                    @Override public String rebateGateLabel() {
+                        if (edgeIds.isEmpty()) {
+                            return "无可用片门";
+                        }
+                        return GateScale.resolve(live().overscanFormat,
+                                live().filmFormatMm).label;
+                    }
+                    @Override public void showEdgePicker() {
+                        MainActivity.this.showEdgePicker();
+                    }
+                    @Override public boolean canHostRebate() {
+                        return GateScale.canHostRebate(sourceWidth, sourceHeight);
+                    }
+                    @Override public String effectiveDateText() {
+                        return MainActivity.this.effectiveDateText();
+                    }
+                    @Override public String imprintDate() {
+                        return MainActivity.this.imprintDate();
+                    }
+                    @Override public void askText(String title, String initial,
+                                                   java.util.function.Consumer<String> onValue) {
+                        MainActivity.this.askText(title, initial, onValue);
+                    }
+                    @Override public void askSeed(String title, int initial,
+                                                   java.util.function.IntConsumer onValue) {
+                        MainActivity.this.askSeed(title, initial, onValue);
+                    }
+                    @Override public void showChoiceSheet(String title, String note,
+                                                           List<String> labels, int selectedIndex,
+                                                           java.util.function.IntConsumer onPick) {
+                        MainActivity.this.showChoiceSheet(title, note, labels,
+                                selectedIndex, onPick);
+                    }
+                    @Override public void showSnackbar(String message) {
+                        MainActivity.this.showSnackbar(message);
+                    }
+                    @Override public void requestLivePreview() {
+                        MainActivity.this.requestLivePreview();
+                    }
+                    @Override public void commitRebate() {
+                        MainActivity.this.commitRebate();
+                    }
+                    @Override public long commitDelayMs() {
+                        return OPTICS_COMMIT_DELAY_MS;
+                    }
+                    @Override public boolean largeText() {
+                        return MainActivity.this.largeText();
+                    }
+                }, edgeRows(), rebateRefreshers::add, this::refreshEdgeCards);
+        root.addView(home, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(edgePagesPanel.rebatePage(), new LinearLayout.LayoutParams(-1, -2));
+        root.addView(edgePagesPanel.datePage(), new LinearLayout.LayoutParams(-1, -2));
         openEdgePage(edgePageIndex);
-        syncRebatePage();
-        syncDatePage();
+        edgePagesPanel.syncRebate();
+        edgePagesPanel.syncDate();
         return root;
     }
 
+    /** The shared Edge switch row, borrowed from the Activity's own style. */
+    private EdgePagesPanel.Rows edgeRows() {
+        return new EdgePagesPanel.Rows() {
+            @Override public View switchRow(String labelText, TextView detail,
+                                            MaterialSwitch toggle,
+                                            java.util.function.BooleanSupplier current,
+                                            java.util.function.Consumer<Boolean> onChange) {
+                return MainActivity.this.switchRow(labelText, detail, toggle, current, onChange);
+            }
+            @Override public String toggleDescription(String labelText, boolean on) {
+                return MainActivity.toggleDescription(labelText, on);
+            }
+            @Override public void setSyncingToggles(boolean syncing) {
+                syncingToggles = syncing;
+            }
+            @Override public MaterialButton textButton(CharSequence text, String description,
+                                                       int color, Runnable action) {
+                return m3TextButton(text, description, color, action);
+            }
+        };
+    }
+
     /** The Edge landing page: one card per edge feature. */
-        /** The Edge landing page: one card per edge feature. */
     private LinearLayout buildEdgeHome() {
         edgeHomePanel = new EdgeHomePanel(this, type, theme, tfBody, tfHan,
                 sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
@@ -4047,365 +4112,23 @@ card.setOnClickListener(v -> {
         return (LinearLayout) edgeHomePanel.view();
     }
 
-    /**
-     * The Rebate secondary page. Its switch owns whether the controls are
-     * enabled; they stay visible and dimmed while off, so the page explains
-     * what is available without pretending the controls work.
-     */
-    /** The rebate gate card and its live label. */
-    private void addRebateGateCard(int onSurface, int onSurfaceVariant) {
-rebateGateValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-rebateGateCard = new MaterialCardView(this);
-rebateGateCard.setCardElevation(0f);
-rebateGateCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
-rebateGateCard.setStrokeWidth(dp(1));
-rebateGateCard.setCardBackgroundColor(theme.role(
-        com.google.android.material.R.attr.colorSurfaceContainerLow,
-        Palette.Role.SURFACE_ELEVATED));
-rebateGateCard.setStrokeColor(theme.outlineVariant());
-rebateGateCard.setClickable(true);
-rebateGateCard.setFocusable(true);
-rebateGateCard.setOnClickListener(v -> showEdgePicker());
-final LinearLayout gateRow = new LinearLayout(this);
-gateRow.setOrientation(LinearLayout.HORIZONTAL);
-gateRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-gateRow.setPadding(dp(14), 0, dp(14), 0);
-gateRow.addView(type.m3Label("片门格式", M3Tokens.TypeRole.BODY_MEDIUM,
-        onSurfaceVariant, tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-rebateGateValue.setGravity(android.view.Gravity.END);
-gateRow.addView(rebateGateValue, new LinearLayout.LayoutParams(-2, -2));
-final TextView gateArrow = type.m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
-        onSurfaceVariant, tfBody);
-final LinearLayout.LayoutParams gateArrowLp = new LinearLayout.LayoutParams(-2, -2);
-gateArrowLp.leftMargin = dp(7);
-gateRow.addView(gateArrow, gateArrowLp);
-rebateGateCard.addView(gateRow,
-        new android.widget.FrameLayout.LayoutParams(-1, -1));
-rebateRefreshers.add(() -> {
-    final String label = edgeIds.isEmpty()
-            ? "无可用片门"
-            : GateScale.resolve(live().overscanFormat, live().filmFormatMm).label;
-    rebateGateValue.setText(label);
-    rebateGateCard.setContentDescription("片门格式，" + label);
-});
-final LinearLayout.LayoutParams gateLp = new LinearLayout.LayoutParams(-1, dp(52));
-gateLp.bottomMargin = dp(4);
-rebateControls.addView(rebateGateCard, gateLp);
-    }
-
-    /** The rebate switches and tone sliders. */
-    private void addRebateToneControls(int onSurface) {
-edgeTextSwitch = new MaterialSwitch(this);
-rebateControls.addView(switchRow("片边文字（厂标 / 张数）", null,
-        edgeTextSwitch, () -> live().edgeTextOn, on -> {
-            live().edgeTextOn = on;
-            syncRebatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, dp(56)));
-
-rebateFogValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-rebateFogSlider = rebateSliderRow(rebateControls, "片基雾",
-        "片基本身的灰雾。0 是完全透明，越大越脏",
-        RebateControls.FOG_MIN, RebateControls.FOG_MAX, 0.05f,
-        RebateControls.clampFog(live().edgeFog),
-        value -> String.format(java.util.Locale.US, "%.2f", value),
-        value -> live().edgeFog = RebateControls.clampFog(value),
-        () -> live().edgeFog, rebateFogValue);
-
-rebateLeaksValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-rebateLeaksSlider = rebateSliderRow(rebateControls, "漏光",
-        "卷轴漏进来的光，从片边渗向画面",
-        RebateControls.LEAKS_MIN, RebateControls.LEAKS_MAX, 0.05f,
-        RebateControls.clampLeaks(live().edgeLeaks),
-        value -> String.format(java.util.Locale.US, "%.2f", value),
-        value -> live().edgeLeaks = RebateControls.clampLeaks(value),
-        () -> live().edgeLeaks, rebateLeaksValue);
-
-rebateFrameNoValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-rebateFrameNoSlider = rebateSliderRow(rebateControls, "片边张数",
-        "片边上印的张数。0 = 按 seed 随机",
-        RebateControls.FRAME_NUMBER_MIN, RebateControls.FRAME_NUMBER_MAX, 1f,
-        RebateControls.clampFrameNumber(live().frameNumber),
-        value -> value < 0.5f ? "自动" : String.valueOf(Math.round(value)),
-        value -> live().frameNumber = RebateControls.clampFrameNumber(value),
-        () -> live().frameNumber, rebateFrameNoValue);
-
-rebateFNumberValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-rebateFNumberSlider = rebateSliderRow(rebateControls, "光圈值",
-        "相机记录的 f 值。决定片门边缘的虚化。0 = 未知（按 f/5.6）",
-        RebateControls.F_NUMBER_MIN, RebateControls.F_NUMBER_MAX, 1f,
-        RebateControls.clampFNumber(live().edgeFNumber),
-        value -> value < 0.5f
-                ? "未知"
-                : "f/" + String.format(java.util.Locale.US, "%.1f", value),
-        value -> live().edgeFNumber = RebateControls.clampFNumber(value),
-        () -> live().edgeFNumber, rebateFNumberValue);
-
-    }
-
-    /** The rebate mode, gate, holes, carrier and seed rows. */
-    private void addRebateStructureControls(int onSurface) {
-rebateModeValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-rebateControls.addView(edgeChoiceRow("片边模式", rebateModeValue, RebateControls.MODES,
-        () -> live().edgeMode, id -> {
-            live().edgeMode = id;
-            syncRebatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, -2));
-
-rebateGateStyleValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-rebateControls.addView(edgeChoiceRow("片门形状", rebateGateStyleValue,
-        RebateControls.GATE_STYLES, () -> live().edgeGate, id -> {
-            live().edgeGate = id;
-            syncRebatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, -2));
-
-rebateHolesValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-rebateControls.addView(edgeChoiceRow("齿孔", rebateHolesValue, RebateControls.HOLES,
-        () -> live().edgeHoles, id -> {
-            live().edgeHoles = id;
-            syncRebatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, -2));
-
-rebateCarrierValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-rebateControls.addView(edgeChoiceRow("片夹", rebateCarrierValue,
-        RebateControls.CARRIERS, () -> live().edgeCarrier, id -> {
-            live().edgeCarrier = id;
-            syncRebatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, -2));
-
-rebateCameraSeedValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-rebateControls.addView(rebateValueRow("片边种子", rebateCameraSeedValue,
-        () -> String.valueOf(live().cameraSeed),
-        () -> askSeed("片边随机种子（0 – 2147483647）", live().cameraSeed, value -> {
-            live().cameraSeed = value;
-            syncRebatePage();
-            commitRebate();
-        })), new LinearLayout.LayoutParams(-1, -2));
-
-rebateFrameSeedValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
-        () -> String.valueOf(live().frameSeed),
-        () -> askSeed("帧随机种子（0 – 2147483647）", live().frameSeed, value -> {
-            live().frameSeed = value;
-            syncRebatePage();
-            commitRebate();
-        })), new LinearLayout.LayoutParams(-1, -2));
-
-    }
-
-    private LinearLayout buildRebatePage() {
-        final LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setVisibility(View.GONE);
-        page.addView(edgePageHead("片边 / REBATE"), new LinearLayout.LayoutParams(-1, -2));
-
-        final int onSurface = theme.role(
-                com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
-        final int onSurfaceVariant = theme.role(
-                com.google.android.material.R.attr.colorOnSurfaceVariant,
-                Palette.Role.MUTED_INK);
-
-        rebateSwitch = new MaterialSwitch(this);
-        page.addView(switchRow("开启片边", null, rebateSwitch, () -> live().overscanOn, on -> {
-            if (on && !GateScale.canHostRebate(sourceWidth, sourceHeight)) {
-                showSnackbar("这张图的长宽比不对应任何片门");
-                syncRebatePage();
-                return;
-            }
-            live().overscanOn = on;
-            syncRebatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, dp(56)));
-
-        rebateControls = new LinearLayout(this);
-        rebateControls.setOrientation(LinearLayout.VERTICAL);
-
-        addRebateGateCard(onSurface, onSurfaceVariant);
-        addRebateToneControls(onSurface);
-        addRebateStructureControls(onSurface);
-        page.addView(rebateControls, new LinearLayout.LayoutParams(-1, -2));
-        return page;
-    }
-
-    /**
-     * The Date back secondary page. It follows the Rebate page's shape: its
-     * switch owns whether the controls are enabled, and the controls stay
-     * visible and dimmed while off. The default text comes from the Frame's
-     * EXIF capture date; a custom text is sent to the engine exactly as typed.
-     */
-    /** The editable date imprint field. */
-    private void addDateTextField(int onSurface) {
-        dateTextValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(rebateValueRow("日期文字", dateTextValue,
-                this::effectiveDateText, () -> {
-                    askText("印在画面上的日期（可以自己写）", effectiveDateText(), value -> {
-                        live().dateText = value == null || value.trim().isEmpty()
-                                ? "" : value.trim();
-                        syncDatePage();
-                        commitRebate();
-                    });
-                }), new LinearLayout.LayoutParams(-1, -2));
-    }
-
-    /** The date inset, size and exposure sliders. */
-    private void addDateGeometryControls(int onSurface) {
-        dateInsetXValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        dateInsetXSlider = rebateSliderRow(dateControls, "左右内边距",
-                "字到片门左右边的距离，毫米",
-                DateBack.INSET_MIN, DateBack.INSET_MAX, 0.1f,
-                DateBack.clampInset(live().dateInsetX),
-                value -> String.format(java.util.Locale.US, "%.1f mm", value),
-                value -> live().dateInsetX = DateBack.clampInset(value),
-                () -> live().dateInsetX, dateInsetXValue);
-
-        dateInsetYValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        dateInsetYSlider = rebateSliderRow(dateControls, "上下内边距",
-                "字到片门上下边的距离，毫米",
-                DateBack.INSET_MIN, DateBack.INSET_MAX, 0.1f,
-                DateBack.clampInset(live().dateInsetY),
-                value -> String.format(java.util.Locale.US, "%.1f mm", value),
-                value -> live().dateInsetY = DateBack.clampInset(value),
-                () -> live().dateInsetY, dateInsetYValue);
-
-        dateSizeValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        dateSizeSlider = rebateSliderRow(dateControls, "日期大小",
-                "相对该样式的字高",
-                DateBack.SIZE_MIN, DateBack.SIZE_MAX, 0.05f,
-                DateBack.clampSize(live().dateSize),
-                value -> String.format(java.util.Locale.US, "%.2f×", value),
-                value -> live().dateSize = DateBack.clampSize(value),
-                () -> live().dateSize, dateSizeValue);
-
-        dateEvValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        dateEvSlider = rebateSliderRow(dateControls, "日期亮度",
-                "红光在 18% 灰之上的曝光，单位挡",
-                DateBack.EV_MIN, DateBack.EV_MAX, 0.1f,
-                DateBack.clampEv(live().dateEv),
-                value -> String.format(java.util.Locale.US, "%+.1f EV", value),
-                value -> live().dateEv = DateBack.clampEv(value),
-                () -> live().dateEv, dateEvValue);
-    }
-
-    /** The date placement, corner and style choices. */
-    private void addDateStyleControls(int onSurface) {
-        datePlacementValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(edgeChoiceRow("日期位置", datePlacementValue,
-                DateBack.PLACEMENTS, () -> live().datePlacement, id -> {
-                    live().datePlacement = id;
-                    syncDatePage();
-                    commitRebate();
-                }), new LinearLayout.LayoutParams(-1, -2));
-
-        dateCornerValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(edgeChoiceRow("日期角位", dateCornerValue,
-                DateBack.CORNERS, () -> live().dateCorner, id -> {
-                    live().dateCorner = id;
-                    syncDatePage();
-                    commitRebate();
-                }), new LinearLayout.LayoutParams(-1, -2));
-
-        dateStyleValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(edgeChoiceRow("日期样式", dateStyleValue,
-                DateBack.STYLES, () -> live().dateStyle, id -> {
-                    live().dateStyle = id;
-                    syncDatePage();
-                    commitRebate();
-                }), new LinearLayout.LayoutParams(-1, -2));
-    }
-
-    /** The capture-data and second-frame text fields. */
-    private void addDateDataControls(int onSurface) {
-        dateDataValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(rebateValueRow("拍摄数据", dateDataValue,
-                () -> live().dataText.isEmpty() ? "（空）" : live().dataText,
-                () -> askText("拍摄数据（和日期一起印在片边）", live().dataText, value -> {
-                    live().dataText = value == null ? "" : value.trim();
-                    syncDatePage();
-                    commitRebate();
-                })), new LinearLayout.LayoutParams(-1, -2));
-    }
-
-    private LinearLayout buildDatePage() {
-        final LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setVisibility(View.GONE);
-        page.addView(edgePageHead("日期水印 / DATE BACK"), new LinearLayout.LayoutParams(-1, -2));
-
-        final int onSurface = theme.role(
-                com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
-        final int onSurfaceVariant = theme.role(
-                com.google.android.material.R.attr.colorOnSurfaceVariant,
-                Palette.Role.MUTED_INK);
-
-        dateSwitch = new MaterialSwitch(this);
-        dateDetail = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
-        page.addView(switchRow("开启日期水印", dateDetail, dateSwitch, () -> live().dateOn, on -> {
-            live().dateOn = on;
-            syncDatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, dp(56)));
-
-        dateControls = new LinearLayout(this);
-        dateControls.setOrientation(LinearLayout.VERTICAL);
-
-        // The one field the app used to decide for the user: the EXIF date is
-        // the default, but the imprint has always been editable.
-        addDateTextField(onSurface);
-        addDateGeometryControls(onSurface);
-        addDateStyleControls(onSurface);
-        addDateDataControls(onSurface);
-
-        dateTextBValue = type.m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(rebateValueRow("第二帧日期", dateTextBValue,
-                () -> live().dateTextB.isEmpty() ? "（空）" : live().dateTextB,
-                () -> askText("半格对的第二帧日期（用不到就留空）", live().dateTextB, value -> {
-                    live().dateTextB = value == null ? "" : value.trim();
-                    syncDatePage();
-                    commitRebate();
-                })), new LinearLayout.LayoutParams(-1, -2));
-
-        page.addView(dateControls, new LinearLayout.LayoutParams(-1, -2));
-        return page;
-    }
-
-    /** Back plus the page name; the two pages share one header shape. */
-    private View edgePageHead(String title) {
-        final LinearLayout head = new LinearLayout(this);
-        head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
-        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        final MaterialButton back = m3TextButton("‹ 返回", "返回边框页",
-                theme.primary(), () -> openEdgePage(-1));
-        head.addView(back, new LinearLayout.LayoutParams(-2, dp(48)));
-        final TextView name = type.mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL,
-                theme.onSurfaceVariant());
-        final LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
-                largeText() ? -1 : 0, -2, largeText() ? 0f : 1f);
-        nameLp.leftMargin = largeText() ? 0 : dp(8);
-        head.addView(name, nameLp);
-        return head;
-    }
-
     /** -1 = the two cards, 0 = the Rebate page, 1 = the Date back page. */
     private void openEdgePage(int which) {
         edgePageIndex = which;
-        if (edgeHome != null) {
-            edgeHome.setVisibility(which < 0 ? View.VISIBLE : View.GONE);
+        if (edgeHomePanel != null) {
+            edgeHomePanel.view().setVisibility(which < 0 ? View.VISIBLE : View.GONE);
         }
-        if (rebatePage != null) {
-            rebatePage.setVisibility(which == 0 ? View.VISIBLE : View.GONE);
-        }
-        if (datePage != null) {
-            datePage.setVisibility(which == 1 ? View.VISIBLE : View.GONE);
-        }
-        if (which == 0) {
-            syncRebatePage();
-        }
-        if (which == 1) {
-            syncDatePage();
+        if (edgePagesPanel != null) {
+            edgePagesPanel.rebatePage().setVisibility(
+                    which == 0 ? View.VISIBLE : View.GONE);
+            edgePagesPanel.datePage().setVisibility(
+                    which == 1 ? View.VISIBLE : View.GONE);
+            if (which == 0) {
+                edgePagesPanel.syncRebate();
+            }
+            if (which == 1) {
+                edgePagesPanel.syncDate();
+            }
         }
         refreshEdgeCards();
         // The panel is one ScrollView; a page opens at its own top.
@@ -4448,205 +4171,6 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
 
     private static String fmt1(float value) {
         return String.format(java.util.Locale.US, "%.1f", value);
-    }
-
-    /**
-     * Fill the Rebate page from the live fields. It runs after a Look restore,
-     * a Gate change, or a page open, so the page never keeps a second copy of
-     * the Look. The switch guard keeps the slider listeners from committing a
-     * render while they are being moved into place.
-     */
-    private void syncRebatePage() {
-        if (rebateSwitch == null) {
-            return;
-        }
-        syncingRebate = true;
-        syncingToggles = true;
-        try {
-            rebateSwitch.setChecked(live().overscanOn);
-            rebateSwitch.setContentDescription(toggleDescription("开启片边", live().overscanOn));
-            if (edgeTextSwitch != null) {
-                edgeTextSwitch.setChecked(live().edgeTextOn);
-                edgeTextSwitch.setContentDescription(
-                        toggleDescription("片边文字（厂标 / 张数）", live().edgeTextOn));
-            }
-            refreshEdgeCards();
-        } finally {
-            syncingRebate = false;
-            syncingToggles = false;
-        }
-        setEnabledDeep(rebateControls, live().overscanOn);
-    }
-
-    /**
-     * Fill the Date back page from the live fields. Like the Rebate page it
-     * runs after a Look restore or a page open, and its guard keeps the slider
-     * listeners from committing a render while they are being moved into place.
-     */
-    private void syncDatePage() {
-        if (dateSwitch == null) {
-            return;
-        }
-        syncingRebate = true;
-        syncingToggles = true;
-        try {
-            dateSwitch.setChecked(live().dateOn);
-            dateSwitch.setContentDescription(toggleDescription("开启日期水印", live().dateOn));
-            syncDateDetail();
-            refreshEdgeCards();
-        } finally {
-            syncingRebate = false;
-            syncingToggles = false;
-        }
-        setEnabledDeep(dateControls, live().dateOn);
-    }
-
-    /** Dim and disable a whole control group without hiding what it offers. */
-    private static void setEnabledDeep(View view, boolean enabled) {
-        if (view == null) {
-            return;
-        }
-        setEnabledRecursive(view, enabled);
-        // One 38 % overlay for the group; setting it on every child too would
-        // compound the opacity and make nested labels unreadable.
-        view.setAlpha(enabled ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
-    }
-
-    private static void setEnabledRecursive(View view, boolean enabled) {
-        view.setEnabled(enabled);
-        if (view instanceof android.view.ViewGroup) {
-            final android.view.ViewGroup group = (android.view.ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); ++i) {
-                setEnabledRecursive(group.getChildAt(i), enabled);
-            }
-        }
-    }
-
-    /** A slider, its label, and its live value; the page owns four of them. */
-    private Slider rebateSliderRow(LinearLayout parent, String name, String hint,
-                                   float min, float max, float step, float initial,
-                                   java.util.function.Function<Float, String> format,
-                                   java.util.function.Consumer<Float> apply,
-                                   java.util.function.Supplier<Float> current,
-                                   TextView valueView) {
-        final LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(0, dp(4), 0, 0);
-
-        final LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        head.addView(type.m3Label(name, M3Tokens.TypeRole.BODY_MEDIUM,
-                theme.role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
-                tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-        valueView.setText(format.apply(initial));
-        type.applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfBody);
-        valueView.setTextColor(theme.primary());
-        head.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
-        row.addView(head, new LinearLayout.LayoutParams(-1, -2));
-
-        if (hint != null && !hint.isEmpty()) {
-            final TextView note = type.m3Label(hint, M3Tokens.TypeRole.LABEL_SMALL,
-                    theme.onSurfaceVariant(), tfHan);
-            note.setLineSpacing(dp(2), 1f);
-            final LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
-            noteLp.topMargin = dp(1);
-            row.addView(note, noteLp);
-        }
-
-        final Slider bar = new Slider(this);
-        bar.setId(View.generateViewId());
-        bar.setValueFrom(min);
-        bar.setValueTo(max);
-        bar.setStepSize(step);
-        bar.setValue(snapToStep(clampToSlider(initial, min, max), min, step));
-        bar.setMinimumHeight(dp(48));
-        bar.setLabelFormatter(value -> format.apply(value));
-        bar.setLabelBehavior(com.google.android.material.slider.LabelFormatter.LABEL_GONE);
-        bar.setContentDescription(name);
-        valueView.setLabelFor(bar.getId());
-        bar.addOnChangeListener((slider, value, fromUser) -> {
-            valueView.setText(format.apply(value));
-            // A programmatic park (a Look restore, a page refresh) moves the
-            // thumb only. Writing the snapped step back would replace a stored
-            // 2.43 mm with 2.4 before the user touched anything.
-            if (!fromUser) {
-                return;
-            }
-            apply.accept(value);
-            if (!syncingRebate) {
-                requestLivePreview();
-                slider.removeCallbacks(rebateCommit);
-                slider.postDelayed(rebateCommit, OPTICS_COMMIT_DELAY_MS);
-            }
-        });
-        bar.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
-            @Override public void onStartTrackingTouch(Slider slider) {
-                slider.removeCallbacks(rebateCommit);
-            }
-            @Override public void onStopTrackingTouch(Slider slider) {
-                slider.removeCallbacks(rebateCommit);
-                commitRebate();
-            }
-        });
-        rebateRefreshers.add(() -> bar.setValue(snapToStep(
-                clampToSlider(current.get(), min, max), min, step)));
-        row.addView(bar, new LinearLayout.LayoutParams(-1, dp(48)));
-        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
-        return bar;
-    }
-
-    /** A chosen value row backed by the M3 radio sheet; the id is the Look's. */
-    private View edgeChoiceRow(String labelText, TextView valueView,
-                               List<? extends ControlChoice> choices,
-                               java.util.function.Supplier<String> current,
-                               java.util.function.Consumer<String> setter) {
-        return rebateValueRow(labelText, valueView,
-                () -> String.valueOf(ControlChoice.labelOf(choices, current.get())),
-                () -> {
-                    final int selected = ControlChoice.indexOf(choices, current.get());
-                    showChoiceSheet(labelText, "只列出这一版支持的选项",
-                            java.util.Arrays.asList(ControlChoice.labels(choices)),
-                            selected, picked -> {
-                                if (picked < 0 || picked >= choices.size()) {
-                                    return;
-                                }
-                                setter.accept(choices.get(picked).id);
-                            });
-                });
-    }
-
-    /** A non-sheet row: a label, the live value, and a chevron-like arrow. */
-    private View rebateValueRow(String labelText, TextView valueView,
-                                java.util.function.Supplier<String> current,
-                                Runnable onClick) {
-        final LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(dp(52));
-        row.setPadding(dp(2), 0, dp(2), 0);
-        row.addView(type.m3Label(labelText, M3Tokens.TypeRole.BODY_MEDIUM,
-                theme.role(com.google.android.material.R.attr.colorOnSurfaceVariant,
-                        Palette.Role.MUTED_INK), tfHan),
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        type.applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfHan);
-        valueView.setTextColor(theme.onSurface());
-        valueView.setGravity(android.view.Gravity.END);
-        row.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
-        final TextView arrow = type.m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
-                theme.onSurfaceVariant(), tfBody);
-        final LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(-2, -2);
-        arrowLp.leftMargin = dp(7);
-        row.addView(arrow, arrowLp);
-        row.setClickable(true);
-        row.setFocusable(true);
-        row.setOnClickListener(v -> onClick.run());
-        rebateRefreshers.add(() -> {
-            final String value = current.get();
-            valueView.setText(value);
-            row.setContentDescription(labelText + "，" + value);
-        });
-        return row;
     }
 
     /** The date text and the capture-data line are free text, not numbers. */
@@ -4705,33 +4229,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
 
     /** A switch change or a chosen row commits one render, not one per frame. */
     private void commitRebate() {
-        if (syncingRebate) {
-            return;
-        }
         onEdgeChanged();
-    }
-
-    private final Runnable rebateCommit = () -> {
-        if (!syncingRebate) {
-            onEdgeChanged();
-        }
-    };
-
-    private static float clampToSlider(float value, float min, float max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    /**
-     * Put a stored value on the slider's own step grid. An older Look may hold
-     * a raw engine value (2.43 mm) that is not a multiple of the page's step;
-     * Material's Slider rejects that instead of nudging it.
-     */
-    private static float snapToStep(float value, float min, float step) {
-        if (step <= 0f) {
-            return value;
-        }
-        final float snapped = min + Math.round((value - min) / step) * step;
-        return Math.round(snapped * 1000f) / 1000f;
     }
 
     private void showEdgePicker() {
@@ -5373,7 +4871,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         live().dataText = "";
         live().dateTextB = "";
         syncToggleRows();
-        syncDateDetail();
+        syncEdgeDateDetail();
         if (session != null) {
             onEdgeChanged();
         }
@@ -5467,7 +4965,9 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         rebuildFormatCards();
         // The page's Gate row and switch follow the same available set: a shape
         // no Gate can hold cannot keep the Rebate on.
-        syncRebatePage();
+        if (edgePagesPanel != null) {
+            edgePagesPanel.syncRebate();
+        }
         try {
             DebugSink.text("overscan", "aspect=" + aspect + " gates=" + edgeIds
                     + " chosen=" + live().overscanFormat + " scale=" + live().filmFormatMm);
@@ -5615,23 +5115,19 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
     }
 
     /** Show the date back's line only while the imprint is enabled. */
-    private void syncDateDetail() {
-        if (dateDetail == null) {
-            return;
-        }
-        if (live().dateOn) {
-            dateDetail.setText(imprintDate());
-            dateDetail.setVisibility(View.VISIBLE);
-        } else {
-            dateDetail.setText("");
-            dateDetail.setVisibility(View.GONE);
+    private void syncEdgeDateDetail() {
+        if (edgePagesPanel != null) {
+            edgePagesPanel.syncDateDetail();
         }
     }
 
     /** Re-apply a restored Look to the Edge pages' switches and controls. */
     private void syncToggleRows() {
-        syncRebatePage();
-        syncDatePage();
+        if (edgePagesPanel == null) {
+            return;
+        }
+        edgePagesPanel.syncRebate();
+        edgePagesPanel.syncDate();
     }
 
     /**

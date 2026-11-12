@@ -1,5 +1,6 @@
 package app.spektralab;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -32,6 +33,18 @@ public final class PanelRowsTest {
         click(activity, "日期水印");
         assertShown(activity, "日期角位");
         assertShown(activity, "日期样式");
+    }
+
+    @Test
+    public void rebateSwitchEnablesTheControlGroup() {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "边框");
+        click(activity, "片边  REBATE");
+        final View mode = find(activity, "片边模式");
+        assertNotNull("no rebate mode row", mode);
+        assertFalse("the control group starts dimmed", mode.isEnabled());
+        clickTarget(find(activity, "开启片边"));
+        assertTrue("the rebate switch must enable the control group", mode.isEnabled());
     }
 
     @Test
