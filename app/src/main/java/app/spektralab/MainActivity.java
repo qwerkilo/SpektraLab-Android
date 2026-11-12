@@ -28,15 +28,28 @@ import app.spektralab.core.LivePreviewGate;
 import app.spektralab.core.Metering;
 import app.spektralab.core.SafeFileName;
 import app.spektralab.core.PrintTarget;
+import app.spektralab.core.RenderEpoch;
+import app.spektralab.core.ReopenDecision;
 import app.spektralab.core.ScanProfile;
 import app.spektralab.core.ScanSample;
 import app.spektralab.core.SessionDocument;
 import app.spektralab.core.ExportDigest;
+import app.spektralab.core.ExportMatch;
 import app.spektralab.core.GalleryExport;
-import app.spektralab.core.FormatCardLayout;
 import app.spektralab.core.SpectrumCurve;
 import app.spektralab.core.SpectrumSamples;
 import app.spektralab.core.StockNames;
+import app.spektralab.ui.ConsoleTheme;
+import app.spektralab.ui.ConsoleType;
+import app.spektralab.ui.panel.FilmPanel;
+import app.spektralab.ui.panel.OpticsPanel;
+import app.spektralab.ui.panel.EdgeHomePanel;
+import app.spektralab.ui.panel.EdgePagesPanel;
+import app.spektralab.ui.panel.ExportSheet;
+import app.spektralab.ui.panel.ImportBudgetSheet;
+import app.spektralab.ui.panel.ScalePanel;
+import app.spektralab.ui.panel.StagePanel;
+import app.spektralab.ui.M3Chrome;
 import app.spektralab.core.ImportBudget;
 import app.spektralab.model.FilmStock;
 import app.spektralab.ui.GlassStyle;
@@ -139,7 +152,6 @@ public class MainActivity extends AppCompatActivity {
     private int sourceWidth, sourceHeight;
     private CompareView compare;
     private HistogramView histogram;
-    private boolean histogramOn;
     /** What the import put on the stage: the frame before any film. */
     private Bitmap beforeBitmap;
     private TextView statusText;
@@ -267,6 +279,8 @@ public class MainActivity extends AppCompatActivity {
     private Typeface tfDisplay;      // Inter 300 — numbers and the wordmark
     private Typeface tfBody;         // Inter 400 — Latin labels
     private Typeface tfHan;          // OPPO Sans — Chinese, and anything mixed
+    private ConsoleType type;
+    private ConsoleTheme theme;
     private View emptyState, rawState;
     private TextView fileLabel, rawName, busyLabel, originalLabel, paperValue, edgeValue, formatFootValue;
     /**
@@ -285,7 +299,6 @@ public class MainActivity extends AppCompatActivity {
     /** True between a real touch-down and touch-up; mid-drag never commits. */
     private boolean trackingOpticsTouch = false;
     private HorizontalScrollView opticsStripScroll;
-    private LinearLayout opticsStrip;
     private final List<Chip> opticsChips = new ArrayList<>();
     private Slider opticsSlider;
     private final android.os.Handler viewAdjustHandler =
@@ -317,27 +330,10 @@ public class MainActivity extends AppCompatActivity {
      *  carries them and switching Frame must not drop them. */
     /** -1 = the two Edge entry cards, 0 = Rebate, 1 = Date back. */
     private int edgePageIndex = -1;
-    /** True while a Look restore fills the page; its listeners must not render. */
-    private boolean syncingRebate = false;
-    private LinearLayout edgeHome, rebatePage, datePage, rebateControls, dateControls;
-    private MaterialSwitch rebateSwitch, edgeTextSwitch;
-    private MaterialCardView rebateGateCard;
-    private TextView rebateGateValue, rebateModeValue, rebateGateStyleValue;
-    private TextView rebateHolesValue, rebateCarrierValue;
-    private TextView rebateCameraSeedValue, rebateFrameSeedValue;
-    private TextView rebateFogValue, rebateLeaksValue, rebateFrameNoValue, rebateFNumberValue;
-    private Slider rebateFogSlider, rebateLeaksSlider, rebateFrameNoSlider, rebateFNumberSlider;
     /** Each chosen row repaints its value and description from the live field. */
     private final List<Runnable> rebateRefreshers = new ArrayList<>();
     /** True while a Look restore sets switch state; the listener must not render. */
     private boolean syncingToggles = false;
-    private MaterialSwitch dateSwitch;
-    /** The date back's own line: the text shown while the imprint is on. */
-    private TextView dateDetail;
-    private TextView dateTextValue, datePlacementValue, dateCornerValue, dateStyleValue;
-    private TextView dateDataValue, dateTextBValue;
-    private TextView dateInsetXValue, dateInsetYValue, dateSizeValue, dateEvValue;
-    private Slider dateInsetXSlider, dateInsetYSlider, dateSizeSlider, dateEvSlider;
 
     /** 片边: the Gates this Frame's shape can actually carry, in catalogue order. */
     private final List<String> edgeLabels = new ArrayList<>(), edgeIds = new ArrayList<>();
@@ -371,14 +367,21 @@ public class MainActivity extends AppCompatActivity {
             formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
         }
         rebuildFormatCards();
-        syncRebatePage();
+        if (edgePagesPanel != null) {
+            edgePagesPanel.syncRebate();
+        }
     }
     /** The shell: `body` stacks or splits into `mainCol` and `controls`. */
-    private LinearLayout body, mainCol, controls, panelHolder, formatCardStrip;
+    private LinearLayout body, mainCol, controls, panelHolder;
+    private ScalePanel scalePanel;
+    private EdgeHomePanel edgeHomePanel;
+    private EdgePagesPanel edgePagesPanel;
     private View stageView;
+    private StagePanel stagePanel;
+    private FilmPanel filmPanel;
+    private OpticsPanel opticsPanelView;
     /** True while the window is at the two-column Console width. */
     private boolean wideLayout = false;
-    private HorizontalScrollView formatScroll;
 
     /** The Gate the Scale/Edge readout is showing, or the honest empty state. */
     private void updateEdgeValue() {
@@ -457,6 +460,10 @@ public class MainActivity extends AppCompatActivity {
     /** A stock change that arrived while a render held the session. Folded into
      *  one follow-up render when the current one lands. */
     private volatile boolean pendingRender = false;
+    /** Bumped whenever the canvas is replaced; stale callbacks cannot paint. */
+    private final RenderEpoch renderEpoch = new RenderEpoch();
+    private int activeRenderEpoch;
+    private int activeRenderFrame = -1;
     private static final int PREVIEW_LONG_EDGE = 2048;
     /** Live frames are small enough to finish inside a drag; full render follows. */
     private static final int LIVE_LONG_EDGE = 800;
@@ -470,7 +477,6 @@ public class MainActivity extends AppCompatActivity {
     private Thread liveThread;
     private long liveLastStart;
     private int[] livePixels;
-    private final List<View> formatCards = new ArrayList<>();
     private static final int TOP_APP_BAR_HEIGHT_DP = 64;
     /** The floating Prism top bar sits 8 dp below the status bar. */
     private static final int TOP_BAR_MARGIN_DP = 8;
@@ -552,6 +558,7 @@ public class MainActivity extends AppCompatActivity {
             DebugSink.text("font", "oppo: " + t);
             tfHan = Typeface.create("sans-serif", Typeface.NORMAL);
         }
+        type = new ConsoleType(this, tfBody, tfHan);
     }
 
     /**
@@ -582,88 +589,11 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** The M3 surface role, resolved from the active theme (dynamic on API 31+). */
-    private int m3Surface() {
-        return MaterialColors.getColor(this,
-                com.google.android.material.R.attr.colorSurface,
-                palette.color(Palette.Role.SYSTEM_BAR_BACKGROUND));
-    }
-
-    /** The M3 background role, used by the shell instead of Palette.BACKGROUND. */
-    private int m3Background() {
-        return m3Role(android.R.attr.colorBackground, Palette.Role.BACKGROUND);
-    }
-
-    private int m3OutlineVariant() {
-        return m3Role(com.google.android.material.R.attr.colorOutlineVariant, Palette.Role.LINE);
-    }
-
-    private int m3OnSurface() {
-        return m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
-    }
-
-    private int m3OnSurfaceVariant() {
-        return m3Role(com.google.android.material.R.attr.colorOnSurfaceVariant,
-                Palette.Role.MUTED_INK);
-    }
-
-    private int m3Primary() {
-        return m3Role(com.google.android.material.R.attr.colorPrimary, Palette.Role.ACCENT);
-    }
-
-    /** A control colour role, with the Palette only as the pre-theme fallback. */
-    private int m3Role(int attr, Palette.Role fallback) {
-        return MaterialColors.getColor(this, attr, palette.color(fallback));
-    }
-
-    /**
-     * The Prism Table glass surface: a translucent M3 surface with a specular
-     * outline. Android has no backdrop blur for arbitrary in-Activity views, so
-     * this is a deliberate simulated glass, not a claimed window blur.
-     */
-    private android.graphics.drawable.Drawable glassSurface(int radiusDp) {
-        final int surface = m3Surface();
-        final android.graphics.drawable.GradientDrawable glass =
-                new android.graphics.drawable.GradientDrawable(
-                        android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                        new int[] {
-                                withAlpha(surface, GlassStyle.SURFACE_START_ALPHA),
-                                withAlpha(surface, GlassStyle.SURFACE_END_ALPHA) });
-        glass.setCornerRadius(dp(radiusDp));
-        glass.setStroke(Math.max(1, dp(1)),
-                withAlpha(m3OutlineVariant(), GlassStyle.OUTLINE_ALPHA));
-        return glass;
-    }
-
-    /** A two-state colour for a real checkable control (checked, then default). */
-    private static ColorStateList checkedColors(int checked, int unchecked) {
-        return new ColorStateList(
-                new int[][] { { android.R.attr.state_checked }, {} },
-                new int[] { checked, unchecked });
-    }
-
-    /** Replace a colour's alpha channel; RGB is kept. */
-    private static int withAlpha(int color, int alpha) {
-        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
-    }
-
-    /** Apply an M3 opacity token to a colour without changing its RGB. */
-    private static int withOpacity(int color, float opacity) {
-        return withAlpha(color, Math.round(opacity * 255f));
-    }
-
-    /** An M3 weight on the brand family; API 24–27 synthesises medium as normal. */
-    private static Typeface weighted(Typeface family, int weight) {
-        if (android.os.Build.VERSION.SDK_INT >= 28) {
-            return Typeface.create(family, weight, false);
-        }
-        return Typeface.create(family, weight >= 600 ? Typeface.BOLD : Typeface.NORMAL);
-    }
     /** The window behind the first frame, so the launch never flashes paper in dark. */
     private void applyWindowPalette() {
         try {
             getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
-                    m3Background()));
+                    theme.background()));
         } catch (Throwable t) {
             DebugSink.text("theme", "window: " + t);
         }
@@ -675,8 +605,8 @@ public class MainActivity extends AppCompatActivity {
             getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
             // The M3 top app bar owns the status-bar edge; the navigation bar
             // follows the control surface too.
-            getWindow().setStatusBarColor(m3Surface());
-            getWindow().setNavigationBarColor(m3Surface());
+            getWindow().setStatusBarColor(theme.surface());
+            getWindow().setNavigationBarColor(theme.surface());
             final boolean lightBars = !palette.isDark();
             if (android.os.Build.VERSION.SDK_INT >= 30) {
                 android.view.WindowInsetsController c = getWindow().getInsetsController();
@@ -753,6 +683,7 @@ public class MainActivity extends AppCompatActivity {
         s.setScanFraction(scanFraction);
         s.setScanVisible(scanVisible);
         s.setEdgePageIndex(edgePageIndex);
+        s.setFilmScrollX(filmChipScroll == null ? 0 : filmChipScroll.getScrollX());
         return s;
     }
 
@@ -777,6 +708,9 @@ public class MainActivity extends AppCompatActivity {
         scanFraction = s.scanFraction();
         scanVisible = s.scanVisible();
         refreshFilmPanel();
+        if (filmChipScroll != null) {
+            filmChipScroll.post(() -> filmChipScroll.scrollTo(s.filmScrollX(), 0));
+        }
     }
 
     private void restoreCompare(UiState s) {
@@ -850,24 +784,24 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         wideLayout = wide;
+        final boolean twoColumn = ConsoleLayout.isTwoColumn(widthDp);
         body.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         applyRailLayout(wide, widthDp);
-        applyColumnWidths(wide, widthDp);
+        applyColumnWidths(wide, twoColumn, widthDp);
         // On a wide window the control column is a distinct instrument rail:
         // the page colour would otherwise run on below the panel and read as
         // an unfinished half-column. The film curve then takes the rest of the
         // rail on the default tab instead of leaving its lower half empty.
         controls.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        panelHolder.setBackground(glassSurface(GlassStyle.SHEET_RADIUS_DP));
+        panelHolder.setBackground(theme.glassSurface(GlassStyle.SHEET_RADIUS_DP));
         panelHolder.setClipToOutline(true);
         panelHolder.setElevation(dp(GlassStyle.SHEET_ELEVATION_DP));
         // On a wide window the floating bar spans the page; keep the control
         // column's own heading below it. On the phone the sheet is already
         // below the stage, so it only needs its normal breathing room.
-        panelHolder.setPadding(dp(16), dp(wide ? TOP_APP_BAR_HEIGHT_DP + 8 : 8),
+        panelHolder.setPadding(dp(16), dp(twoColumn ? TOP_APP_BAR_HEIGHT_DP + 8 : 8),
                 dp(16), dp(PANEL_BOTTOM_DP));
         applyFilmCurveHeight(wide);
-        updateStageReadoutWidths();
     }
 
     /** The leading navigation rail replaces the phone tabs on a wide window. */
@@ -885,7 +819,20 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** The stage column against the control column. */
-    private void applyColumnWidths(boolean wide, int widthDp) {
+    private void applyColumnWidths(boolean wide, boolean twoColumn, int widthDp) {
+        final int controlHeight = dp(wide && !twoColumn
+                ? CONTROLS_OPEN_DP - TABS_HEIGHT_DP
+                : (panelCollapsed ? CONTROLS_CLOSED_DP : CONTROLS_OPEN_DP));
+        final android.view.ViewGroup controlParent =
+                (android.view.ViewGroup) controls.getParent();
+        final android.view.ViewGroup target = wide && !twoColumn ? mainCol : body;
+        if (controlParent != target) {
+            if (controlParent != null) {
+                controlParent.removeView(controls);
+            }
+            target.addView(controls, new LinearLayout.LayoutParams(-1, controlHeight));
+        }
+
         LinearLayout.LayoutParams mainLp = (LinearLayout.LayoutParams) mainCol.getLayoutParams();
         mainLp.width = wide ? 0 : -1;
         mainLp.height = wide ? -1 : 0;
@@ -894,16 +841,15 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout.LayoutParams controlLp =
                 (LinearLayout.LayoutParams) controls.getLayoutParams();
-        controlLp.width = wide ? dp(ConsoleLayout.controlColumnWidthDp(widthDp)) : -1;
-        controlLp.height = wide
-                ? -1 : dp(panelCollapsed ? CONTROLS_CLOSED_DP : CONTROLS_OPEN_DP);
+        controlLp.width = twoColumn ? dp(ConsoleLayout.controlColumnWidthDp(widthDp)) : -1;
+        controlLp.height = twoColumn ? -1 : controlHeight;
         controlLp.weight = 0f;
         controls.setLayoutParams(controlLp);
 
         LinearLayout.LayoutParams panelLp =
                 (LinearLayout.LayoutParams) panelHolder.getLayoutParams();
-        panelLp.height = wide ? 0 : dp(PANEL_HEIGHT_DP);
-        panelLp.weight = wide ? 1f : 0f;
+        panelLp.height = twoColumn ? 0 : dp(PANEL_HEIGHT_DP);
+        panelLp.weight = twoColumn ? 1f : 0f;
         panelHolder.setLayoutParams(panelLp);
     }
 
@@ -924,23 +870,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** Keep the status line inside the stage when the stage is not full width. */
-    private void updateStageReadoutWidths() {
-        if (statusText == null || stageView == null) {
-            return;
-        }
-        final int stageWidth = stageView.getWidth();
-        if (stageWidth <= 0) {
-            return;
-        }
-        final int byScreen = Math.round(currentWidthDp() * 0.60f
-                * getResources().getDisplayMetrics().density);
-        final int wanted = Math.max(dp(120), Math.min(byScreen, stageWidth - dp(48)));
-        if (statusText.getMaxWidth() != wanted) {
-            statusText.setMaxWidth(wanted);
-        }
-    }
-
-    /** Rotations and foldable resizes arrive here because the manifest keeps
+        /** Rotations and foldable resizes arrive here because the manifest keeps
      *  the Activity alive; no Frame, Look, or render is touched. */
     /** System Back leaves a secondary page before it leaves the Console. */
     @Override
@@ -975,96 +905,6 @@ public class MainActivity extends AppCompatActivity {
                 android.content.res.ColorStateList.valueOf(ripple), shape, null);
     }
 
-    private TextView label(String s, float sp, int color, Typeface tf) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp);
-        t.setTextColor(color);
-        if (tf != null) {
-            t.setTypeface(tf);
-        }
-        t.setIncludeFontPadding(false);
-        return t;
-    }
-
-    /** A Mixed run keeps Latin on Inter and Chinese on OPPO Sans, so a title
-     *  like "PHYSICAL SCALE / 光学尺度" never falls back to the platform font. */
-    private static boolean isCjk(char c) {
-        return (c >= 0x2E80 && c <= 0x9FFF)
-                || (c >= 0x3000 && c <= 0x303F)
-                || (c >= 0xF900 && c <= 0xFAFF)
-                || (c >= 0xFF00 && c <= 0xFF65);
-    }
-
-    private static class TfSpan extends android.text.style.MetricAffectingSpan {
-        private final Typeface tf;
-        private final int weight;
-        TfSpan(Typeface tf) { this(tf, 400); }
-        TfSpan(Typeface tf, int weight) { this.tf = tf; this.weight = weight; }
-        @Override public void updateDrawState(android.text.TextPaint p) { apply(p); }
-        @Override public void updateMeasureState(android.text.TextPaint p) { apply(p); }
-        private void apply(android.text.TextPaint p) {
-            p.setTypeface(weighted(tf, weight));
-        }
-    }
-
-    private CharSequence mixedText(String text) {
-        return mixedText(text, 400);
-    }
-
-    private CharSequence mixedText(String text, int weight) {
-        android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(text);
-        int i = 0;
-        while (i < text.length()) {
-            final boolean cjk = isCjk(text.charAt(i));
-            int j = i + 1;
-            while (j < text.length() && isCjk(text.charAt(j)) == cjk) {
-                ++j;
-            }
-            sb.setSpan(new TfSpan(cjk ? tfHan : tfBody, weight), i, j,
-                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            i = j;
-        }
-        return sb;
-    }
-
-    /** Mixed Chinese/Latin runs with one M3 role: size, weight, tracking, line height. */
-    private TextView mixedM3Label(String text, M3Tokens.TypeRole role, int color) {
-        final TextView t = new TextView(this);
-        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, role.sizeSp);
-        t.setTextColor(color);
-        t.setText(mixedText(text, role.weight));
-        t.setIncludeFontPadding(false);
-        t.setLetterSpacing(role.letterSpacingEm);
-        applyM3LineHeight(t, role);
-        return t;
-    }
-
-    /** Text with one M3 type role: size, weight, tracking, line height, brand family. */
-    private TextView m3Label(String text, M3Tokens.TypeRole role, int color, Typeface family) {
-        final TextView view = label(text, role.sizeSp, color, family);
-        applyTypeRole(view, role, family);
-        return view;
-    }
-
-    /** Apply a role to an existing TextView, including a Material component's label. */
-    private void applyTypeRole(TextView view, M3Tokens.TypeRole role, Typeface family) {
-        view.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, role.sizeSp);
-        view.setTypeface(weighted(family, role.weight));
-        view.setLetterSpacing(role.letterSpacingEm);
-        applyM3LineHeight(view, role);
-    }
-
-    /** Make each line exactly the role's M3 line height, not the font's default. */
-    private void applyM3LineHeight(TextView view, M3Tokens.TypeRole role) {
-        final android.graphics.Paint.FontMetrics metrics = view.getPaint().getFontMetrics();
-        final float natural = metrics.descent - metrics.ascent;
-        final float target = android.util.TypedValue.applyDimension(
-                android.util.TypedValue.COMPLEX_UNIT_SP, role.lineHeightSp,
-                getResources().getDisplayMetrics());
-        view.setLineSpacing(Math.max(0f, target - natural), 1f);
-    }
-
     private View hairline(int color) {
         View v = new View(this);
         v.setBackgroundColor(color);
@@ -1087,106 +927,9 @@ public class MainActivity extends AppCompatActivity {
             // Android 15 paints edge-to-edge and ignores setStatusBarColor.
             // The inset is part of this view's background, so the page colour
             // has to live there as well.
-            v.setBackground(new EdgeBackdrop(m3Background()));
+            v.setBackground(new EdgeBackdrop(theme.background()));
             return insets;
         });
-    }
-
-    /** Build the stage frame and its Compare and Scan layers. */
-    private android.widget.FrameLayout createStage() {
-android.widget.FrameLayout stage = new android.widget.FrameLayout(this);
-stageView = stage;
-stage.setBackgroundColor(palette.color(Palette.Role.STAGE));
-stage.setClipChildren(false);
-stage.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
-        updateStageReadoutWidths());
-
-compare = new CompareView(this,
-        m3Role(com.google.android.material.R.attr.colorOutline, Palette.Role.LINE),
-        m3Surface(), m3Primary());
-compare.setVisibility(View.GONE);
-stage.addView(compare, new android.widget.FrameLayout.LayoutParams(-1, -1));
-
-// Scan inspect draws over the picture but under the corner readouts and
-// the shelf handle. It handles touches only while the mode is on; when
-// it is off, CompareView keeps the divider and the long-press hold.
-scanOverlay = new ScanOverlayView(this, palette, compare, this::onScanSample);
-scanOverlay.setVisibility(View.GONE);
-stage.addView(scanOverlay, new android.widget.FrameLayout.LayoutParams(-1, -1));
-
-histogram = new HistogramView(this);
-histogram.setContentDescription("RGB 直方图");
-histogram.setVisibility(histogramOn ? View.VISIBLE : View.GONE);
-if (histogramOn) {
-    histogram.setBitmap(displayedBitmap());
-}
-
-        return stage;
-    }
-
-    /** The empty-stage import control. */
-    private void addStageEmptyState(android.widget.FrameLayout stage) {
-LinearLayout empty = new LinearLayout(this);
-empty.setOrientation(LinearLayout.VERTICAL);
-empty.setGravity(android.view.Gravity.CENTER);
-empty.setPadding(dp(16), dp(16), dp(16), dp(16));
-// One control, in the middle of the frame. The index line, the NO IMAGE
-// headline and the "select a RAW or JPEG" subtitle said the same thing
-// three times over, in three type sizes, and only the last of them
-// could be acted on.
-LinearLayout load = new LinearLayout(this);
-load.setOrientation(LinearLayout.HORIZONTAL);
-load.setGravity(android.view.Gravity.CENTER);
-load.setBackground(pressableFill(Palette.Role.SURFACE_ELEVATED));
-load.setPadding(dp(18), 0, dp(18), 0);
-load.setOnClickListener(v -> showImportMenu());
-// At 2.0× the room above the sheet is too short for both the floating
-// bar and a centred import pill; clear the bar and drop the stage's
-// corner readouts, which the 2×2 table below already carries.
-if (veryLargeText()) {
-    load.setTranslationY(dp(32));
-}
-load.addView(m3Label("选择照片",
-        veryLargeText() ? M3Tokens.TypeRole.LABEL_MEDIUM : M3Tokens.TypeRole.LABEL_LARGE,
-        m3Primary(), tfHan));
-ArrowView loadArrow = new ArrowView(this, palette.color(Palette.Role.ACCENT));
-LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(14), dp(14));
-arrowLp.leftMargin = dp(8);
-load.addView(loadArrow, arrowLp);
-empty.addView(load, new LinearLayout.LayoutParams(-2, dp(48)));
-stage.addView(empty, new android.widget.FrameLayout.LayoutParams(-1, -1));
-emptyState = empty;
-    }
-
-    /** The RAW-loaded placeholder under the stage. */
-    private void addStageRawState(android.widget.FrameLayout stage) {
-LinearLayout raw = new LinearLayout(this);
-raw.setOrientation(LinearLayout.VERTICAL);
-raw.setGravity(android.view.Gravity.CENTER);
-raw.setPadding(dp(24), dp(16), dp(24), dp(16));
-raw.setVisibility(View.GONE);
-TextView rawTitle = label("RAW LOADED", 34, palette.color(Palette.Role.STAGE_INK), tfDisplay);
-rawTitle.setLetterSpacing(-0.055f);
-raw.addView(rawTitle);
-rawName = label("", 9, palette.color(Palette.Role.STAGE_INK), tfHan);
-rawName.setAlpha(0.7f);
-rawName.setLineSpacing(dp(4), 1f);
-rawName.setGravity(android.view.Gravity.CENTER);
-LinearLayout.LayoutParams rawNameLp = new LinearLayout.LayoutParams(-2, -2);
-rawNameLp.topMargin = dp(13);
-raw.addView(rawName, rawNameLp);
-stage.addView(raw, new android.widget.FrameLayout.LayoutParams(-1, -1));
-rawState = raw;
-    }
-
-    /** The rendering overlay label. */
-    private void addStageBusyLabel(android.widget.FrameLayout stage) {
-busyLabel = label("RENDERING", 18, palette.color(Palette.Role.STAGE_INK), tfDisplay);
-busyLabel.setLetterSpacing(0.14f);
-busyLabel.setGravity(android.view.Gravity.CENTER);
-busyLabel.setBackgroundColor(palette.color(Palette.Role.STAGE_BUSY));
-busyLabel.setVisibility(View.GONE);
-stage.addView(busyLabel, new android.widget.FrameLayout.LayoutParams(-1, -1));
     }
 
     /** The shelf handle in the stage's bottom-left corner. */
@@ -1200,36 +943,8 @@ stage.addView(shelfHandle, handleLp);
     }
 
     /** The preview and export progress bars. */
-    private void addStageProgress(android.widget.FrameLayout stage) {
-
-android.widget.FrameLayout jobs = new android.widget.FrameLayout(this);
-progressBar = new LinearProgressIndicator(this);
-progressBar.setIndeterminate(true);
-progressBar.setTrackThickness(dp(2));
-progressBar.setIndicatorColor(palette.color(Palette.Role.STAGE_INK));
-progressBar.setTrackColor(android.graphics.Color.TRANSPARENT);
-progressBar.setVisibility(View.GONE);
-jobs.addView(progressBar, new android.widget.FrameLayout.LayoutParams(-1, dp(2)));
-exportProgressBar = new LinearProgressIndicator(this);
-exportProgressBar.setIndeterminate(true);
-exportProgressBar.setTrackThickness(dp(2));
-exportProgressBar.setIndicatorColor(palette.color(Palette.Role.STAGE_INK));
-exportProgressBar.setTrackColor(android.graphics.Color.TRANSPARENT);
-exportProgressBar.setVisibility(View.GONE);
-jobs.addView(exportProgressBar, new android.widget.FrameLayout.LayoutParams(-1, dp(2)));
-stage.addView(jobs, new android.widget.FrameLayout.LayoutParams(-1, dp(2), android.view.Gravity.BOTTOM));
-    }
-
-    /** Keep TalkBack on the scan line after its toggle. */
-    private void wireScanTraversal() {
-if (scanToggleChip != null) {
-    scanToggleChip.setId(View.generateViewId());
-    scanOverlay.setId(View.generateViewId());
-    scanOverlay.setAccessibilityTraversalAfter(scanToggleChip.getId());
-}
-    }
-
-    /** Build the four-tab control deck that owns the panel. */
+        /** Keep TalkBack on the scan line after its toggle. */
+        /** Build the four-tab control deck that owns the panel. */
     private void buildControlDeck() {
 controls = new LinearLayout(this);
 controls.setOrientation(LinearLayout.VERTICAL);
@@ -1238,7 +953,7 @@ controls.setPadding(dp(8), 0, dp(8), dp(CONTROL_SHELL_PAD_DP));
 
 panelHolder = new LinearLayout(this);
 panelHolder.setOrientation(LinearLayout.VERTICAL);
-panelHolder.setBackground(glassSurface(GlassStyle.SHEET_RADIUS_DP));
+panelHolder.setBackground(theme.glassSurface(GlassStyle.SHEET_RADIUS_DP));
 panelHolder.setClipToOutline(true);
 panelHolder.setElevation(dp(GlassStyle.SHEET_ELEVATION_DP));
 panelHolder.setPadding(dp(16), dp(8), dp(16), dp(PANEL_BOTTOM_DP));
@@ -1265,18 +980,23 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         if (tfBody == null) {
             loadUiFonts();
         }
+        if (theme == null) {
+            theme = new ConsoleTheme(this, palette);
+        } else {
+            theme.setPalette(palette);
+        }
         applyWindowPalette();
         applySystemBars();
 
         final android.widget.FrameLayout root = new android.widget.FrameLayout(this);
-        root.setBackgroundColor(m3Background());
+        root.setBackgroundColor(theme.background());
         applySystemInsets(root);
         setContentView(root);
         uiRoot = root;
 
         LinearLayout app = new LinearLayout(this);
         app.setOrientation(LinearLayout.VERTICAL);
-        app.setBackgroundColor(m3Background());
+        app.setBackgroundColor(theme.background());
         root.addView(app, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
         // Feedback is an overlay at the bottom of the inset-padded root. The
@@ -1294,7 +1014,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         // controls stack; at or above it they become two columns.
         body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        body.setBackgroundColor(m3Background());
+        body.setBackgroundColor(theme.background());
         app.addView(body, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         navigationRail = buildNavigationRail();
@@ -1303,19 +1023,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
 
         mainCol = new LinearLayout(this);
         mainCol.setOrientation(LinearLayout.VERTICAL);
-        mainCol.setBackgroundColor(m3Background());
+        mainCol.setBackgroundColor(theme.background());
         body.addView(mainCol, new LinearLayout.LayoutParams(-1, 0, 1f));
 
-        final android.widget.FrameLayout stage = createStage();
-        addStageEmptyState(stage);
-        addStageRawState(stage);
-        addStageBusyLabel(stage);
-        addStageReadouts(stage);
-        addScanControls(stage);
-        wireScanTraversal();
-        addShelfHandle(stage);
-        addStageProgress(stage);
-
+        final android.widget.FrameLayout stage = buildStagePanel();
         mainCol.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         final LinearLayout.LayoutParams readoutLp =
@@ -1333,6 +1044,60 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
 
         applyResponsiveLayout(ConsoleLayout.isWide(currentWidthDp()), currentWidthDp());
         finishUiBuild();
+    }
+
+    /** Build the stage and re-point the Activity aliases at its children. */
+    private android.widget.FrameLayout buildStagePanel() {
+        stagePanel = new StagePanel(this, type, theme, palette, tfDisplay, tfBody, tfHan,
+                new StagePanel.Host() {
+                    @Override public Bitmap displayedBitmap() {
+                        return MainActivity.this.displayedBitmap();
+                    }
+
+                    @Override public Bitmap scanBitmap() {
+                        return MainActivity.this.scanBitmap();
+                    }
+
+                    @Override public boolean sourcePresent() {
+                        return sourceUri != null;
+                    }
+
+                    @Override public void onImportMenu() {
+                        showImportMenu();
+                    }
+
+                    @Override public void onToggleScan() {
+                        toggleScan();
+                    }
+
+                    @Override public void onScanSample(ScanSample sample, float fraction) {
+                        MainActivity.this.onScanSample(sample, fraction);
+                    }
+                }, veryLargeText());
+        final android.widget.FrameLayout stage = stagePanel.frame();
+        stageView = stage;
+        compare = stagePanel.compare();
+        scanOverlay = stagePanel.scanOverlay();
+        histogram = stagePanel.histogram();
+        emptyState = stagePanel.emptyState();
+        rawState = stagePanel.rawState();
+        rawName = stagePanel.rawName();
+        busyLabel = (TextView) stagePanel.busyLabel();
+        fileLabel = stagePanel.fileLabel();
+        stageMeta = stagePanel.stageMeta();
+        stageExposureValue = stagePanel.stageExposureValue();
+        statusText = stagePanel.statusText();
+        spectralRail = stagePanel.spectralRail();
+        scanToggleChip = stagePanel.scanToggleChip();
+        scanReadout = stagePanel.scanReadout();
+        scanReadoutRgb = stagePanel.scanReadoutRgb();
+        scanReadoutLambda = stagePanel.scanReadoutLambda();
+        stagePanel.wireScanTraversal();
+        addShelfHandle(stage);
+        stagePanel.addProgress();
+        progressBar = stagePanel.progressBar();
+        exportProgressBar = stagePanel.exportProgressBar();
+        return stage;
     }
 
     /** Add the Prism top bar above the stage without consuming a page row. */
@@ -1469,15 +1234,15 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         appBar.setBackgroundColor(android.graphics.Color.TRANSPARENT);
 
         final MaterialToolbar toolbar = new MaterialToolbar(this);
-        toolbar.setBackground(glassSurface(GlassStyle.TOP_BAR_RADIUS_DP));
+        toolbar.setBackground(theme.glassSurface(GlassStyle.TOP_BAR_RADIUS_DP));
         toolbar.setElevation(dp(GlassStyle.TOP_BAR_ELEVATION_DP));
         toolbar.setClipToOutline(true);
-        toolbar.setTitle(typed("SpektraLab", tfDisplay));
+        toolbar.setTitle(type.typed("SpektraLab", tfDisplay));
         // At very large text the wordmark and the two actions compete for one
         // 48 dp row; the subtitle is the first thing to go so the name and
         // the actions both stay legible. At 1.3× the tagline still fits.
         if (!veryLargeText()) {
-            toolbar.setSubtitle(mixedText("/ CONSOLE"));
+            toolbar.setSubtitle(type.mixedText("/ CONSOLE"));
         }
         toolbar.setLongClickable(true);
         toolbar.setOnLongClickListener(v -> { showAbout(); return true; });
@@ -1486,19 +1251,19 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(android.view.Gravity.CENTER_VERTICAL);
 
-        sharePill = actionButton(mixedText("分享"), "分享最近一次导出");
+        sharePill = actionButton(type.mixedText("分享"), "分享最近一次导出");
         sharePill.setVisibility(View.GONE);
         sharePill.setOnClickListener(v -> shareLastExport());
         actions.addView(sharePill, actionButtonParams());
 
-        undoButton = actionButton(mixedText(veryLargeText() ? "撤" : "撤销"),
+        undoButton = actionButton(type.mixedText(veryLargeText() ? "撤" : "撤销"),
                 "撤销上一次调整");
         undoButton.setVisibility(View.GONE);
         undoButton.setOnClickListener(v -> undoLook());
         actions.addView(undoButton, actionButtonParams());
 
         final MaterialButton themeButton = actionButton(
-                mixedText(veryLargeText()
+                type.mixedText(veryLargeText()
                         ? (dark ? "暗" : "亮")
                         : (dark ? "暗 DARK" : "亮 LIGHT")),
                 dark ? "当前深色主题，点击切换到浅色" : "当前浅色主题，点击切换到深色");
@@ -1514,7 +1279,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         themeButton.setOnClickListener(v -> toggleTheme());
         actions.addView(themeButton, actionButtonParams());
 
-        final MaterialButton export = actionButton(mixedText("导出"), "导出 EXPORT 照片");
+        final MaterialButton export = actionButton(type.mixedText("导出"), "导出 EXPORT 照片");
         export.setOnClickListener(v -> showExportDialog());
         actions.addView(export, actionButtonParams());
 
@@ -1599,21 +1364,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         button.setTextColor(color);
         button.setBackgroundTintList(ColorStateList.valueOf(android.graphics.Color.TRANSPARENT));
         button.setRippleColor(ColorStateList.valueOf(
-                withOpacity(color, M3Tokens.StateLayer.PRESSED.opacity)));
+                M3Chrome.withOpacity(color, M3Tokens.StateLayer.PRESSED.opacity)));
         button.setElevation(0f);
         button.setStateListAnimator(null);
         button.setContentDescription(description);
-        applyTypeRole(button, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
+        type.applyTypeRole(button, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
         button.setOnClickListener(v -> action.run());
         return button;
-    }
-
-    /** A run with one family, for the wordmark's Inter Light. */
-    private CharSequence typed(String text, Typeface face) {
-        final android.text.SpannableString span = new android.text.SpannableString(text);
-        span.setSpan(new TfSpan(face), 0, span.length(),
-                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        return span;
     }
 
     /** Text inside a Material component: one M3 type role, brand families. */
@@ -1637,12 +1394,12 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
     private View buildReadoutStrip() {
         LinearLayout outer = new LinearLayout(this);
         outer.setOrientation(LinearLayout.VERTICAL);
-        outer.setBackground(glassSurface(GlassStyle.READOUT_RADIUS_DP));
+        outer.setBackground(theme.glassSurface(GlassStyle.READOUT_RADIUS_DP));
         outer.setClipToOutline(true);
         outer.setElevation(dp(GlassStyle.CARD_ELEVATION_DP));
         outer.setPadding(dp(2), dp(2), dp(2), dp(2));
         outer.setMinimumHeight(dp(READOUT_HEIGHT_DP));
-        outer.addView(hairline(m3OutlineVariant()),
+        outer.addView(hairline(theme.outlineVariant()),
                 new LinearLayout.LayoutParams(-1, dp(1)));
 
         // At 2.0x the bilingual titles wrap to two lines in every cell and the
@@ -1668,7 +1425,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
                     break;
                 }
                 if (column > 0) {
-                    row.addView(hairline(m3OutlineVariant()),
+                    row.addView(hairline(theme.outlineVariant()),
                             new LinearLayout.LayoutParams(dp(1), -1));
                 }
                 row.addView(readoutCell(i, titles[i]),
@@ -1676,7 +1433,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             }
             grid.addView(row, new LinearLayout.LayoutParams(-1, -2));
             if ((rowIndex + 1) * columns < titles.length) {
-                grid.addView(hairline(m3OutlineVariant()),
+                grid.addView(hairline(theme.outlineVariant()),
                         new LinearLayout.LayoutParams(-1, dp(1)));
             }
         }
@@ -1708,8 +1465,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         cell.setOrientation(LinearLayout.VERTICAL);
         cell.setPadding(dp(9), dp(3), dp(6), dp(3));
 
-        TextView title = m3Label(titleText, M3Tokens.TypeRole.LABEL_SMALL,
-                m3OnSurfaceVariant(), tfHan);
+        TextView title = type.m3Label(titleText, M3Tokens.TypeRole.LABEL_SMALL,
+                theme.onSurfaceVariant(), tfHan);
         // At 2.0× the bilingual title is wider than half the phone; let it
         // wrap instead of ending in an ellipsis that hides the parameter name.
         if (veryLargeText()) {
@@ -1724,13 +1481,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         LinearLayout valueRow = new LinearLayout(this);
         valueRow.setOrientation(LinearLayout.HORIZONTAL);
         valueRow.setGravity(android.view.Gravity.BOTTOM);
-        TextView value = m3Label("—", M3Tokens.TypeRole.LABEL_MEDIUM,
-                m3OnSurface(), i == 2 ? tfDisplay : tfHan);
+        TextView value = type.m3Label("—", M3Tokens.TypeRole.LABEL_MEDIUM,
+                theme.onSurface(), i == 2 ? tfDisplay : tfHan);
         value.setSingleLine(true);
         value.setEllipsize(android.text.TextUtils.TruncateAt.END);
         valueRow.addView(value, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView unit = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                m3OnSurfaceVariant(), tfBody);
+        TextView unit = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+                theme.onSurfaceVariant(), tfBody);
         LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
         unitLp.leftMargin = dp(2);
         unitLp.bottomMargin = dp(1);
@@ -1739,8 +1496,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         valueRowLp.topMargin = dp(1);
         cell.addView(valueRow, valueRowLp);
 
-        TextView detail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                m3OnSurfaceVariant(), tfBody);
+        TextView detail = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
+                theme.onSurfaceVariant(), tfBody);
         detail.setSingleLine(false);
         detail.setMaxLines(2);
         detail.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -1798,8 +1555,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
 
     /** Keep the optional histogram tied to what the canvas is showing. */
     private void updateHistogram(Bitmap bitmap) {
-        if (histogramOn && histogram != null) {
-            histogram.setBitmap(bitmap);
+        if (stagePanel != null) {
+            stagePanel.updateHistogram(bitmap);
         }
     }
 
@@ -1808,21 +1565,20 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         if (readoutSpectrumCell == null) {
             return;
         }
+        final boolean on = stagePanel != null && stagePanel.histogramOn();
         readoutSpectrumCell.setContentDescription("光谱读数，直方图"
-                + (histogramOn ? "已显示" : "已隐藏") + "，点按切换");
+                + (on ? "已显示" : "已隐藏") + "，点按切换");
     }
 
     /** Show or hide the stage histogram; it never triggers a render. */
     private void toggleHistogram() {
-        histogramOn = !histogramOn;
-        if (histogram != null) {
-            histogram.setVisibility(histogramOn ? View.VISIBLE : View.GONE);
-            if (histogramOn) {
-                histogram.setBitmap(displayedBitmap());
-            }
+        if (stagePanel == null) {
+            return;
         }
+        stagePanel.toggleHistogram();
         syncHistogramAccessibility();
-        showSnackbar(histogramOn ? "直方图已显示" : "直方图已隐藏", Snackbar.LENGTH_SHORT);
+        showSnackbar(stagePanel.histogramOn() ? "直方图已显示" : "直方图已隐藏",
+                Snackbar.LENGTH_SHORT);
     }
 
     private void refreshReadoutStrip() {
@@ -1888,263 +1644,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
      * top left, print exposure at the top right, live state at the lower
      * right. The Spectral rail takes the right edge.
      */
-    /** The top and bottom stage scrims. */
-    private void addStageScrims(android.widget.FrameLayout stage) {
-        View topScrim = new View(this);
-        topScrim.setBackground(new android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{
-                        palette.color(Palette.Role.STAGE_SCRIM_TOP),
-                        palette.color(Palette.Role.STAGE_SCRIM_MID),
-                        palette.color(Palette.Role.STAGE_SCRIM_END)}));
-        topScrim.setClickable(false);
-        stage.addView(topScrim, new android.widget.FrameLayout.LayoutParams(
-                -1, dp(76), android.view.Gravity.TOP));
-
-        View bottomScrim = new View(this);
-        bottomScrim.setBackground(new android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,
-                new int[]{
-                        palette.color(Palette.Role.STAGE_SCRIM_TOP),
-                        palette.color(Palette.Role.STAGE_SCRIM_MID),
-                        palette.color(Palette.Role.STAGE_SCRIM_END)}));
-        bottomScrim.setClickable(false);
-        stage.addView(bottomScrim, new android.widget.FrameLayout.LayoutParams(
-                -1, dp(68), android.view.Gravity.BOTTOM));
-
-    }
-
-    /** The file name and frame meta in the top-left corner. */
-    private void addStageFileReadout(android.widget.FrameLayout stage) {
-        LinearLayout info = new LinearLayout(this);
-        info.setOrientation(LinearLayout.VERTICAL);
-        info.setClickable(false);
-        fileLabel = label("未选择照片", 6.5f, palette.color(Palette.Role.STAGE_INK), tfHan);
-        fileLabel.setAlpha(0.82f);
-        fileLabel.setSingleLine(true);
-        fileLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        fileLabel.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
-        info.addView(fileLabel, new LinearLayout.LayoutParams(-1, -2));
-        stageMeta = label("NO FRAME", 5.5f,
-                palette.color(Palette.Role.STAGE_INK), tfBody);
-        stageMeta.setAlpha(0.66f);
-        stageMeta.setLetterSpacing(0.12f);
-        stageMeta.setSingleLine(true);
-        stageMeta.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
-        LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(-1, -2);
-        metaLp.topMargin = dp(2);
-        info.addView(stageMeta, metaLp);
-        android.widget.FrameLayout.LayoutParams infoLp = new android.widget.FrameLayout.LayoutParams(
-                -1, -2, android.view.Gravity.TOP | android.view.Gravity.START);
-        infoLp.leftMargin = dp(14);
-        // Keep the file name clear of the exposure block in the other corner.
-        infoLp.rightMargin = dp(122);
-        infoLp.topMargin = dp(STAGE_TOP_CLEARANCE_DP);
-        stage.addView(info, infoLp);
-
-    }
-
-    /** The print exposure readout in the top-right corner. */
-    private void addStageExposureReadout(android.widget.FrameLayout stage) {
-        LinearLayout exposure = new LinearLayout(this);
-        exposure.setOrientation(LinearLayout.VERTICAL);
-        exposure.setGravity(android.view.Gravity.END);
-        exposure.setClickable(false);
-        TextView exposureCaption = label("PRINT EXPOSURE", 5.5f,
-                palette.color(Palette.Role.STAGE_INK), tfBody);
-        exposureCaption.setAlpha(0.66f);
-        exposureCaption.setLetterSpacing(0.12f);
-        exposureCaption.setGravity(android.view.Gravity.END);
-        exposureCaption.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
-        exposure.addView(exposureCaption);
-        LinearLayout exposureRow = new LinearLayout(this);
-        exposureRow.setOrientation(LinearLayout.HORIZONTAL);
-        exposureRow.setGravity(android.view.Gravity.BOTTOM | android.view.Gravity.END);
-        stageExposureValue = label("1.00", 27,
-                palette.color(Palette.Role.STAGE_INK), tfDisplay);
-        stageExposureValue.setLetterSpacing(-0.05f);
-        stageExposureValue.setSingleLine(true);
-        stageExposureValue.setShadowLayer(dp(3), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
-        exposureRow.addView(stageExposureValue);
-        TextView ev = label("EV", 7,
-                palette.color(Palette.Role.STAGE_INK), tfBody);
-        ev.setAlpha(0.8f);
-        LinearLayout.LayoutParams evLp = new LinearLayout.LayoutParams(-2, -2);
-        evLp.leftMargin = dp(4);
-        evLp.bottomMargin = dp(3);
-        exposureRow.addView(ev, evLp);
-        exposure.addView(exposureRow);
-        // The histogram lives inside the exposure block so it can never draw
-        // over the EV value, at any font scale.
-        final LinearLayout.LayoutParams histogramLp =
-                new LinearLayout.LayoutParams(dp(132), dp(64));
-        histogramLp.topMargin = dp(6);
-        histogramLp.gravity = android.view.Gravity.END;
-        exposure.addView(histogram, histogramLp);
-        android.widget.FrameLayout.LayoutParams exposureLp = new android.widget.FrameLayout.LayoutParams(
-                -2, -2, android.view.Gravity.TOP | android.view.Gravity.END);
-        exposureLp.rightMargin = dp(34);
-        exposureLp.topMargin = dp(STAGE_TOP_CLEARANCE_DP - 4);
-        stage.addView(exposure, exposureLp);
-
-    }
-
-    /** The status line and the spectral rail. */
-    private void addStageStatusAndRail(android.widget.FrameLayout stage) {
-        statusText = label("等待导入", 6.5f,
-                palette.color(Palette.Role.STAGE_INK), tfHan);
-        statusText.setSingleLine(true);
-        statusText.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        statusText.setGravity(android.view.Gravity.END);
-        statusText.setAlpha(0.76f);
-        statusText.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
-        statusText.setMaxWidth(Math.round(getResources().getConfiguration().screenWidthDp
-                * 0.60f * getResources().getDisplayMetrics().density));
-        android.widget.FrameLayout.LayoutParams statusLp = new android.widget.FrameLayout.LayoutParams(
-                -2, -2, android.view.Gravity.BOTTOM | android.view.Gravity.END);
-        statusLp.rightMargin = dp(34);
-        statusLp.bottomMargin = dp(10);
-        stage.addView(statusText, statusLp);
-
-        spectralRail = new SpectralRail(this, palette);
-        spectralRail.setBackgroundColor(palette.color(Palette.Role.STAGE_SCRIM_TOP));
-        stage.addView(spectralRail, new android.widget.FrameLayout.LayoutParams(
-                dp(26), -1, android.view.Gravity.END));
-    }
-
-    private void addStageReadouts(android.widget.FrameLayout stage) {
-        addStageScrims(stage);
-        if (veryLargeText()) {
-            // The 2×2 table carries film, paper, exposure and spectrum; at
-            // 2.0× the stage is too short to repeat the file and exposure
-            // corners without colliding with the import control.
-            addStageStatusAndRail(stage);
-            return;
-        }
-        addStageFileReadout(stage);
-        addStageExposureReadout(stage);
-        addStageStatusAndRail(stage);
-    }
-
-    /**
+            /**
      * Scan inspect's two controls: a checkable M3 chip under the file readout,
      * and an M3 filled-card readout above the shelf handle. The readout is
      * deliberately away from the print-exposure corner, the status line, and
      * the folded shelf so the three never share a corner.
      */
-    /** The Scan inspect toggle chip under the file readout. */
-    private void buildScanToggleChip(android.widget.FrameLayout stage) {
-        final int chipSurface = m3Role(
-                com.google.android.material.R.attr.colorSurfaceContainerLow,
-                Palette.Role.SURFACE_ELEVATED);
-        final int chipSelected = m3Role(
-                com.google.android.material.R.attr.colorSecondaryContainer,
-                Palette.Role.ACCENT_SOFT);
-        final int chipText = m3Role(
-                com.google.android.material.R.attr.colorOnSurfaceVariant,
-                Palette.Role.MUTED_INK);
-        final int chipTextSelected = m3Role(
-                com.google.android.material.R.attr.colorOnSecondaryContainer,
-                Palette.Role.ACCENT);
-        final int chipOutline = m3Role(
-                com.google.android.material.R.attr.colorOutlineVariant,
-                Palette.Role.LINE);
-        final Chip chip = new Chip(this, null,
-                com.google.android.material.R.attr.chipStyle);
-        chip.setCheckable(true);
-        chip.setCheckedIconVisible(false);
-        chip.setChipIconVisible(false);
-        chip.setEnsureMinTouchTargetSize(true);
-        chip.setText(mixedText("SCAN · 扫描", M3Tokens.TypeRole.LABEL_LARGE.weight));
-        applyTypeRole(chip, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
-        chip.setGravity(android.view.Gravity.CENTER);
-        chip.setSingleLine(true);
-        chip.setChipBackgroundColor(checkedColors(chipSelected, chipSurface));
-        chip.setChipStrokeWidth(Math.max(1, dp(1)));
-        chip.setChipStrokeColor(checkedColors(chipSelected, chipOutline));
-        chip.setTextColor(checkedColors(chipTextSelected, chipText));
-        chip.setContentDescription("扫描检视，点击开启");
-        chip.setOnClickListener(v -> toggleScan());
-        scanToggleChip = chip;
-        android.widget.FrameLayout.LayoutParams toggleLp =
-                new android.widget.FrameLayout.LayoutParams(
-                        -2, -2, android.view.Gravity.TOP | android.view.Gravity.START);
-        toggleLp.leftMargin = dp(14);
-        toggleLp.topMargin = dp(STAGE_TOP_CLEARANCE_DP + 42);
-        stage.addView(chip, toggleLp);
-
-    }
-
-    /** The Scan inspect readout card above the shelf handle. */
-    private void buildScanReadoutCard(android.widget.FrameLayout stage) {
-        // A filled M3 card is the readout surface; the numbers inside stay
-        // measured text, and the card remains a non-interactive announcement.
-        final int cardSurface = m3Role(
-                com.google.android.material.R.attr.colorSurfaceContainer,
-                Palette.Role.SURFACE_ELEVATED);
-        final int cardText = m3Role(
-                com.google.android.material.R.attr.colorOnSurface,
-                Palette.Role.INK);
-        final int cardMuted = m3Role(
-                com.google.android.material.R.attr.colorOnSurfaceVariant,
-                Palette.Role.MUTED_INK);
-        final MaterialCardView card = new MaterialCardView(this, null,
-                com.google.android.material.R.attr.materialCardViewFilledStyle);
-        card.setCardBackgroundColor(cardSurface);
-        card.setRadius(dp(M3Tokens.ShapeRole.SMALL.radiusDp));
-        card.setCardElevation(0f);
-        card.setUseCompatPadding(false);
-        card.setClickable(false);
-        card.setFocusable(false);
-        card.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-        card.setVisibility(View.GONE);
-        scanReadout = card;
-
-        final LinearLayout block = new LinearLayout(this);
-        block.setOrientation(LinearLayout.VERTICAL);
-        block.setPadding(dp(12), dp(7), dp(12), dp(8));
-        card.addView(block, new android.widget.FrameLayout.LayoutParams(-2, -2));
-
-        // A bare addView in a vertical LinearLayout takes MATCH_PARENT width,
-        // so the caption used to be measured against the narrower RGB line and
-        // clipped at 390 dp. Wrapping it makes the caption the block's widest
-        // child and gives the readout one stable width while the numbers change.
-        final TextView caption = m3Label("SCAN INSPECT · CENTRE ROW",
-                M3Tokens.TypeRole.LABEL_SMALL, cardMuted, tfBody);
-        caption.setSingleLine(true);
-        caption.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        block.addView(caption, new LinearLayout.LayoutParams(-2, -2));
-
-        scanReadoutRgb = m3Label("R \u2014  G \u2014  B \u2014",
-                M3Tokens.TypeRole.BODY_SMALL, cardText, tfBody);
-        scanReadoutRgb.setSingleLine(true);
-        scanReadoutRgb.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        final LinearLayout.LayoutParams rgbLp = new LinearLayout.LayoutParams(-2, -2);
-        rgbLp.topMargin = dp(3);
-        block.addView(scanReadoutRgb, rgbLp);
-
-        scanReadoutLambda = m3Label("\u03bb \u2014",
-                M3Tokens.TypeRole.BODY_SMALL, cardText, tfDisplay);
-        scanReadoutLambda.setSingleLine(true);
-        scanReadoutLambda.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        block.addView(scanReadoutLambda, new LinearLayout.LayoutParams(-2, -2));
-
-        android.widget.FrameLayout.LayoutParams readoutLp =
-                new android.widget.FrameLayout.LayoutParams(
-                        -2, -2, android.view.Gravity.BOTTOM | android.view.Gravity.START);
-        readoutLp.leftMargin = dp(14);
-        // Clear of the 62 dp shelf handle and its 12 dp margin.
-        readoutLp.bottomMargin = dp(84);
-        stage.addView(card, readoutLp);
-    }
-
-    private void addScanControls(android.widget.FrameLayout stage) {
-        buildScanToggleChip(stage);
-        buildScanReadoutCard(stage);
-        updateScanToggleVisual(false);
-    }
-
-    /** Turn Scan inspect on or off. It never renders and never edits a Look. */
+                /** Turn Scan inspect on or off. It never renders and never edits a Look. */
     private void toggleScan() {
         if (scanBitmap() == null) {
             showSnackbar("先导入一张照片");
@@ -2178,43 +1684,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         return showingOriginal ? beforeBitmap : lastRenderedBitmap;
     }
 
-    /** Put the overlay, its readout, and the curve mark on one state. */
+    /** Put the overlay, its readout, and the chip on one scan state. */
     private void syncScanAvailability() {
-        if (scanOverlay == null) {
+        if (stagePanel == null) {
             return;
         }
         final Bitmap bitmap = scanBitmap();
-        final boolean available = bitmap != null;
-        // Put the Activity's fraction onto the overlay first: a null bitmap
-        // still reports, and must not carry the previous frame's position back.
-        scanOverlay.setFraction(scanFraction);
-        scanOverlay.setPreviewBitmap(bitmap);
-        final boolean show = scanVisible && available;
-        scanOverlay.setScanVisible(show);
-        if (scanReadout != null) {
-            scanReadout.setVisibility(show ? View.VISIBLE : View.GONE);
-        }
-        updateScanToggleVisual(available);
-    }
-
-    /** The toggle's chip state: enabled only when there is a preview to read. */
-    private void updateScanToggleVisual(boolean enabled) {
-        if (scanToggleChip == null) {
-            return;
-        }
-        scanToggleChip.setChecked(scanVisible);
-        scanToggleChip.setEnabled(enabled);
-        scanToggleChip.setAlpha(enabled ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
-        // The empty stage has no preview to inspect; leaving the pill visible
-        // lets it collide with the central import button at 2.0× text.
-        scanToggleChip.setVisibility(enabled || (scanVisible && sourceUri != null)
-                ? View.VISIBLE : View.GONE);
-        final String state = scanVisible
-                ? (enabled ? "扫描检视已开启，点击关闭"
-                        : "扫描检视已开启，等待预览")
-                : (enabled ? "扫描检视，点击开启"
-                        : "扫描检视，需先导入照片");
-        scanToggleChip.setContentDescription(state);
+        stagePanel.syncScan(scanVisible, scanFraction, bitmap, bitmap != null);
     }
 
     /** The overlay reports every move; the readout and the curve follow it. */
@@ -2273,11 +1749,11 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
     private View buildSourceBar() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.VERTICAL);
-        bar.setBackground(glassSurface(GlassStyle.SOURCE_RADIUS_DP));
+        bar.setBackground(theme.glassSurface(GlassStyle.SOURCE_RADIUS_DP));
         bar.setClipToOutline(true);
         bar.setElevation(dp(GlassStyle.CARD_ELEVATION_DP));
         sourceBar = bar;
-        bar.addView(hairline(m3OutlineVariant()),
+        bar.addView(hairline(theme.outlineVariant()),
                 new LinearLayout.LayoutParams(-1, dp(1)));
 
         LinearLayout row = new LinearLayout(this);
@@ -2286,8 +1762,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         row.setPadding(dp(10), 0, dp(4), 0);
         sourceRow = row;
 
-        TextView add = m3Label("\uff0b", M3Tokens.TypeRole.TITLE_LARGE,
-                m3Primary(), tfDisplay);
+        TextView add = type.m3Label("\uff0b", M3Tokens.TypeRole.TITLE_LARGE,
+                theme.primary(), tfDisplay);
         add.setGravity(android.view.Gravity.CENTER);
         add.setFocusable(true);
         add.setContentDescription("导入照片");
@@ -2306,8 +1782,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         thumbScroll.addView(thumbStrip, new android.widget.FrameLayout.LayoutParams(-2, -1));
         row.addView(thumbScroll, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
-        TextView fold = m3Label("\u2039", M3Tokens.TypeRole.TITLE_SMALL,
-                m3OnSurfaceVariant(), tfHan);
+        TextView fold = type.m3Label("\u2039", M3Tokens.TypeRole.TITLE_SMALL,
+                theme.onSurfaceVariant(), tfHan);
         fold.setGravity(android.view.Gravity.CENTER);
         fold.setFocusable(true);
         fold.setContentDescription("收起胶片条");
@@ -2352,7 +1828,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         });
         handle.addView(shelfHandleImage, new android.widget.FrameLayout.LayoutParams(card, card));
 
-        TextView chevron = label("\u203a", 14, palette.color(Palette.Role.STAGE_INK), tfDisplay);
+        TextView chevron = type.label("\u203a", 14, palette.color(Palette.Role.STAGE_INK), tfDisplay);
         chevron.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
         chevron.setPadding(0, 0, dp(5), 0);
         chevron.setShadowLayer(dp(2), 0, 0, palette.color(Palette.Role.STAGE_SHADOW));
@@ -2418,7 +1894,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         }
         syncOpticsChoices();
         syncToggleRows();
-        syncDateDetail();
+        syncEdgeDateDetail();
         if (edgeValue != null) {
             edgeValue.setText(pair.label);
         }
@@ -2452,6 +1928,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         // The current Frame owns the live session already; captureLook writes
         // the legacy Film/Scale/Edge fields into it before the switch.
         captureLook();
+        frames.get(currentFrame).setOriginal(showingOriginal);
     }
 
     private void updateShelfHandle() {
@@ -2551,11 +2028,14 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
     /** Finish a still or RAW import: develop a restored/selected Look or stay on Original. */
     private void finishImportRender() {
         refreshFilmPanel();
-        if (!restoringOriginal && live().filmStock != null) {
+        final boolean shouldRender = ReopenDecision.rendersOnReopen(
+                restoringOriginal, live().filmStock != null);
+        if (shouldRender) {
             showingOriginal = false;
             refreshFilmPanel();
             renderImage();
         } else {
+            showingOriginal = true;
             statusText.setText(restoringOriginal
                     ? "已恢复 · 原图" : "未渲染 · 选择胶片开始");
         }
@@ -2570,6 +2050,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         frame.session().reset(Look.fromJson(pendingSession.look()));
         frame.setScanFraction(pendingSession.scanFraction());
         frame.setScanVisible(pendingSession.scanVisible());
+        frame.setOriginal(pendingSession.original());
         pendingSession = null;
     }
 
@@ -2736,9 +2217,9 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             final boolean active = index == currentFrame;
             android.widget.FrameLayout box = new android.widget.FrameLayout(this);
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-            bg.setColor(m3Surface());
+            bg.setColor(theme.surface());
             bg.setStroke(dp(active ? 2 : 1),
-                    active ? m3Primary() : m3OutlineVariant());
+                    active ? theme.primary() : theme.outlineVariant());
             box.setBackground(bg);
             box.setPadding(dp(3), dp(3), dp(3), dp(3));
             ImageView img = new ImageView(this);
@@ -2803,6 +2284,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             currentFrame = -1;
             currentSession = null;
             cancelLivePreview();
+            renderEpoch.bump();
+            clearBusyPlate();
             optics = new Look();
             lastRenderedBitmap = null;
             scanVisible = false;
@@ -2834,6 +2317,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         saveScanStateIntoFrame();
         currentFrame = index;
         reopeningFrame = true;
+        restoringOriginal = frame.original();
         suppressBudgetDialog = true;
         rebuildFrameChips();
         loadImage(frame.uri());
@@ -2849,6 +2333,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         saveScanStateIntoFrame();
         currentFrame = index;
         reopeningFrame = true;
+        restoringOriginal = frame.original();
         suppressBudgetDialog = true;
         rebuildFrameChips();
         loadImage(frame.uri());
@@ -2883,7 +2368,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         head.setMinimumHeight(dp(SECTION_HEAD_HEIGHT_DP));
-        TextView titleView = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
+        TextView titleView = type.mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, theme.onSurface());
         titleView.setMaxLines(2);
         titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
         head.addView(titleView, new LinearLayout.LayoutParams(
@@ -2893,16 +2378,16 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         actions.setGravity(android.view.Gravity.END);
         if (presets != null) {
             MaterialButton presetView = m3TextButton("预设", "预设：保存、套用或分享",
-                    m3Primary(), presets);
+                    theme.primary(), presets);
             actions.addView(presetView, new LinearLayout.LayoutParams(-2, dp(48)));
         }
         if (actionLabel != null && action != null) {
             MaterialButton actionView = m3TextButton(actionLabel, actionLabel,
-                    m3Primary(), action);
+                    theme.primary(), action);
             actions.addView(actionView, new LinearLayout.LayoutParams(-2, dp(48)));
         }
         MaterialButton resetView = m3TextButton("重置当前页", "重置当前页",
-                m3OnSurfaceVariant(), reset);
+                theme.onSurfaceVariant(), reset);
         actions.addView(resetView, new LinearLayout.LayoutParams(-2, dp(48)));
         head.addView(actions, largeText()
                 ? new LinearLayout.LayoutParams(-1, -2)
@@ -2911,133 +2396,27 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
     }
 
     /** The brand facet row above the film shelf. */
-    private void buildFilmBrandRow(LinearLayout panel) {
-        HorizontalScrollView brandScroll = new HorizontalScrollView(this);
-        brandScroll.setHorizontalScrollBarEnabled(false);
-        brandScroll.setClipToPadding(false);
-        brandScroll.setFillViewport(false);
-        brandRow = new ChipGroup(this);
-        brandRow.setSingleLine(true);
-        brandRow.setSingleSelection(true);
-        brandRow.setSelectionRequired(true);
-        brandRow.setChipSpacingHorizontal(dp(4));
-        brandRow.setChipSpacingVertical(0);
-        brandScroll.addView(brandRow, new android.widget.FrameLayout.LayoutParams(-2, -2));
-        panel.addView(brandScroll, new LinearLayout.LayoutParams(-1, dp(MIN_TOUCH_DP)));
-
-    }
-
-    /** The horizontal film chip shelf. */
-    private void buildFilmChipScroll(LinearLayout panel) {
-        filmChipScroll = new HorizontalScrollView(this);
-        filmChipScroll.setHorizontalScrollBarEnabled(false);
-        filmChipScroll.setClipToPadding(false);
-        filmChipScroll.setFillViewport(false);
-        filmChipRow = new LinearLayout(this);
-        filmChipRow.setOrientation(LinearLayout.HORIZONTAL);
-        filmChipRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        filmChipScroll.addView(filmChipRow, new android.widget.FrameLayout.LayoutParams(-2, -1));
-        panel.addView(filmChipScroll, new LinearLayout.LayoutParams(-1, dp(FILM_CARD_HEIGHT_DP)));
-
-    }
-
-    /** The spectral curve card. */
-    private void buildFilmCurveCard(LinearLayout panel) {
-        // The plot is a custom view inside a real M3 card: the surface, radius,
-        // and outline are Material's; ticket 08 owns the plot's geometry.
-        filmCurveCard = new MaterialCardView(this);
-        filmCurveCard.setCardElevation(0f);
-        filmCurveCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
-        filmCurveCard.setCardBackgroundColor(m3Role(
-                com.google.android.material.R.attr.colorSurfaceContainer,
-                Palette.Role.SURFACE_ELEVATED));
-        filmCurveCard.setStrokeWidth(dp(1));
-        filmCurveCard.setStrokeColor(m3Role(
-                com.google.android.material.R.attr.colorOutlineVariant,
-                Palette.Role.LINE));
-        filmCurve = new SpectrumCurveView(this, palette, tfBody);
-        filmCurveCard.addView(filmCurve, new android.widget.FrameLayout.LayoutParams(-1, -1));
-        panel.addView(filmCurveCard, new LinearLayout.LayoutParams(-1, dp(FILM_CURVE_HEIGHT_DP)));
-
-    }
-
-    /** The measured-value row and the film note. */
-    private void buildFilmMetrics(LinearLayout panel) {
-        filmMetricsRow = new LinearLayout(this);
-        filmMetricsRow.setOrientation(LinearLayout.HORIZONTAL);
-        filmMetricsRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        panel.addView(filmMetricsRow,
-                new LinearLayout.LayoutParams(-1, -2));
-        filmMetricsRow.setMinimumHeight(dp(FILM_METRICS_HEIGHT_DP));
-
-        filmNote = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                m3OnSurfaceVariant(), tfBody);
-        filmNote.setSingleLine(false);
-        filmNote.setMaxLines(2);
-        filmNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        panel.addView(filmNote, new LinearLayout.LayoutParams(-1, -2));
-
-    }
-
-    /** The paper choice row. */
-    private void buildPaperRow(LinearLayout panel) {
-        LinearLayout paperRow = new LinearLayout(this);
-        paperRow.setOrientation(LinearLayout.HORIZONTAL);
-        paperRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        paperRow.addView(mixedM3Label("相纸 / 拷贝片",
-                M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant()));
-        MaterialCardView paperChoice = new MaterialCardView(this);
-        paperChoice.setCardElevation(0f);
-        paperChoice.setRadius(dp(M3Tokens.ShapeRole.SMALL.radiusDp));
-        paperChoice.setCardBackgroundColor(m3Role(
-                com.google.android.material.R.attr.colorSurfaceContainerHigh,
-                Palette.Role.SURFACE_ELEVATED));
-        paperChoice.setStrokeWidth(0);
-        paperChoice.setClickable(true);
-        paperChoice.setFocusable(true);
-        paperChoice.setContentDescription("选择相纸 / 拷贝片");
-        paperChoice.setRippleColor(ColorStateList.valueOf(
-                withOpacity(m3Primary(), M3Tokens.StateLayer.PRESSED.opacity)));
-        paperChoice.setOnClickListener(v -> showPaperPicker());
-        LinearLayout paperInner = new LinearLayout(this);
-        paperInner.setOrientation(LinearLayout.HORIZONTAL);
-        paperInner.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
-        paperInner.setPadding(dp(12), 0, dp(10), 0);
-        paperValue = m3Label("Kodak Portra Endura",
-                M3Tokens.TypeRole.BODY_MEDIUM, m3OnSurface(), tfHan);
-        paperValue.setSingleLine(true);
-        paperValue.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        paperValue.setGravity(android.view.Gravity.END);
-        paperInner.addView(paperValue, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView paperArrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
-                m3Primary(), tfBody);
-        LinearLayout.LayoutParams paperArrowLp = new LinearLayout.LayoutParams(-2, -2);
-        paperArrowLp.leftMargin = dp(7);
-        paperInner.addView(paperArrow, paperArrowLp);
-        paperChoice.addView(paperInner,
-                new android.widget.FrameLayout.LayoutParams(-1, -1));
-        paperRow.addView(paperChoice,
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        paperChoice.setMinimumHeight(dp(PAPER_ROW_HEIGHT_DP));
-        panel.addView(paperRow,
-                new LinearLayout.LayoutParams(-1, -2));
-        paperRow.setMinimumHeight(dp(PAPER_ROW_HEIGHT_DP));
-    }
-
-    private View buildFilmPanel() {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(sectionHead("FILM STOCK / 胶片",
-                        "全部胶片", this::showFilmPicker, this::resetFilmPanel,
+        /** The horizontal film chip shelf. */
+        /** The spectral curve card. */
+        /** The measured-value row and the film note. */
+        /** The paper choice row. */
+        private View buildFilmPanel() {
+        filmPanel = new FilmPanel(this, type, theme, palette, tfBody, tfHan,
+                this::showPaperPicker,
+                sectionHead("FILM STOCK / 胶片", "全部胶片",
+                        this::showFilmPicker, this::resetFilmPanel,
                         this::showPresetsPanel),
-                new LinearLayout.LayoutParams(-1, -2));
-
-        buildFilmBrandRow(panel);
-        buildFilmChipScroll(panel);
-        buildFilmCurveCard(panel);
-        buildFilmMetrics(panel);
-        buildPaperRow(panel);
-        return panel;
+                FILM_CARD_HEIGHT_DP, FILM_CURVE_HEIGHT_DP, FILM_METRICS_HEIGHT_DP,
+                PAPER_ROW_HEIGHT_DP, MIN_TOUCH_DP);
+        brandRow = filmPanel.brandRow();
+        filmChipScroll = filmPanel.chipScroll();
+        filmChipRow = filmPanel.chipRow();
+        filmCurveCard = filmPanel.curveCard();
+        filmCurve = filmPanel.curve();
+        filmMetricsRow = filmPanel.metricsRow();
+        filmNote = filmPanel.filmNote();
+        paperValue = filmPanel.paperValue();
+        return filmPanel.view();
     }
 
     /** A film record currently on the strip, or null when none is chosen. */
@@ -3133,31 +2512,31 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null,
                     0,
                     com.google.android.material.R.style.Widget_Material3_Chip_Filter));
-            final int chipSurface = m3Role(
+            final int chipSurface = theme.role(
                     com.google.android.material.R.attr.colorSurfaceContainerLow,
                     Palette.Role.SURFACE_ELEVATED);
-            final int chipSelected = m3Role(
+            final int chipSelected = theme.role(
                     com.google.android.material.R.attr.colorSecondaryContainer,
                     Palette.Role.ACCENT_SOFT);
-            final int chipText = m3Role(
+            final int chipText = theme.role(
                     com.google.android.material.R.attr.colorOnSurfaceVariant,
                     Palette.Role.MUTED_INK);
-            final int chipTextSelected = m3Role(
+            final int chipTextSelected = theme.role(
                     com.google.android.material.R.attr.colorOnSecondaryContainer,
                     Palette.Role.ACCENT);
-            final int chipOutline = m3Role(
+            final int chipOutline = theme.role(
                     com.google.android.material.R.attr.colorOutlineVariant,
                     Palette.Role.LINE);
-            chip.setChipBackgroundColor(checkedColors(chipSelected, chipSurface));
+            chip.setChipBackgroundColor(M3Chrome.checkedColors(chipSelected, chipSurface));
             chip.setChipStrokeWidth(Math.max(1, dp(1)));
-            chip.setChipStrokeColor(checkedColors(chipSelected, chipOutline));
-            chip.setTextColor(checkedColors(chipTextSelected, chipText));
+            chip.setChipStrokeColor(M3Chrome.checkedColors(chipSelected, chipOutline));
+            chip.setTextColor(M3Chrome.checkedColors(chipTextSelected, chipText));
             chip.setId(View.generateViewId());
             chip.setCheckable(true);
             chip.setChecked(active);
             chip.setSingleLine(true);
             chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            chip.setText(mixedText(FilmBrand.label(id) + " " + count));
+            chip.setText(type.mixedText(FilmBrand.label(id) + " " + count));
             chip.setContentDescription(FilmBrand.label(id) + "，" + count + " 支胶片"
                     + (active ? "，已选中" : "，筛选"));
             chip.setOnClickListener(v -> {
@@ -3201,13 +2580,13 @@ content.setOrientation(LinearLayout.VERTICAL);
 content.setGravity(android.view.Gravity.CENTER_VERTICAL);
 content.setPadding(dp(8), dp(4), dp(24), dp(4));
 
-TextView name = m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM, m3OnSurface(), tfHan);
+TextView name = type.m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM, theme.onSurface(), tfHan);
 name.setTextColor(ink);
 name.setSingleLine(true);
 name.setEllipsize(android.text.TextUtils.TruncateAt.END);
 content.addView(name, new LinearLayout.LayoutParams(-1, -2));
 
-TextView kind = m3Label(subtitle, M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfBody);
+TextView kind = type.m3Label(subtitle, M3Tokens.TypeRole.LABEL_SMALL, theme.onSurfaceVariant(), tfBody);
 kind.setTextColor(muted);
 kind.setSingleLine(true);
 kind.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -3246,23 +2625,23 @@ card.setOnClickListener(v -> {
                 { android.R.attr.state_enabled },
                 { -android.R.attr.state_enabled },
         };
-        final int checkedBg = m3Role(com.google.android.material.R.attr.colorSecondaryContainer,
+        final int checkedBg = theme.role(com.google.android.material.R.attr.colorSecondaryContainer,
                 Palette.Role.ACCENT_SOFT);
-        final int restBg = m3Role(com.google.android.material.R.attr.colorSurfaceContainerHighest,
+        final int restBg = theme.role(com.google.android.material.R.attr.colorSurfaceContainerHighest,
                 Palette.Role.SURFACE_ELEVATED);
-        final int disabledBg = m3Role(com.google.android.material.R.attr.colorSurfaceContainerLow,
+        final int disabledBg = theme.role(com.google.android.material.R.attr.colorSurfaceContainerLow,
                 Palette.Role.SURFACE);
-        final int checkedInk = m3Role(com.google.android.material.R.attr.colorOnSecondaryContainer,
+        final int checkedInk = theme.role(com.google.android.material.R.attr.colorOnSecondaryContainer,
                 Palette.Role.ON_ACCENT);
-        final int restInk = m3Role(com.google.android.material.R.attr.colorOnSurface,
+        final int restInk = theme.role(com.google.android.material.R.attr.colorOnSurface,
                 Palette.Role.INK);
-        final int restMuted = m3Role(com.google.android.material.R.attr.colorOnSurfaceVariant,
+        final int restMuted = theme.role(com.google.android.material.R.attr.colorOnSurfaceVariant,
                 Palette.Role.MUTED_INK);
-        final int disabledInk = withOpacity(restMuted, M3Tokens.DISABLED_CONTENT_ALPHA);
+        final int disabledInk = M3Chrome.withOpacity(restMuted, M3Tokens.DISABLED_CONTENT_ALPHA);
         final android.content.res.ColorStateList ink = new android.content.res.ColorStateList(
                 states, new int[]{checkedInk, restInk, disabledInk});
         final android.content.res.ColorStateList muted = new android.content.res.ColorStateList(
-                states, new int[]{withOpacity(checkedInk, M3Tokens.MEDIUM_EMPHASIS_ALPHA),
+                states, new int[]{M3Chrome.withOpacity(checkedInk, M3Tokens.MEDIUM_EMPHASIS_ALPHA),
                         restMuted, disabledInk});
 
         final MaterialCardView card = new MaterialCardView(this);
@@ -3275,9 +2654,9 @@ card.setOnClickListener(v -> {
         card.setCardBackgroundColor(new android.content.res.ColorStateList(
                 states, new int[]{checkedBg, restBg, disabledBg}));
         card.setStrokeColor(new android.content.res.ColorStateList(states, new int[]{
-                m3Role(com.google.android.material.R.attr.colorOutline, Palette.Role.ACCENT),
-                m3Role(com.google.android.material.R.attr.colorOutlineVariant, Palette.Role.LINE),
-                withOpacity(restMuted, M3Tokens.StateLayer.DRAGGED.opacity)}));
+                theme.role(com.google.android.material.R.attr.colorOutline, Palette.Role.ACCENT),
+                theme.role(com.google.android.material.R.attr.colorOutlineVariant, Palette.Role.LINE),
+                M3Chrome.withOpacity(restMuted, M3Tokens.StateLayer.DRAGGED.opacity)}));
         card.setCheckedIconSize(dp(16));
         card.setCheckedIconMargin(dp(4));
         card.setCheckedIconGravity(MaterialCardView.CHECKED_ICON_GRAVITY_TOP_END);
@@ -3364,13 +2743,13 @@ card.setOnClickListener(v -> {
         LinearLayout cell = new LinearLayout(this);
         cell.setOrientation(LinearLayout.VERTICAL);
         cell.setPadding(dp(1), dp(2), dp(6), dp(1));
-        TextView head = m3Label(caption, M3Tokens.TypeRole.LABEL_SMALL,
-                m3OnSurfaceVariant(), tfBody);
+        TextView head = type.m3Label(caption, M3Tokens.TypeRole.LABEL_SMALL,
+                theme.onSurfaceVariant(), tfBody);
         head.setSingleLine(true);
         head.setEllipsize(android.text.TextUtils.TruncateAt.END);
         cell.addView(head, new LinearLayout.LayoutParams(-1, -2));
-        TextView text = m3Label(value, M3Tokens.TypeRole.LABEL_MEDIUM,
-                m3OnSurface(), tfHan);
+        TextView text = type.m3Label(value, M3Tokens.TypeRole.LABEL_MEDIUM,
+                theme.onSurface(), tfHan);
         text.setSingleLine(true);
         text.setEllipsize(android.text.TextUtils.TruncateAt.END);
         cell.addView(text, new LinearLayout.LayoutParams(-1, -2));
@@ -3577,13 +2956,13 @@ card.setOnClickListener(v -> {
         final BottomSheetDialog dialog = new BottomSheetDialog(this);
         final LinearLayout column = sheetColumn(dialog, title);
 
-        final TextView note = m3Label(subtitle, M3Tokens.TypeRole.BODY_MEDIUM,
-                m3OnSurfaceVariant(), tfHan);
+        final TextView note = type.m3Label(subtitle, M3Tokens.TypeRole.BODY_MEDIUM,
+                theme.onSurfaceVariant(), tfHan);
         note.setSingleLine(false);
         column.addView(note, new LinearLayout.LayoutParams(-1, -2));
 
-        final TextView value = m3Label("100%", M3Tokens.TypeRole.TITLE_MEDIUM,
-                m3OnSurface(), tfBody);
+        final TextView value = type.m3Label("100%", M3Tokens.TypeRole.TITLE_MEDIUM,
+                theme.onSurface(), tfBody);
         value.setPadding(0, dp(8), 0, 0);
         column.addView(value, new LinearLayout.LayoutParams(-1, -2));
 
@@ -3657,7 +3036,7 @@ card.setOnClickListener(v -> {
         refreshReadoutStrip();
         refreshPaperLabel();
         syncToggleRows();
-        syncDateDetail();
+        syncEdgeDateDetail();
         updateUndoAction();
         renderImage();
     }
@@ -3771,120 +3150,102 @@ card.setOnClickListener(v -> {
     }
 
     /** The 22-parameter chip strip. */
-    private void buildOpticsStrip(LinearLayout panel) {
-        // The strip: one M3 chip per contract parameter, in the engine's own
-        // order. It scrolls sideways instead of clipping, so 390 dp and large
-        // text both keep every parameter reachable.
-        opticsStrip = new LinearLayout(this);
-        opticsStrip.setOrientation(LinearLayout.HORIZONTAL);
-        opticsStrip.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        opticsChips.clear();
-        for (int i = 0; i < OpticsDelta.Param.values().length; ++i) {
-            final int index = i;
-            final OpticsDelta.Param spec = OpticsDelta.paramAt(i);
-            final Chip chip = new Chip(this);
-            styleOpticsChip(chip);
-            chip.setId(View.generateViewId());
-            chip.setCheckable(true);
-            chip.setSingleLine(true);
-            chip.setText(mixedText(spec.glyph + "  " + spec.label));
-            chip.setContentDescription(spec.label + "，参数 " + (i + 1) + " / "
-                    + OpticsDelta.Param.values().length);
-            chip.setMinimumHeight(dp(MIN_TOUCH_DP));
-            chip.setOnClickListener(v -> {
-                if (!opticsUnlocked) {
-                    showSnackbar(opticsLockReason());
-                    return;
-                }
-                selectOptics(index);
-            });
-            final LinearLayout.LayoutParams chipLp =
-                    new LinearLayout.LayoutParams(-2, -2);
-            chipLp.rightMargin = dp(6);
-            opticsStrip.addView(chip, chipLp);
-            opticsChips.add(chip);
-        }
-        opticsStripScroll = new HorizontalScrollView(this);
-        opticsStripScroll.setHorizontalScrollBarEnabled(false);
-        opticsStripScroll.setClipToPadding(false);
-        opticsStripScroll.setFillViewport(false);
-        opticsStripScroll.addView(opticsStrip,
-                new android.widget.FrameLayout.LayoutParams(-2, -2));
-        panel.addView(opticsStripScroll, new LinearLayout.LayoutParams(-1, -2));
-    }
-
-    /** The single active-parameter slider and its touch policy. */
-    private void buildOpticsSlider(LinearLayout panel) {
-        opticsSlider = new Slider(this);
-        opticsSlider.setId(View.generateViewId());
-        opticsSlider.setMinimumHeight(dp(SLIDER_HEIGHT_DP));
-        // The head already shows the live value; a floating tooltip would be
-        // clipped by the row and repeat it.
-        opticsSlider.setLabelBehavior(
-                com.google.android.material.slider.LabelFormatter.LABEL_GONE);
-        opticsSlider.setLabelFormatter(value -> {
-            final OpticsDelta.Param spec = activeOptics();
-            return OpticsDelta.valueText(value) + " " + spec.unit;
-        });
-        opticsSlider.addOnChangeListener((slider, value, fromUser) -> {
-            if (syncingOptics) {
-                return;
-            }
-            final OpticsDelta.Param spec = activeOptics();
-            optics.set(spec, value);
-            showActiveOptics(value);
-            refreshReadoutStrip();
-            // One render per completed gesture: a touch release commits at
-            // once; keyboard, switch access, and TalkBack changes coalesce so
-            // a held arrow key does not queue a render per key. The guard at
-            // the top keeps a Look restore and a chip rebind silent.
-            if (trackingOpticsTouch) {
-                requestLivePreview();
-            } else {
-                scheduleOpticsCommit(slider);
-            }
-        });
-        opticsSlider.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
-            @Override public void onStartTrackingTouch(Slider slider) {
-                trackingOpticsTouch = true;
-                slider.removeCallbacks(opticsCommitRunnable);
-            }
-            @Override public void onStopTrackingTouch(Slider slider) {
-                trackingOpticsTouch = false;
-                slider.removeCallbacks(opticsCommitRunnable);
-                commitOptics();
-            }
-        });
-        panel.addView(opticsSlider,
-                new LinearLayout.LayoutParams(-1, dp(SLIDER_HEIGHT_DP)));
-    }
-
+        /** The single active-parameter slider and its touch policy. */
     private LinearLayout buildOpticsPanel() {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
+        opticsPanelView = new OpticsPanel(this, type, theme,
+                tfDisplay, tfBody, tfHan, MIN_TOUCH_DP, largeText(),
+                opticsHost(), opticsButtons());
+        final LinearLayout panel = opticsPanelView.view();
         opticsPanel = panel;
-        opticsPanel.setOnClickListener(v -> {
-            if (!opticsUnlocked) {
-                showSnackbar(opticsLockReason());
-            }
-        });
-        panel.addView(buildOpticsHead(),
-                new LinearLayout.LayoutParams(-1, -2));
-
-        buildOpticsStrip(panel);
-        // The readout must exist before bindActiveOptics writes into it.
-        panel.addView(buildOpticsReadout(), new LinearLayout.LayoutParams(-1, -2));
-        buildOpticsSlider(panel);
-
-        // The two choices the engine models separately from the 22 numbers.
-        opticsFilterButton = opticsChoiceRow(panel, "镜头滤镜 / CAMERA FILTER",
-                this::showCameraFilterPicker);
-        opticsNormButton = opticsChoiceRow(panel, "保护基准 / PROTECTION NORM",
-                this::showProtectionNormPicker);
-
+        bindOpticsPanel();
         bindActiveOptics();
         syncOpticsChoices();
         return panel;
+    }
+
+    /** The panel's callbacks into the Activity's Look and navigation. */
+    private OpticsPanel.Host opticsHost() {
+        return new OpticsPanel.Host() {
+            @Override public OpticsDelta.Param activeParam() {
+                return activeOptics();
+            }
+            @Override public boolean unlocked() {
+                return opticsUnlocked;
+            }
+            @Override public void onLocked() {
+                showSnackbar(opticsLockReason());
+            }
+            @Override public void onSelect(int index) {
+                selectOptics(index);
+            }
+            @Override public void onReset() {
+                resetActiveOptics();
+            }
+            @Override public void onView() {
+                showViewAdjustSheet();
+            }
+            @Override public void onMeter() {
+                showMeterPicker();
+            }
+            @Override public void onScanner() {
+                showScanSheet();
+            }
+            @Override public void onSliderValue(float value) {
+                onOpticsSliderValue(value);
+            }
+            @Override public void onSliderStart() {
+                trackingOpticsTouch = true;
+                if (opticsSlider != null) {
+                    opticsSlider.removeCallbacks(opticsCommitRunnable);
+                }
+            }
+            @Override public void onSliderStop() {
+                trackingOpticsTouch = false;
+                if (opticsSlider != null) {
+                    opticsSlider.removeCallbacks(opticsCommitRunnable);
+                }
+                commitOptics();
+            }
+            @Override public void onCameraFilter() {
+                showCameraFilterPicker();
+            }
+            @Override public void onProtectionNorm() {
+                showProtectionNormPicker();
+            }
+        };
+    }
+
+    /** Keep the Activity's aliases on the panel's children. */
+    private void bindOpticsPanel() {
+        opticsChips.clear();
+        opticsChips.addAll(opticsPanelView.chips());
+        opticsStripScroll = opticsPanelView.stripScroll();
+        opticsLockNote = opticsPanelView.lockNote();
+        opticsName = opticsPanelView.name();
+        opticsReset = opticsPanelView.reset();
+        opticsValue = opticsPanelView.value();
+        opticsUnit = opticsPanelView.unit();
+        opticsDelta = opticsPanelView.delta();
+        opticsRange = opticsPanelView.range();
+        opticsSlider = opticsPanelView.slider();
+        opticsFilterButton = opticsPanelView.filterButton();
+        opticsNormButton = opticsPanelView.normButton();
+    }
+
+    /** Build the Activity's M3 buttons without changing their style. */
+    private OpticsPanel.Buttons opticsButtons() {
+        return new OpticsPanel.Buttons() {
+            @Override public MaterialButton action(CharSequence text,
+                    String description, Runnable onClick) {
+                final MaterialButton button = actionButton(text, description);
+                button.setOnClickListener(v -> onClick.run());
+                return button;
+            }
+            @Override public MaterialButton text(CharSequence text,
+                    String description, int color, Runnable onClick) {
+                return m3TextButton(text, description, color, onClick);
+            }
+        };
     }
 
     /**
@@ -3906,12 +3267,12 @@ card.setOnClickListener(v -> {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(24));
 
-        root.addView(m3Label("视图调整 / VIEW", M3Tokens.TypeRole.TITLE_MEDIUM,
-                m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
+        root.addView(type.m3Label("视图调整 / VIEW", M3Tokens.TypeRole.TITLE_MEDIUM,
+                theme.role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
                 tfDisplay));
 
         final MaterialButton hueButton = actionButton(
-                mixedText(hueToggleText()), "胶片原色：关闭或启用该胶片的色相校正");
+                type.mixedText(hueToggleText()), "胶片原色：关闭或启用该胶片的色相校正");
         hueButton.setOnClickListener(v -> {
             if (HueCorrection.fixed(live().filmStock)) {
                 showSnackbar("这只胶片的色相校正由配置文件固定，不能关闭");
@@ -3924,12 +3285,12 @@ card.setOnClickListener(v -> {
             } else {
                 optics.hueCorrection = optics.hueCorrection > 0.5f ? 0f : 1f;
             }
-            hueButton.setText(mixedText(hueToggleText()));
+            hueButton.setText(type.mixedText(hueToggleText()));
             renderImage();
         });
         root.addView(hueButton, new LinearLayout.LayoutParams(-1, dp(48)));
         final MaterialButton gamutButton = actionButton(
-                mixedText("预览色域 · " + previewSpace),
+                type.mixedText("预览色域 · " + previewSpace),
                 "预览色域：只影响屏幕，导出始终使用 sRGB");
         gamutButton.setOnClickListener(v -> showChoiceSheet("预览色域 / GAMUT",
                 "只影响屏幕显示；导出的 JPEG/TIFF 始终使用 sRGB",
@@ -3938,7 +3299,7 @@ card.setOnClickListener(v -> {
                     previewSpace = picked == 1 ? "Display P3" : "sRGB";
                     getSharedPreferences("console", MODE_PRIVATE).edit()
                             .putString("preview_space", previewSpace).apply();
-                    gamutButton.setText(mixedText("预览色域 · " + previewSpace));
+                    gamutButton.setText(type.mixedText("预览色域 · " + previewSpace));
                     renderImage();
                 }));
         root.addView(gamutButton, new LinearLayout.LayoutParams(-1, dp(48)));
@@ -3951,8 +3312,8 @@ card.setOnClickListener(v -> {
 
         for (ViewAdjust.Group group : ViewAdjust.Group.values()) {
             final Chip chip = new Chip(this);
-            styleOpticsChip(chip);
-            chip.setText(mixedText(group.label + " / " + group.english));
+            OpticsPanel.styleChip(this, theme, chip);
+            chip.setText(type.mixedText(group.label + " / " + group.english));
             chip.setCheckable(true);
             chip.setChecked(group == ViewAdjust.Group.WHITE_BALANCE);
             chip.setMinimumHeight(dp(MIN_TOUCH_DP));
@@ -3981,16 +3342,16 @@ card.setOnClickListener(v -> {
         final LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(24));
-        root.addView(m3Label("扫描 / SCAN", M3Tokens.TypeRole.TITLE_MEDIUM,
-                m3OnSurface(), tfDisplay));
-        root.addView(m3Label("SP-3000 是模型预设，不是实测扫描仪标定。"
+        root.addView(type.m3Label("扫描 / SCAN", M3Tokens.TypeRole.TITLE_MEDIUM,
+                theme.onSurface(), tfDisplay));
+        root.addView(type.m3Label("SP-3000 是模型预设，不是实测扫描仪标定。"
                         + "选择预设只打开两项黑白校正；关闭后仍可单独开关。"
                         + "镜头模糊与反锐化属于原生 parity 任务。",
-                        M3Tokens.TypeRole.LABEL_MEDIUM, m3OnSurfaceVariant(), tfHan),
+                        M3Tokens.TypeRole.LABEL_MEDIUM, theme.onSurfaceVariant(), tfHan),
                 new LinearLayout.LayoutParams(-1, -2));
         if (isPositiveFilm(live().filmStock)) {
-            root.addView(m3Label("当前是正片直扫：黑白校正不参与渲染；切回负片后生效。",
-                            M3Tokens.TypeRole.LABEL_MEDIUM, m3Primary(), tfHan),
+            root.addView(type.m3Label("当前是正片直扫：黑白校正不参与渲染；切回负片后生效。",
+                            M3Tokens.TypeRole.LABEL_MEDIUM, theme.primary(), tfHan),
                     new LinearLayout.LayoutParams(-1, -2));
         }
 
@@ -4002,8 +3363,8 @@ card.setOnClickListener(v -> {
         final ScanProfile[] values = ScanProfile.values();
         for (ScanProfile profile : values) {
             final Chip chip = new Chip(this);
-            styleOpticsChip(chip);
-            chip.setText(mixedText(profile.label));
+            OpticsPanel.styleChip(this, theme, chip);
+            chip.setText(type.mixedText(profile.label));
             chip.setCheckable(true);
             chip.setChecked(profile == live().scanProfile());
             chip.setMinimumHeight(dp(MIN_TOUCH_DP));
@@ -4105,7 +3466,7 @@ card.setOnClickListener(v -> {
         for (int i = 0; i < labels.length; ++i) {
             final int quarter = i;
             final Chip chip = new Chip(this);
-            styleOpticsChip(chip);
+            OpticsPanel.styleChip(this, theme, chip);
             chip.setText(labels[i]);
             chip.setCheckable(true);
             chip.setChecked(draftTurns[0] == quarter);
@@ -4135,13 +3496,13 @@ card.setOnClickListener(v -> {
     /** The two flip switches. */
     private void buildComposeFlips(LinearLayout root, boolean[] draftFlips) {
         final MaterialSwitch flipH = new MaterialSwitch(this);
-        flipH.setText(mixedText("水平翻转 / FLIP H"));
+        flipH.setText(type.mixedText("水平翻转 / FLIP H"));
         flipH.setChecked(draftFlips[0]);
         flipH.setOnCheckedChangeListener((b, checked) -> draftFlips[0] = checked);
         root.addView(flipH, new LinearLayout.LayoutParams(-1, dp(48)));
 
         final MaterialSwitch flipV = new MaterialSwitch(this);
-        flipV.setText(mixedText("垂直翻转 / FLIP V"));
+        flipV.setText(type.mixedText("垂直翻转 / FLIP V"));
         flipV.setChecked(draftFlips[1]);
         flipV.setOnCheckedChangeListener((b, checked) -> draftFlips[1] = checked);
         root.addView(flipV, new LinearLayout.LayoutParams(-1, dp(48)));
@@ -4152,7 +3513,7 @@ card.setOnClickListener(v -> {
     private void buildComposeActions(LinearLayout root, BottomSheetDialog dialog,
                                              int[] draftTurns, float[] draft, boolean[] draftFlips) {
         final MaterialButton apply = actionButton(
-                mixedText("应用构图"), "应用旋转、裁切和翻转");
+                type.mixedText("应用构图"), "应用旋转、裁切和翻转");
         apply.setOnClickListener(v -> {
             live().geometryTurns = draftTurns[0];
             live().geometryRotation = draft[0];
@@ -4167,7 +3528,7 @@ card.setOnClickListener(v -> {
         });
         root.addView(apply, new LinearLayout.LayoutParams(-2, dp(48)));
 
-        final MaterialButton reset = actionButton(mixedText("重置构图"), "重置旋转、裁切和翻转");
+        final MaterialButton reset = actionButton(type.mixedText("重置构图"), "重置旋转、裁切和翻转");
         reset.setOnClickListener(v -> {
             live().geometryTurns = 0;
             live().geometryRotation = 0f;
@@ -4186,8 +3547,8 @@ card.setOnClickListener(v -> {
         final LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(24));
-        root.addView(m3Label("构图 / COMPOSE", M3Tokens.TypeRole.TITLE_MEDIUM,
-                m3OnSurface(), tfDisplay));
+        root.addView(type.m3Label("构图 / COMPOSE", M3Tokens.TypeRole.TITLE_MEDIUM,
+                theme.onSurface(), tfDisplay));
 
         final int[] draftTurns = {live().geometryTurns};
         final float[] draft = {live().geometryRotation, live().geometryCropX, live().geometryCropY,
@@ -4207,10 +3568,10 @@ card.setOnClickListener(v -> {
         final LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        head.addView(m3Label(label, M3Tokens.TypeRole.LABEL_LARGE, m3OnSurface(), tfHan),
+        head.addView(type.m3Label(label, M3Tokens.TypeRole.LABEL_LARGE, theme.onSurface(), tfHan),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        final TextView readout = m3Label(String.format(java.util.Locale.US, "%.2f", value),
-                M3Tokens.TypeRole.BODY_MEDIUM, m3Primary(), tfBody);
+        final TextView readout = type.m3Label(String.format(java.util.Locale.US, "%.2f", value),
+                M3Tokens.TypeRole.BODY_MEDIUM, theme.primary(), tfBody);
         head.addView(readout);
         parent.addView(head, new LinearLayout.LayoutParams(-1, -2));
 
@@ -4244,13 +3605,13 @@ card.setOnClickListener(v -> {
             final LinearLayout head = new LinearLayout(this);
             head.setOrientation(LinearLayout.HORIZONTAL);
             head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            head.addView(m3Label(field.label, M3Tokens.TypeRole.LABEL_LARGE,
-                    m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
+            head.addView(type.m3Label(field.label, M3Tokens.TypeRole.LABEL_LARGE,
+                    theme.role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
                     tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-            final TextView value = m3Label(
+            final TextView value = type.m3Label(
                     ViewAdjust.valueText(field.get(optics.view), field.unit),
                     M3Tokens.TypeRole.BODY_MEDIUM,
-                    m3Role(com.google.android.material.R.attr.colorPrimary, Palette.Role.ACCENT),
+                    theme.role(com.google.android.material.R.attr.colorPrimary, Palette.Role.ACCENT),
                     tfBody);
             head.addView(value, new LinearLayout.LayoutParams(-2, -2));
             block.addView(head, new LinearLayout.LayoutParams(-1, -2));
@@ -4290,7 +3651,7 @@ card.setOnClickListener(v -> {
             fields.addView(block, new LinearLayout.LayoutParams(-1, -2));
         }
 
-        final MaterialButton reset = actionButton(mixedText("重置本页"), "重置当前视图调整分类");
+        final MaterialButton reset = actionButton(type.mixedText("重置本页"), "重置当前视图调整分类");
         reset.setOnClickListener(v -> {
             optics.view.reset(group);
             populateViewFields(fields, group);
@@ -4301,108 +3662,12 @@ card.setOnClickListener(v -> {
     }
 
     /** Set a chip's M3 filter style from the current theme's roles. */
-    private void styleOpticsChip(Chip chip) {
-        chip.setChipDrawable(ChipDrawable.createFromAttributes(this, null, 0,
-                com.google.android.material.R.style.Widget_Material3_Chip_Filter));
-        final int chipSurface = m3Role(
-                com.google.android.material.R.attr.colorSurfaceContainerLow,
-                Palette.Role.SURFACE_ELEVATED);
-        final int chipSelected = m3Role(
-                com.google.android.material.R.attr.colorSecondaryContainer,
-                Palette.Role.ACCENT_SOFT);
-        final int chipText = m3Role(
-                com.google.android.material.R.attr.colorOnSurfaceVariant,
-                Palette.Role.MUTED_INK);
-        final int chipTextSelected = m3Role(
-                com.google.android.material.R.attr.colorOnSecondaryContainer,
-                Palette.Role.ACCENT);
-        final int chipOutline = m3Role(
-                com.google.android.material.R.attr.colorOutlineVariant,
-                Palette.Role.LINE);
-        chip.setChipBackgroundColor(checkedColors(chipSelected, chipSurface));
-        chip.setChipStrokeWidth(Math.max(1, dp(1)));
-        chip.setChipStrokeColor(checkedColors(chipSelected, chipOutline));
-        chip.setTextColor(checkedColors(chipTextSelected, chipText));
-        chip.setEnsureMinTouchTargetSize(true);
-    }
-
-    /**
+        /**
      * The active parameter's readout, above the slider: name and reset on one
      * line, then value, unit, display-only Δ, and the contract's visible range.
      */
-    private View buildOpticsReadout() {
-        final LinearLayout block = new LinearLayout(this);
-        block.setOrientation(LinearLayout.VERTICAL);
-        block.setPadding(0, dp(6), 0, 0);
-
-        final LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        opticsName = m3Label("", M3Tokens.TypeRole.TITLE_SMALL,
-                m3OnSurface(), tfHan);
-        opticsName.setSingleLine(true);
-        opticsName.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        ViewCompat.setAccessibilityHeading(opticsName, true);
-        top.addView(opticsName, new LinearLayout.LayoutParams(0, -2, 1f));
-        opticsReset = m3TextButton("重置", "重置当前参数",
-                m3OnSurfaceVariant(), this::resetActiveOptics);
-        top.addView(opticsReset, new LinearLayout.LayoutParams(-2, dp(48)));
-        block.addView(top, new LinearLayout.LayoutParams(-1, -2));
-
-        final LinearLayout values = new LinearLayout(this);
-        values.setOrientation(LinearLayout.HORIZONTAL);
-        values.setGravity(android.view.Gravity.BOTTOM);
-        opticsValue = m3Label("", M3Tokens.TypeRole.HEADLINE_SMALL,
-                m3Primary(), tfDisplay);
-        values.addView(opticsValue);
-        opticsUnit = m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
-                m3OnSurfaceVariant(), tfBody);
-        final LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
-        unitLp.leftMargin = dp(4);
-        unitLp.bottomMargin = dp(4);
-        values.addView(opticsUnit, unitLp);
-        opticsDelta = m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
-                m3OnSurfaceVariant(), tfDisplay);
-        final LinearLayout.LayoutParams deltaLp = new LinearLayout.LayoutParams(-2, -2);
-        deltaLp.leftMargin = dp(10);
-        deltaLp.bottomMargin = dp(4);
-        values.addView(opticsDelta, deltaLp);
-        block.addView(values, new LinearLayout.LayoutParams(-1, -2));
-
-        opticsRange = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                m3OnSurfaceVariant(), tfHan);
-        opticsRange.setSingleLine(false);
-        block.addView(opticsRange, new LinearLayout.LayoutParams(-1, -2));
-        return block;
-    }
-
-    /** A label + current choice + arrow, the same shape as the paper picker. */
-    private MaterialButton opticsChoiceRow(LinearLayout parent, String title,
-                                           Runnable open) {
-        final boolean stacked = largeText();
-        final LinearLayout row = new LinearLayout(this);
-        row.setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
-        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(dp(MIN_TOUCH_DP));
-        final TextView titleView = m3Label(title, M3Tokens.TypeRole.LABEL_MEDIUM,
-                m3OnSurfaceVariant(), tfHan);
-        row.addView(titleView, stacked
-                ? new LinearLayout.LayoutParams(-1, -2)
-                : new LinearLayout.LayoutParams(0, -2, 1f));
-        final MaterialButton button = m3TextButton("", title, m3Primary(), open);
-        button.setGravity(stacked
-                ? (android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL)
-                : (android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL));
-        button.setSingleLine(false);
-        button.setMaxLines(2);
-        row.addView(button, stacked
-                ? new LinearLayout.LayoutParams(-1, dp(MIN_TOUCH_DP))
-                : new LinearLayout.LayoutParams(-2, dp(MIN_TOUCH_DP)));
-        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
-        return button;
-    }
-
-    private OpticsDelta.Param activeOptics() {
+        /** A label + current choice + arrow, the same shape as the paper picker. */
+        private OpticsDelta.Param activeOptics() {
         return OpticsDelta.paramAt(activeOptics);
     }
 
@@ -4435,13 +3700,31 @@ card.setOnClickListener(v -> {
         refreshOpticsChips();
     }
 
+    /** One slider change: update the Look and its head; commit on release. */
+    private void onOpticsSliderValue(float value) {
+        if (syncingOptics) {
+            return;
+        }
+        final OpticsDelta.Param spec = activeOptics();
+        optics.set(spec, value);
+        showActiveOptics(value);
+        refreshReadoutStrip();
+        // One render per completed gesture: a touch release commits at once;
+        // keyboard, switch access and TalkBack changes coalesce.
+        if (trackingOpticsTouch) {
+            requestLivePreview();
+        } else {
+            scheduleOpticsCommit(opticsSlider);
+        }
+    }
+
     /** Show a value in the head without moving the slider or committing. */
     private void showActiveOptics(float value) {
         final OpticsDelta.Param spec = activeOptics();
         final String number = OpticsDelta.valueText(value);
         final String delta = OpticsDelta.text(value, spec.defaultValue);
         final boolean moved = !spec.isDefault(value);
-        final int color = moved ? m3Primary() : m3OnSurfaceVariant();
+        final int color = moved ? theme.primary() : theme.onSurfaceVariant();
         opticsName.setText(spec.label);
         opticsValue.setText(number);
         opticsUnit.setText(spec.unit);
@@ -4638,96 +3921,42 @@ card.setOnClickListener(v -> {
      * The Optics head: title and the locked reason. The reset lives on the
      * active parameter's row, so it can only touch the one parameter in view.
      */
-    private View buildOpticsHead() {
-        final LinearLayout head = new LinearLayout(this);
-        head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
-        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-
-        final LinearLayout titles = new LinearLayout(this);
-        titles.setOrientation(LinearLayout.VERTICAL);
-        titles.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView titleView = mixedM3Label("OPTICS / 光学调整",
-                M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
-        titles.addView(titleView, new LinearLayout.LayoutParams(-1, -2));
-
-        opticsLockNote = m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                m3OnSurfaceVariant(), tfHan);
-        opticsLockNote.setSingleLine(true);
-        opticsLockNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        opticsLockNote.setVisibility(View.GONE);
-        titles.addView(opticsLockNote, new LinearLayout.LayoutParams(-1, -2));
-        head.addView(titles, largeText()
-                ? new LinearLayout.LayoutParams(-1, -2)
-                : new LinearLayout.LayoutParams(0, -2, 1f));
-        final MaterialButton viewAction = actionButton(
-                mixedText("视图"), "打开视图调整：白平衡、亮度、颜色、分级");
-        viewAction.setOnClickListener(v -> showViewAdjustSheet());
-        final MaterialButton meterAction = actionButton(
-                mixedText("测光"), "选择相机测光方式");
-        meterAction.setOnClickListener(v -> showMeterPicker());
-        final MaterialButton scanAction = actionButton(
-                mixedText("扫描仪"), "打开扫描页：SP-3000 模型预设与黑白校正");
-        scanAction.setOnClickListener(v -> showScanSheet());
-        if (largeText()) {
-            // A vertical head gave each action its own 48 dp row, so at 2.0x
-            // three entries consumed the whole sheet before the first slider.
-            // Keep the 48 dp targets but put them on one scrollable row.
-            final LinearLayout actions = new LinearLayout(this);
-            actions.setOrientation(LinearLayout.HORIZONTAL);
-            actions.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            actions.addView(viewAction, new LinearLayout.LayoutParams(-2, dp(48)));
-            actions.addView(meterAction, new LinearLayout.LayoutParams(-2, dp(48)));
-            actions.addView(scanAction, new LinearLayout.LayoutParams(-2, dp(48)));
-            final HorizontalScrollView scroll = new HorizontalScrollView(this);
-            scroll.setHorizontalScrollBarEnabled(false);
-            scroll.setClipToPadding(false);
-            scroll.addView(actions, new android.widget.FrameLayout.LayoutParams(-2, dp(48)));
-            head.addView(scroll, new LinearLayout.LayoutParams(-1, dp(48)));
-        } else {
-            head.addView(viewAction, new LinearLayout.LayoutParams(-2, dp(48)));
-            head.addView(meterAction, new LinearLayout.LayoutParams(-2, dp(48)));
-            head.addView(scanAction, new LinearLayout.LayoutParams(-2, dp(48)));
-        }
-        return head;
-    }
-
-    /** The one sentence a locked Optics panel shows and repeats on tap. */
+        /** The one sentence a locked Optics panel shows and repeats on tap. */
     private String opticsLockReason() {
         return session == null ? "先导入一张照片" : "先选择胶片或相纸，完成一次渲染";
     }
 
-    private LinearLayout buildFormatPanel() {
-        LinearLayout panel = new LinearLayout(this);
+        private LinearLayout buildFormatPanel() {
+        final LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.addView(sectionHead("PHYSICAL SCALE / 光学尺度", this::resetFormatPanel),
                 new LinearLayout.LayoutParams(-1, -2));
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
-        scroll.setClipToPadding(false);
-        formatCardStrip = new LinearLayout(this);
-        formatCardStrip.setOrientation(LinearLayout.HORIZONTAL);
-        formatCardStrip.setPadding(0, dp(10), 0, 0);
-        formatScroll = scroll;
-        scroll.addView(formatCardStrip,
-                new android.widget.FrameLayout.LayoutParams(
-                        -2, dp(FormatCardLayout.stripHeightDp(fontScale()))));
-        panel.addView(scroll, new LinearLayout.LayoutParams(
-                -1, dp(FormatCardLayout.stripHeightDp(fontScale()))));
+        scalePanel = new ScalePanel(this, type, theme, tfDisplay, tfBody, tfHan,
+                new ScalePanel.Host() {
+                    @Override public GateScale.Gate activeGate() {
+                        return GateScale.byId(live().overscanFormat);
+                    }
+                    @Override public void onPick(String gateId) {
+                        pickScale(gateId);
+                    }
+                });
+        panel.addView(scalePanel.view(), new LinearLayout.LayoutParams(
+                -1, scalePanel.stripHeight()));
 
         final MaterialButton compose = actionButton(
-                mixedText("构图 / COMPOSE"), "打开构图：旋转、翻转、裁切");
+                type.mixedText("构图 / COMPOSE"), "打开构图：旋转、翻转、裁切");
         compose.setOnClickListener(v -> showComposeSheet());
         panel.addView(compose, new LinearLayout.LayoutParams(-2, dp(48)));
 
-        LinearLayout foot = new LinearLayout(this);
+        final LinearLayout foot = new LinearLayout(this);
         foot.setOrientation(LinearLayout.HORIZONTAL);
         foot.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        foot.addView(m3Label("片门与尺度联动 · 不裁切构图",
-                M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant(), tfHan),
+        foot.addView(type.m3Label("片门与尺度联动 · 不裁切构图",
+                M3Tokens.TypeRole.LABEL_LARGE, theme.onSurfaceVariant(), tfHan),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        formatFootValue = m3Label(
+        formatFootValue = type.m3Label(
                 mmText(GateScale.resolve(live().overscanFormat, live().filmFormatMm).longEdgeMm) + " mm",
-                M3Tokens.TypeRole.LABEL_LARGE, m3Primary(), tfBody);
+                M3Tokens.TypeRole.LABEL_LARGE, theme.primary(), tfBody);
         foot.addView(formatFootValue);
         panel.addView(foot, new LinearLayout.LayoutParams(-1, dp(28)));
         panel.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
@@ -4736,141 +3965,11 @@ card.setOnClickListener(v -> {
         return panel;
     }
 
-    /** Build one Scale card for a Gate. */
-    private MaterialCardView buildFormatCard(GateScale.Gate gate, boolean active) {
-            final int surface = m3Role(
-                    com.google.android.material.R.attr.colorSurfaceContainerLow,
-                    Palette.Role.SURFACE_ELEVATED);
-            final int selectedSurface = m3Role(
-                    com.google.android.material.R.attr.colorSecondaryContainer,
-                    Palette.Role.SURFACE_ELEVATED);
-            final int outline = m3Role(
-                    com.google.android.material.R.attr.colorOutlineVariant,
-                    Palette.Role.LINE);
-            final int selectedOutline = m3Role(
-                    com.google.android.material.R.attr.colorPrimary,
-                    Palette.Role.ACCENT);
-            final int onSurface = m3Role(
-                    com.google.android.material.R.attr.colorOnSurface,
-                    Palette.Role.INK);
-            final int onSelected = m3Role(
-                    com.google.android.material.R.attr.colorOnSecondaryContainer,
-                    Palette.Role.INK);
-            final int onSurfaceVariant = m3Role(
-                    com.google.android.material.R.attr.colorOnSurfaceVariant,
-                    Palette.Role.MUTED_INK);
-
-            final MaterialCardView card = new MaterialCardView(this);
-            card.setCardElevation(0f);
-            card.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
-            card.setStrokeWidth(dp(1));
-            card.setCardBackgroundColor(checkedColors(selectedSurface, surface));
-            card.setStrokeColor(checkedColors(selectedOutline, outline));
-            card.setCheckable(true);
-            card.setChecked(active);
-            card.setCheckedIconResource(
-                    com.google.android.material.R.drawable.mtrl_ic_check_mark);
-            card.setCheckedIconTint(android.content.res.ColorStateList.valueOf(onSelected));
-            card.setCheckedIconSize(dp(14));
-            card.setCheckedIconMargin(dp(4));
-            card.setCheckedIconGravity(MaterialCardView.CHECKED_ICON_GRAVITY_TOP_END);
-            card.setClickable(true);
-            card.setFocusable(true);
-            card.setContentDescription(gate.label + "，" + mmText(gate.longEdgeMm) + " 毫米"
-                    + (active ? "，已选" : ""));
-
-                card.addView(buildFormatCardContent(gate, active, onSurface, onSurfaceVariant, onSelected),
-                        new android.widget.FrameLayout.LayoutParams(-1, -1));
-            card.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-                @Override public void onInitializeAccessibilityNodeInfo(
-                        View host, android.view.accessibility.AccessibilityNodeInfo info) {
-                    super.onInitializeAccessibilityNodeInfo(host, info);
-                    info.setClassName(android.widget.RadioButton.class.getName());
-                    info.setCheckable(true);
-                    info.setChecked(active);
-                }
-            });
-            card.setOnClickListener(v -> pickScale(gate.id));
-                return card;
-    }
-
-    /** The value, unit, kind and name inside a Scale card. */
-    private LinearLayout buildFormatCardContent(GateScale.Gate gate, boolean active,
-                                                int onSurface, int onSurfaceVariant,
-                                                int onSelected) {
-    LinearLayout stack = new LinearLayout(this);
-    stack.setOrientation(LinearLayout.VERTICAL);
-    stack.setPadding(dp(9), dp(11), dp(8), dp(7));
-
-    LinearLayout valueRow = new LinearLayout(this);
-    valueRow.setOrientation(LinearLayout.HORIZONTAL);
-    valueRow.setGravity(android.view.Gravity.BOTTOM);
-    TextView value = m3Label(mmText(gate.longEdgeMm),
-            M3Tokens.TypeRole.TITLE_LARGE, active ? onSelected : onSurface, tfDisplay);
-    valueRow.addView(value);
-    TextView unit = m3Label("mm", M3Tokens.TypeRole.LABEL_SMALL,
-            onSurfaceVariant, tfBody);
-    LinearLayout.LayoutParams unitLp = new LinearLayout.LayoutParams(-2, -2);
-    unitLp.leftMargin = dp(2);
-    unitLp.bottomMargin = dp(2);
-    valueRow.addView(unit, unitLp);
-    stack.addView(valueRow);
-
-    TextView kind = m3Label(gate.panoramic() ? "宽幅" : "常规",
-            M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
-    LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-2, -2);
-    kindLp.topMargin = dp(4);
-    stack.addView(kind, kindLp);
-
-    View spacer = new View(this);
-    stack.addView(spacer, new LinearLayout.LayoutParams(1, 0, 1f));
-
-    TextView name = m3Label(gate.label, M3Tokens.TypeRole.LABEL_MEDIUM,
-            active ? onSelected : onSurface, tfHan);
-    name.setSingleLine(true);
-    name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-    stack.addView(name);
-
-        return stack;
-    }
-
-    /** The empty Scale strip when no Gate fits the frame. */
-    private void showNoFormatCards() {
-            TextView none = m3Label("这张长宽比没有可用片门",
-                    M3Tokens.TypeRole.LABEL_LARGE, m3OnSurfaceVariant(), tfHan);
-            LinearLayout.LayoutParams noneLp = new LinearLayout.LayoutParams(
-                    -2, dp(FormatCardLayout.heightDp(fontScale())));
-            noneLp.leftMargin = dp(2);
-            formatCardStrip.addView(none, noneLp);
-            return;
-    }
-
     private void rebuildFormatCards() {
-        if (formatCardStrip == null) {
+        if (scalePanel == null) {
             return;
         }
-        formatCardStrip.removeAllViews();
-        formatCards.clear();
-        if (edgeIds.isEmpty()) {
-            showNoFormatCards();
-        }
-        final int cardWidth = FormatCardLayout.widthDp(fontScale());
-        final int cardHeight = FormatCardLayout.heightDp(fontScale());
-        for (int i = 0; i < edgeIds.size(); ++i) {
-            final String gateId = edgeIds.get(i);
-            final GateScale.Gate gate = GateScale.byId(gateId);
-            if (gate == null) {
-                continue;
-            }
-            final boolean active = gate.id.equals(live().overscanFormat);
-
-            final MaterialCardView card = buildFormatCard(gate, active);
-            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
-                    dp(cardWidth), dp(cardHeight));
-            cardLp.rightMargin = dp(9);
-            formatCardStrip.addView(card, cardLp);
-            formatCards.add(card);
-        }
+        scalePanel.rebuild(edgeIds);
     }
 
     private float fontScale() {
@@ -4894,12 +3993,12 @@ card.setOnClickListener(v -> {
             formatFootValue.setText(mmText(gate.longEdgeMm) + " mm");
         }
         rebuildFormatCards();
-        final int index = edgeIds.indexOf(gate.id);
-        if (index >= 0 && index < formatCards.size() && formatScroll != null) {
-            final View target = formatCards.get(index);
-            formatScroll.post(() -> formatScroll.smoothScrollTo(Math.max(0, target.getLeft() - dp(8)), 0));
+        if (scalePanel != null) {
+            scalePanel.revealSelected();
         }
-        syncRebatePage();
+        if (edgePagesPanel != null) {
+            edgePagesPanel.syncRebate();
+        }
         onEdgeChanged();
     }
 
@@ -4907,463 +4006,133 @@ card.setOnClickListener(v -> {
         rebateRefreshers.clear();
         final LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        edgeHome = buildEdgeHome();
-        rebatePage = buildRebatePage();
-        datePage = buildDatePage();
-        root.addView(edgeHome, new LinearLayout.LayoutParams(-1, -2));
-        root.addView(rebatePage, new LinearLayout.LayoutParams(-1, -2));
-        root.addView(datePage, new LinearLayout.LayoutParams(-1, -2));
+        final View home = buildEdgeHome();
+        edgePagesPanel = new EdgePagesPanel(this, type, theme, tfBody, tfHan,
+                new EdgePagesPanel.Host() {
+                    @Override public EdgeLookAccess look() {
+                        return new EdgeLookAccess(MainActivity.this.live());
+                    }
+                    @Override public void onBack() {
+                        openEdgePage(-1);
+                    }
+                    @Override public String rebateGateLabel() {
+                        if (edgeIds.isEmpty()) {
+                            return "无可用片门";
+                        }
+                        return GateScale.resolve(live().overscanFormat,
+                                live().filmFormatMm).label;
+                    }
+                    @Override public void showEdgePicker() {
+                        MainActivity.this.showEdgePicker();
+                    }
+                    @Override public boolean canHostRebate() {
+                        return GateScale.canHostRebate(sourceWidth, sourceHeight);
+                    }
+                    @Override public String effectiveDateText() {
+                        return MainActivity.this.effectiveDateText();
+                    }
+                    @Override public String imprintDate() {
+                        return MainActivity.this.imprintDate();
+                    }
+                    @Override public void askText(String title, String initial,
+                                                   java.util.function.Consumer<String> onValue) {
+                        MainActivity.this.askText(title, initial, onValue);
+                    }
+                    @Override public void askSeed(String title, int initial,
+                                                   java.util.function.IntConsumer onValue) {
+                        MainActivity.this.askSeed(title, initial, onValue);
+                    }
+                    @Override public void showChoiceSheet(String title, String note,
+                                                           List<String> labels, int selectedIndex,
+                                                           java.util.function.IntConsumer onPick) {
+                        MainActivity.this.showChoiceSheet(title, note, labels,
+                                selectedIndex, onPick);
+                    }
+                    @Override public void showSnackbar(String message) {
+                        MainActivity.this.showSnackbar(message);
+                    }
+                    @Override public void requestLivePreview() {
+                        MainActivity.this.requestLivePreview();
+                    }
+                    @Override public void commitRebate() {
+                        MainActivity.this.commitRebate();
+                    }
+                    @Override public long commitDelayMs() {
+                        return OPTICS_COMMIT_DELAY_MS;
+                    }
+                    @Override public boolean largeText() {
+                        return MainActivity.this.largeText();
+                    }
+                }, edgeRows(), rebateRefreshers::add, this::refreshEdgeCards);
+        root.addView(home, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(edgePagesPanel.rebatePage(), new LinearLayout.LayoutParams(-1, -2));
+        root.addView(edgePagesPanel.datePage(), new LinearLayout.LayoutParams(-1, -2));
         openEdgePage(edgePageIndex);
-        syncRebatePage();
-        syncDatePage();
+        edgePagesPanel.syncRebate();
+        edgePagesPanel.syncDate();
         return root;
+    }
+
+    /** The shared Edge switch row, borrowed from the Activity's own style. */
+    private EdgePagesPanel.Rows edgeRows() {
+        return new EdgePagesPanel.Rows() {
+            @Override public View switchRow(String labelText, TextView detail,
+                                            MaterialSwitch toggle,
+                                            java.util.function.BooleanSupplier current,
+                                            java.util.function.Consumer<Boolean> onChange) {
+                return MainActivity.this.switchRow(labelText, detail, toggle, current, onChange);
+            }
+            @Override public String toggleDescription(String labelText, boolean on) {
+                return MainActivity.toggleDescription(labelText, on);
+            }
+            @Override public void setSyncingToggles(boolean syncing) {
+                syncingToggles = syncing;
+            }
+            @Override public MaterialButton textButton(CharSequence text, String description,
+                                                       int color, Runnable action) {
+                return m3TextButton(text, description, color, action);
+            }
+        };
     }
 
     /** The Edge landing page: one card per edge feature. */
     private LinearLayout buildEdgeHome() {
-        final LinearLayout home = new LinearLayout(this);
-        home.setOrientation(LinearLayout.VERTICAL);
-        home.addView(sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
-                new LinearLayout.LayoutParams(-1, -2));
-
-        final HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
-        scroll.setClipToPadding(false);
-        final LinearLayout strip = new LinearLayout(this);
-        strip.setOrientation(LinearLayout.HORIZONTAL);
-        strip.setPadding(0, dp(4), 0, dp(4));
-
-        final MaterialCardView rebateCard = edgeEntryCard("片边  REBATE",
-                this::rebateSummary, "打开片边设置", () -> openEdgePage(0));
-        strip.addView(rebateCard, edgeCardParams());
-        final MaterialCardView dateCard = edgeEntryCard("日期水印  DATE BACK",
-                this::dateSummary, "打开日期水印设置", () -> openEdgePage(1));
-        strip.addView(dateCard, edgeCardParams());
-
-        scroll.addView(strip, new android.widget.FrameLayout.LayoutParams(-2, -2));
-        home.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
-
-        final TextView note = m3Label("片门与尺度联动；片边只在这张图可用的片门里选",
-                M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfHan);
-        final LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
-        noteLp.topMargin = dp(8);
-        home.addView(note, noteLp);
-        return home;
-    }
-
-    private LinearLayout.LayoutParams edgeCardParams() {
-        final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(176), -2);
-        lp.rightMargin = dp(8);
-        return lp;
-    }
-
-    /**
-     * One Edge entry card: the feature name, a live summary, and a chevron.
-     * The summary is a supplier so the card never keeps a second copy of the
-     * Look; {@link #refreshEdgeCards()} repaints it after every change.
-     */
-    private MaterialCardView edgeEntryCard(String title,
-                                           java.util.function.Supplier<String> summary,
-                                           String description, Runnable onOpen) {
-        final MaterialCardView card = new MaterialCardView(this);
-        card.setCardElevation(0f);
-        card.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
-        card.setStrokeWidth(dp(1));
-        card.setCardBackgroundColor(m3Role(
-                com.google.android.material.R.attr.colorSurfaceContainerLow,
-                Palette.Role.SURFACE_ELEVATED));
-        card.setStrokeColor(m3OutlineVariant());
-        card.setClickable(true);
-        card.setFocusable(true);
-
-        final LinearLayout stack = new LinearLayout(this);
-        stack.setOrientation(LinearLayout.VERTICAL);
-        stack.setPadding(dp(12), dp(10), dp(12), dp(10));
-
-        final LinearLayout titleRow = new LinearLayout(this);
-        titleRow.setOrientation(LinearLayout.HORIZONTAL);
-        titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        final TextView name = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL, m3OnSurface());
-        name.setMaxLines(2);
-        titleRow.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
-        titleRow.addView(m3Label("›", M3Tokens.TypeRole.TITLE_SMALL, m3OnSurfaceVariant(), tfBody));
-        stack.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
-
-        final TextView summaryView = m3Label(summary.get(),
-                M3Tokens.TypeRole.LABEL_SMALL, m3OnSurfaceVariant(), tfHan);
-        final LinearLayout.LayoutParams summaryLp = new LinearLayout.LayoutParams(-1, -2);
-        summaryLp.topMargin = dp(6);
-        stack.addView(summaryView, summaryLp);
-
-        card.addView(stack, new android.widget.FrameLayout.LayoutParams(-1, -2));
-        card.setOnClickListener(v -> onOpen.run());
-        rebateRefreshers.add(() -> {
-            final String text = summary.get();
-            summaryView.setText(text);
-            card.setContentDescription(description + "，" + text);
-        });
-        return card;
-    }
-
-    /**
-     * The Rebate secondary page. Its switch owns whether the controls are
-     * enabled; they stay visible and dimmed while off, so the page explains
-     * what is available without pretending the controls work.
-     */
-    /** The rebate gate card and its live label. */
-    private void addRebateGateCard(int onSurface, int onSurfaceVariant) {
-rebateGateValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-rebateGateCard = new MaterialCardView(this);
-rebateGateCard.setCardElevation(0f);
-rebateGateCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
-rebateGateCard.setStrokeWidth(dp(1));
-rebateGateCard.setCardBackgroundColor(m3Role(
-        com.google.android.material.R.attr.colorSurfaceContainerLow,
-        Palette.Role.SURFACE_ELEVATED));
-rebateGateCard.setStrokeColor(m3OutlineVariant());
-rebateGateCard.setClickable(true);
-rebateGateCard.setFocusable(true);
-rebateGateCard.setOnClickListener(v -> showEdgePicker());
-final LinearLayout gateRow = new LinearLayout(this);
-gateRow.setOrientation(LinearLayout.HORIZONTAL);
-gateRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-gateRow.setPadding(dp(14), 0, dp(14), 0);
-gateRow.addView(m3Label("片门格式", M3Tokens.TypeRole.BODY_MEDIUM,
-        onSurfaceVariant, tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-rebateGateValue.setGravity(android.view.Gravity.END);
-gateRow.addView(rebateGateValue, new LinearLayout.LayoutParams(-2, -2));
-final TextView gateArrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
-        onSurfaceVariant, tfBody);
-final LinearLayout.LayoutParams gateArrowLp = new LinearLayout.LayoutParams(-2, -2);
-gateArrowLp.leftMargin = dp(7);
-gateRow.addView(gateArrow, gateArrowLp);
-rebateGateCard.addView(gateRow,
-        new android.widget.FrameLayout.LayoutParams(-1, -1));
-rebateRefreshers.add(() -> {
-    final String label = edgeIds.isEmpty()
-            ? "无可用片门"
-            : GateScale.resolve(live().overscanFormat, live().filmFormatMm).label;
-    rebateGateValue.setText(label);
-    rebateGateCard.setContentDescription("片门格式，" + label);
-});
-final LinearLayout.LayoutParams gateLp = new LinearLayout.LayoutParams(-1, dp(52));
-gateLp.bottomMargin = dp(4);
-rebateControls.addView(rebateGateCard, gateLp);
-    }
-
-    /** The rebate switches and tone sliders. */
-    private void addRebateToneControls(int onSurface) {
-edgeTextSwitch = new MaterialSwitch(this);
-rebateControls.addView(switchRow("片边文字（厂标 / 张数）", null,
-        edgeTextSwitch, () -> live().edgeTextOn, on -> {
-            live().edgeTextOn = on;
-            syncRebatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, dp(56)));
-
-rebateFogValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-rebateFogSlider = rebateSliderRow(rebateControls, "片基雾",
-        "片基本身的灰雾。0 是完全透明，越大越脏",
-        RebateControls.FOG_MIN, RebateControls.FOG_MAX, 0.05f,
-        RebateControls.clampFog(live().edgeFog),
-        value -> String.format(java.util.Locale.US, "%.2f", value),
-        value -> live().edgeFog = RebateControls.clampFog(value),
-        () -> live().edgeFog, rebateFogValue);
-
-rebateLeaksValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-rebateLeaksSlider = rebateSliderRow(rebateControls, "漏光",
-        "卷轴漏进来的光，从片边渗向画面",
-        RebateControls.LEAKS_MIN, RebateControls.LEAKS_MAX, 0.05f,
-        RebateControls.clampLeaks(live().edgeLeaks),
-        value -> String.format(java.util.Locale.US, "%.2f", value),
-        value -> live().edgeLeaks = RebateControls.clampLeaks(value),
-        () -> live().edgeLeaks, rebateLeaksValue);
-
-rebateFrameNoValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-rebateFrameNoSlider = rebateSliderRow(rebateControls, "片边张数",
-        "片边上印的张数。0 = 按 seed 随机",
-        RebateControls.FRAME_NUMBER_MIN, RebateControls.FRAME_NUMBER_MAX, 1f,
-        RebateControls.clampFrameNumber(live().frameNumber),
-        value -> value < 0.5f ? "自动" : String.valueOf(Math.round(value)),
-        value -> live().frameNumber = RebateControls.clampFrameNumber(value),
-        () -> live().frameNumber, rebateFrameNoValue);
-
-rebateFNumberValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-rebateFNumberSlider = rebateSliderRow(rebateControls, "光圈值",
-        "相机记录的 f 值。决定片门边缘的虚化。0 = 未知（按 f/5.6）",
-        RebateControls.F_NUMBER_MIN, RebateControls.F_NUMBER_MAX, 1f,
-        RebateControls.clampFNumber(live().edgeFNumber),
-        value -> value < 0.5f
-                ? "未知"
-                : "f/" + String.format(java.util.Locale.US, "%.1f", value),
-        value -> live().edgeFNumber = RebateControls.clampFNumber(value),
-        () -> live().edgeFNumber, rebateFNumberValue);
-
-    }
-
-    /** The rebate mode, gate, holes, carrier and seed rows. */
-    private void addRebateStructureControls(int onSurface) {
-rebateModeValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-rebateControls.addView(edgeChoiceRow("片边模式", rebateModeValue, RebateControls.MODES,
-        () -> live().edgeMode, id -> {
-            live().edgeMode = id;
-            syncRebatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, -2));
-
-rebateGateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-rebateControls.addView(edgeChoiceRow("片门形状", rebateGateStyleValue,
-        RebateControls.GATE_STYLES, () -> live().edgeGate, id -> {
-            live().edgeGate = id;
-            syncRebatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, -2));
-
-rebateHolesValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-rebateControls.addView(edgeChoiceRow("齿孔", rebateHolesValue, RebateControls.HOLES,
-        () -> live().edgeHoles, id -> {
-            live().edgeHoles = id;
-            syncRebatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, -2));
-
-rebateCarrierValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-rebateControls.addView(edgeChoiceRow("片夹", rebateCarrierValue,
-        RebateControls.CARRIERS, () -> live().edgeCarrier, id -> {
-            live().edgeCarrier = id;
-            syncRebatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, -2));
-
-rebateCameraSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-rebateControls.addView(rebateValueRow("片边种子", rebateCameraSeedValue,
-        () -> String.valueOf(live().cameraSeed),
-        () -> askSeed("片边随机种子（0 – 2147483647）", live().cameraSeed, value -> {
-            live().cameraSeed = value;
-            syncRebatePage();
-            commitRebate();
-        })), new LinearLayout.LayoutParams(-1, -2));
-
-rebateFrameSeedValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
-        () -> String.valueOf(live().frameSeed),
-        () -> askSeed("帧随机种子（0 – 2147483647）", live().frameSeed, value -> {
-            live().frameSeed = value;
-            syncRebatePage();
-            commitRebate();
-        })), new LinearLayout.LayoutParams(-1, -2));
-
-    }
-
-    private LinearLayout buildRebatePage() {
-        final LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setVisibility(View.GONE);
-        page.addView(edgePageHead("片边 / REBATE"), new LinearLayout.LayoutParams(-1, -2));
-
-        final int onSurface = m3Role(
-                com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
-        final int onSurfaceVariant = m3Role(
-                com.google.android.material.R.attr.colorOnSurfaceVariant,
-                Palette.Role.MUTED_INK);
-
-        rebateSwitch = new MaterialSwitch(this);
-        page.addView(switchRow("开启片边", null, rebateSwitch, () -> live().overscanOn, on -> {
-            if (on && !GateScale.canHostRebate(sourceWidth, sourceHeight)) {
-                showSnackbar("这张图的长宽比不对应任何片门");
-                syncRebatePage();
-                return;
-            }
-            live().overscanOn = on;
-            syncRebatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, dp(56)));
-
-        rebateControls = new LinearLayout(this);
-        rebateControls.setOrientation(LinearLayout.VERTICAL);
-
-        addRebateGateCard(onSurface, onSurfaceVariant);
-        addRebateToneControls(onSurface);
-        addRebateStructureControls(onSurface);
-        page.addView(rebateControls, new LinearLayout.LayoutParams(-1, -2));
-        return page;
-    }
-
-    /**
-     * The Date back secondary page. It follows the Rebate page's shape: its
-     * switch owns whether the controls are enabled, and the controls stay
-     * visible and dimmed while off. The default text comes from the Frame's
-     * EXIF capture date; a custom text is sent to the engine exactly as typed.
-     */
-    /** The editable date imprint field. */
-    private void addDateTextField(int onSurface) {
-        dateTextValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(rebateValueRow("日期文字", dateTextValue,
-                this::effectiveDateText, () -> {
-                    askText("印在画面上的日期（可以自己写）", effectiveDateText(), value -> {
-                        live().dateText = value == null || value.trim().isEmpty()
-                                ? "" : value.trim();
-                        syncDatePage();
-                        commitRebate();
-                    });
-                }), new LinearLayout.LayoutParams(-1, -2));
-    }
-
-    /** The date inset, size and exposure sliders. */
-    private void addDateGeometryControls(int onSurface) {
-        dateInsetXValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        dateInsetXSlider = rebateSliderRow(dateControls, "左右内边距",
-                "字到片门左右边的距离，毫米",
-                DateBack.INSET_MIN, DateBack.INSET_MAX, 0.1f,
-                DateBack.clampInset(live().dateInsetX),
-                value -> String.format(java.util.Locale.US, "%.1f mm", value),
-                value -> live().dateInsetX = DateBack.clampInset(value),
-                () -> live().dateInsetX, dateInsetXValue);
-
-        dateInsetYValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        dateInsetYSlider = rebateSliderRow(dateControls, "上下内边距",
-                "字到片门上下边的距离，毫米",
-                DateBack.INSET_MIN, DateBack.INSET_MAX, 0.1f,
-                DateBack.clampInset(live().dateInsetY),
-                value -> String.format(java.util.Locale.US, "%.1f mm", value),
-                value -> live().dateInsetY = DateBack.clampInset(value),
-                () -> live().dateInsetY, dateInsetYValue);
-
-        dateSizeValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        dateSizeSlider = rebateSliderRow(dateControls, "日期大小",
-                "相对该样式的字高",
-                DateBack.SIZE_MIN, DateBack.SIZE_MAX, 0.05f,
-                DateBack.clampSize(live().dateSize),
-                value -> String.format(java.util.Locale.US, "%.2f×", value),
-                value -> live().dateSize = DateBack.clampSize(value),
-                () -> live().dateSize, dateSizeValue);
-
-        dateEvValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfBody);
-        dateEvSlider = rebateSliderRow(dateControls, "日期亮度",
-                "红光在 18% 灰之上的曝光，单位挡",
-                DateBack.EV_MIN, DateBack.EV_MAX, 0.1f,
-                DateBack.clampEv(live().dateEv),
-                value -> String.format(java.util.Locale.US, "%+.1f EV", value),
-                value -> live().dateEv = DateBack.clampEv(value),
-                () -> live().dateEv, dateEvValue);
-    }
-
-    /** The date placement, corner and style choices. */
-    private void addDateStyleControls(int onSurface) {
-        datePlacementValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(edgeChoiceRow("日期位置", datePlacementValue,
-                DateBack.PLACEMENTS, () -> live().datePlacement, id -> {
-                    live().datePlacement = id;
-                    syncDatePage();
-                    commitRebate();
-                }), new LinearLayout.LayoutParams(-1, -2));
-
-        dateCornerValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(edgeChoiceRow("日期角位", dateCornerValue,
-                DateBack.CORNERS, () -> live().dateCorner, id -> {
-                    live().dateCorner = id;
-                    syncDatePage();
-                    commitRebate();
-                }), new LinearLayout.LayoutParams(-1, -2));
-
-        dateStyleValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(edgeChoiceRow("日期样式", dateStyleValue,
-                DateBack.STYLES, () -> live().dateStyle, id -> {
-                    live().dateStyle = id;
-                    syncDatePage();
-                    commitRebate();
-                }), new LinearLayout.LayoutParams(-1, -2));
-    }
-
-    /** The capture-data and second-frame text fields. */
-    private void addDateDataControls(int onSurface) {
-        dateDataValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(rebateValueRow("拍摄数据", dateDataValue,
-                () -> live().dataText.isEmpty() ? "（空）" : live().dataText,
-                () -> askText("拍摄数据（和日期一起印在片边）", live().dataText, value -> {
-                    live().dataText = value == null ? "" : value.trim();
-                    syncDatePage();
-                    commitRebate();
-                })), new LinearLayout.LayoutParams(-1, -2));
-    }
-
-    private LinearLayout buildDatePage() {
-        final LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setVisibility(View.GONE);
-        page.addView(edgePageHead("日期水印 / DATE BACK"), new LinearLayout.LayoutParams(-1, -2));
-
-        final int onSurface = m3Role(
-                com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK);
-        final int onSurfaceVariant = m3Role(
-                com.google.android.material.R.attr.colorOnSurfaceVariant,
-                Palette.Role.MUTED_INK);
-
-        dateSwitch = new MaterialSwitch(this);
-        dateDetail = m3Label("", M3Tokens.TypeRole.LABEL_SMALL, onSurfaceVariant, tfHan);
-        page.addView(switchRow("开启日期水印", dateDetail, dateSwitch, () -> live().dateOn, on -> {
-            live().dateOn = on;
-            syncDatePage();
-            commitRebate();
-        }), new LinearLayout.LayoutParams(-1, dp(56)));
-
-        dateControls = new LinearLayout(this);
-        dateControls.setOrientation(LinearLayout.VERTICAL);
-
-        // The one field the app used to decide for the user: the EXIF date is
-        // the default, but the imprint has always been editable.
-        addDateTextField(onSurface);
-        addDateGeometryControls(onSurface);
-        addDateStyleControls(onSurface);
-        addDateDataControls(onSurface);
-
-        dateTextBValue = m3Label("", M3Tokens.TypeRole.TITLE_SMALL, onSurface, tfHan);
-        dateControls.addView(rebateValueRow("第二帧日期", dateTextBValue,
-                () -> live().dateTextB.isEmpty() ? "（空）" : live().dateTextB,
-                () -> askText("半格对的第二帧日期（用不到就留空）", live().dateTextB, value -> {
-                    live().dateTextB = value == null ? "" : value.trim();
-                    syncDatePage();
-                    commitRebate();
-                })), new LinearLayout.LayoutParams(-1, -2));
-
-        page.addView(dateControls, new LinearLayout.LayoutParams(-1, -2));
-        return page;
-    }
-
-    /** Back plus the page name; the two pages share one header shape. */
-    private View edgePageHead(String title) {
-        final LinearLayout head = new LinearLayout(this);
-        head.setOrientation(largeText() ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
-        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        final MaterialButton back = m3TextButton("‹ 返回", "返回边框页",
-                m3Primary(), () -> openEdgePage(-1));
-        head.addView(back, new LinearLayout.LayoutParams(-2, dp(48)));
-        final TextView name = mixedM3Label(title, M3Tokens.TypeRole.TITLE_SMALL,
-                m3OnSurfaceVariant());
-        final LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
-                largeText() ? -1 : 0, -2, largeText() ? 0f : 1f);
-        nameLp.leftMargin = largeText() ? 0 : dp(8);
-        head.addView(name, nameLp);
-        return head;
+        edgeHomePanel = new EdgeHomePanel(this, type, theme, tfBody, tfHan,
+                sectionHead("FRAME & IMPRINT / 边框", this::resetEdgePanel),
+                new EdgeHomePanel.Host() {
+                    @Override public String rebateSummary() {
+                        return MainActivity.this.rebateSummary();
+                    }
+                    @Override public String dateSummary() {
+                        return MainActivity.this.dateSummary();
+                    }
+                    @Override public void onOpenRebate() {
+                        openEdgePage(0);
+                    }
+                    @Override public void onOpenDate() {
+                        openEdgePage(1);
+                    }
+                }, rebateRefreshers::add);
+        return (LinearLayout) edgeHomePanel.view();
     }
 
     /** -1 = the two cards, 0 = the Rebate page, 1 = the Date back page. */
     private void openEdgePage(int which) {
         edgePageIndex = which;
-        if (edgeHome != null) {
-            edgeHome.setVisibility(which < 0 ? View.VISIBLE : View.GONE);
+        if (edgeHomePanel != null) {
+            edgeHomePanel.view().setVisibility(which < 0 ? View.VISIBLE : View.GONE);
         }
-        if (rebatePage != null) {
-            rebatePage.setVisibility(which == 0 ? View.VISIBLE : View.GONE);
-        }
-        if (datePage != null) {
-            datePage.setVisibility(which == 1 ? View.VISIBLE : View.GONE);
-        }
-        if (which == 0) {
-            syncRebatePage();
-        }
-        if (which == 1) {
-            syncDatePage();
+        if (edgePagesPanel != null) {
+            edgePagesPanel.rebatePage().setVisibility(
+                    which == 0 ? View.VISIBLE : View.GONE);
+            edgePagesPanel.datePage().setVisibility(
+                    which == 1 ? View.VISIBLE : View.GONE);
+            if (which == 0) {
+                edgePagesPanel.syncRebate();
+            }
+            if (which == 1) {
+                edgePagesPanel.syncDate();
+            }
         }
         refreshEdgeCards();
         // The panel is one ScrollView; a page opens at its own top.
@@ -5406,205 +4175,6 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
 
     private static String fmt1(float value) {
         return String.format(java.util.Locale.US, "%.1f", value);
-    }
-
-    /**
-     * Fill the Rebate page from the live fields. It runs after a Look restore,
-     * a Gate change, or a page open, so the page never keeps a second copy of
-     * the Look. The switch guard keeps the slider listeners from committing a
-     * render while they are being moved into place.
-     */
-    private void syncRebatePage() {
-        if (rebateSwitch == null) {
-            return;
-        }
-        syncingRebate = true;
-        syncingToggles = true;
-        try {
-            rebateSwitch.setChecked(live().overscanOn);
-            rebateSwitch.setContentDescription(toggleDescription("开启片边", live().overscanOn));
-            if (edgeTextSwitch != null) {
-                edgeTextSwitch.setChecked(live().edgeTextOn);
-                edgeTextSwitch.setContentDescription(
-                        toggleDescription("片边文字（厂标 / 张数）", live().edgeTextOn));
-            }
-            refreshEdgeCards();
-        } finally {
-            syncingRebate = false;
-            syncingToggles = false;
-        }
-        setEnabledDeep(rebateControls, live().overscanOn);
-    }
-
-    /**
-     * Fill the Date back page from the live fields. Like the Rebate page it
-     * runs after a Look restore or a page open, and its guard keeps the slider
-     * listeners from committing a render while they are being moved into place.
-     */
-    private void syncDatePage() {
-        if (dateSwitch == null) {
-            return;
-        }
-        syncingRebate = true;
-        syncingToggles = true;
-        try {
-            dateSwitch.setChecked(live().dateOn);
-            dateSwitch.setContentDescription(toggleDescription("开启日期水印", live().dateOn));
-            syncDateDetail();
-            refreshEdgeCards();
-        } finally {
-            syncingRebate = false;
-            syncingToggles = false;
-        }
-        setEnabledDeep(dateControls, live().dateOn);
-    }
-
-    /** Dim and disable a whole control group without hiding what it offers. */
-    private static void setEnabledDeep(View view, boolean enabled) {
-        if (view == null) {
-            return;
-        }
-        setEnabledRecursive(view, enabled);
-        // One 38 % overlay for the group; setting it on every child too would
-        // compound the opacity and make nested labels unreadable.
-        view.setAlpha(enabled ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
-    }
-
-    private static void setEnabledRecursive(View view, boolean enabled) {
-        view.setEnabled(enabled);
-        if (view instanceof android.view.ViewGroup) {
-            final android.view.ViewGroup group = (android.view.ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); ++i) {
-                setEnabledRecursive(group.getChildAt(i), enabled);
-            }
-        }
-    }
-
-    /** A slider, its label, and its live value; the page owns four of them. */
-    private Slider rebateSliderRow(LinearLayout parent, String name, String hint,
-                                   float min, float max, float step, float initial,
-                                   java.util.function.Function<Float, String> format,
-                                   java.util.function.Consumer<Float> apply,
-                                   java.util.function.Supplier<Float> current,
-                                   TextView valueView) {
-        final LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(0, dp(4), 0, 0);
-
-        final LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        head.addView(m3Label(name, M3Tokens.TypeRole.BODY_MEDIUM,
-                m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK),
-                tfHan), new LinearLayout.LayoutParams(0, -2, 1f));
-        valueView.setText(format.apply(initial));
-        applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfBody);
-        valueView.setTextColor(m3Primary());
-        head.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
-        row.addView(head, new LinearLayout.LayoutParams(-1, -2));
-
-        if (hint != null && !hint.isEmpty()) {
-            final TextView note = m3Label(hint, M3Tokens.TypeRole.LABEL_SMALL,
-                    m3OnSurfaceVariant(), tfHan);
-            note.setLineSpacing(dp(2), 1f);
-            final LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
-            noteLp.topMargin = dp(1);
-            row.addView(note, noteLp);
-        }
-
-        final Slider bar = new Slider(this);
-        bar.setId(View.generateViewId());
-        bar.setValueFrom(min);
-        bar.setValueTo(max);
-        bar.setStepSize(step);
-        bar.setValue(snapToStep(clampToSlider(initial, min, max), min, step));
-        bar.setMinimumHeight(dp(48));
-        bar.setLabelFormatter(value -> format.apply(value));
-        bar.setLabelBehavior(com.google.android.material.slider.LabelFormatter.LABEL_GONE);
-        bar.setContentDescription(name);
-        valueView.setLabelFor(bar.getId());
-        bar.addOnChangeListener((slider, value, fromUser) -> {
-            valueView.setText(format.apply(value));
-            // A programmatic park (a Look restore, a page refresh) moves the
-            // thumb only. Writing the snapped step back would replace a stored
-            // 2.43 mm with 2.4 before the user touched anything.
-            if (!fromUser) {
-                return;
-            }
-            apply.accept(value);
-            if (!syncingRebate) {
-                requestLivePreview();
-                slider.removeCallbacks(rebateCommit);
-                slider.postDelayed(rebateCommit, OPTICS_COMMIT_DELAY_MS);
-            }
-        });
-        bar.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
-            @Override public void onStartTrackingTouch(Slider slider) {
-                slider.removeCallbacks(rebateCommit);
-            }
-            @Override public void onStopTrackingTouch(Slider slider) {
-                slider.removeCallbacks(rebateCommit);
-                commitRebate();
-            }
-        });
-        rebateRefreshers.add(() -> bar.setValue(snapToStep(
-                clampToSlider(current.get(), min, max), min, step)));
-        row.addView(bar, new LinearLayout.LayoutParams(-1, dp(48)));
-        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
-        return bar;
-    }
-
-    /** A chosen value row backed by the M3 radio sheet; the id is the Look's. */
-    private View edgeChoiceRow(String labelText, TextView valueView,
-                               List<? extends ControlChoice> choices,
-                               java.util.function.Supplier<String> current,
-                               java.util.function.Consumer<String> setter) {
-        return rebateValueRow(labelText, valueView,
-                () -> String.valueOf(ControlChoice.labelOf(choices, current.get())),
-                () -> {
-                    final int selected = ControlChoice.indexOf(choices, current.get());
-                    showChoiceSheet(labelText, "只列出这一版支持的选项",
-                            java.util.Arrays.asList(ControlChoice.labels(choices)),
-                            selected, picked -> {
-                                if (picked < 0 || picked >= choices.size()) {
-                                    return;
-                                }
-                                setter.accept(choices.get(picked).id);
-                            });
-                });
-    }
-
-    /** A non-sheet row: a label, the live value, and a chevron-like arrow. */
-    private View rebateValueRow(String labelText, TextView valueView,
-                                java.util.function.Supplier<String> current,
-                                Runnable onClick) {
-        final LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(dp(52));
-        row.setPadding(dp(2), 0, dp(2), 0);
-        row.addView(m3Label(labelText, M3Tokens.TypeRole.BODY_MEDIUM,
-                m3Role(com.google.android.material.R.attr.colorOnSurfaceVariant,
-                        Palette.Role.MUTED_INK), tfHan),
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        applyTypeRole(valueView, M3Tokens.TypeRole.TITLE_SMALL, tfHan);
-        valueView.setTextColor(m3OnSurface());
-        valueView.setGravity(android.view.Gravity.END);
-        row.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
-        final TextView arrow = m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
-                m3OnSurfaceVariant(), tfBody);
-        final LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(-2, -2);
-        arrowLp.leftMargin = dp(7);
-        row.addView(arrow, arrowLp);
-        row.setClickable(true);
-        row.setFocusable(true);
-        row.setOnClickListener(v -> onClick.run());
-        rebateRefreshers.add(() -> {
-            final String value = current.get();
-            valueView.setText(value);
-            row.setContentDescription(labelText + "，" + value);
-        });
-        return row;
     }
 
     /** The date text and the capture-data line are free text, not numbers. */
@@ -5663,33 +4233,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
 
     /** A switch change or a chosen row commits one render, not one per frame. */
     private void commitRebate() {
-        if (syncingRebate) {
-            return;
-        }
         onEdgeChanged();
-    }
-
-    private final Runnable rebateCommit = () -> {
-        if (!syncingRebate) {
-            onEdgeChanged();
-        }
-    };
-
-    private static float clampToSlider(float value, float min, float max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    /**
-     * Put a stored value on the slider's own step grid. An older Look may hold
-     * a raw engine value (2.43 mm) that is not a multiple of the page's step;
-     * Material's Slider rejects that instead of nudging it.
-     */
-    private static float snapToStep(float value, float min, float step) {
-        if (step <= 0f) {
-            return value;
-        }
-        final float snapped = min + Math.round((value - min) / step) * step;
-        return Math.round(snapped * 1000f) / 1000f;
     }
 
     private void showEdgePicker() {
@@ -5728,7 +4272,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             }
             // A span keeps the Chinese label on OPPOSans through the rail's
             // active/inactive text-appearance changes.
-            item.setTitle(typed(TAB_NAMES[i], tfHan));
+            item.setTitle(type.typed(TAB_NAMES[i], tfHan));
             if (android.os.Build.VERSION.SDK_INT >= 26) {
                 item.setContentDescription(TAB_NAMES[i] + " " + TAB_ENGLISH[i]);
             }
@@ -5768,7 +4312,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         tabLayout = new TabLayout(this);
         tabLayout.setTabMode(TabLayout.MODE_FIXED);
         tabLayout.setTabGravity(TabLayout.GRAVITY_FILL);
-        tabLayout.setBackground(glassSurface(GlassStyle.DOCK_RADIUS_DP));
+        tabLayout.setBackground(theme.glassSurface(GlassStyle.DOCK_RADIUS_DP));
         tabLayout.setClipToOutline(true);
         tabLayout.setElevation(dp(GlassStyle.SHEET_ELEVATION_DP));
         tabLayout.setSelectedTabIndicatorHeight(dp(2));
@@ -5850,14 +4394,19 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         }
         if (controls != null) {
             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) controls.getLayoutParams();
-            if (wideLayout) {
+            if (wideLayout && ConsoleLayout.isTwoColumn(currentWidthDp())) {
                 // The column keeps the window height; collapsing hides only the
                 // panel, leaving the tabs where they are.
                 lp.width = dp(ConsoleLayout.controlColumnWidthDp(currentWidthDp()));
                 lp.height = -1;
             } else {
                 lp.width = -1;
-                lp.height = dp(collapsed ? CONTROLS_CLOSED_DP : CONTROLS_OPEN_DP);
+                // The rail replaces the bottom tabs in the single-column wide
+                // shell, so the deck is only the panel plus its shell padding.
+                final boolean medium = wideLayout && !ConsoleLayout.isTwoColumn(currentWidthDp());
+                lp.height = dp(medium
+                        ? CONTROLS_OPEN_DP - TABS_HEIGHT_DP
+                        : (collapsed ? CONTROLS_CLOSED_DP : CONTROLS_OPEN_DP));
             }
             lp.weight = 0f;
             controls.setLayoutParams(lp);
@@ -5865,8 +4414,9 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         if (panelHolder != null) {
             LinearLayout.LayoutParams lp =
                     (LinearLayout.LayoutParams) panelHolder.getLayoutParams();
-            lp.height = wideLayout ? 0 : dp(PANEL_HEIGHT_DP);
-            lp.weight = wideLayout ? 1f : 0f;
+            final boolean twoColumn = ConsoleLayout.isTwoColumn(currentWidthDp());
+            lp.height = twoColumn ? 0 : dp(PANEL_HEIGHT_DP);
+            lp.weight = twoColumn ? 1f : 0f;
             panelHolder.setLayoutParams(lp);
         }
     }
@@ -5887,8 +4437,8 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         head.setPadding(dp(16), 0, dp(8), 0);
-        final TextView titleView = m3Label(String.valueOf(title),
-                M3Tokens.TypeRole.TITLE_MEDIUM, m3OnSurface(), tfHan);
+        final TextView titleView = type.m3Label(String.valueOf(title),
+                M3Tokens.TypeRole.TITLE_MEDIUM, theme.onSurface(), tfHan);
         ViewCompat.setAccessibilityHeading(titleView, true);
         head.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1f));
 
@@ -5901,7 +4451,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         close.setInsetBottom(0);
         close.setPadding(dp(12), 0, dp(12), 0);
         close.setContentDescription("关闭");
-        applyTypeRole(close, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
+        type.applyTypeRole(close, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
         close.setOnClickListener(v -> dialog.dismiss());
         head.addView(close, new LinearLayout.LayoutParams(-2, dp(48)));
         column.addView(head, new LinearLayout.LayoutParams(-1, -2));
@@ -5978,8 +4528,8 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         final LinearLayout column = sheetColumn(dialog, title);
 
         if (pinned != null && !pinned.isEmpty()) {
-            final TextView pinView = m3Label(pinned, M3Tokens.TypeRole.BODY_MEDIUM,
-                    m3OnSurface(), tfHan);
+            final TextView pinView = type.m3Label(pinned, M3Tokens.TypeRole.BODY_MEDIUM,
+                    theme.onSurface(), tfHan);
             pinView.setPadding(dp(16), 0, dp(16), dp(8));
             column.addView(pinView, new LinearLayout.LayoutParams(-1, -2));
         }
@@ -5989,8 +4539,8 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         final LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         if (note != null && !note.isEmpty()) {
-            final TextView noteView = m3Label(note, M3Tokens.TypeRole.BODY_MEDIUM,
-                    m3OnSurfaceVariant(), tfHan);
+            final TextView noteView = type.m3Label(note, M3Tokens.TypeRole.BODY_MEDIUM,
+                    theme.onSurfaceVariant(), tfHan);
             noteView.setLineSpacing(dp(3), 1f);
             noteView.setPadding(dp(16), 0, dp(16), dp(8));
             body.addView(noteView, new LinearLayout.LayoutParams(-1, -2));
@@ -6008,7 +4558,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             row.setMinimumHeight(dp(48));
             row.setSingleLine(false);
             row.setPadding(dp(16), dp(6), dp(16), dp(6));
-            applyTypeRole(row, M3Tokens.TypeRole.BODY_LARGE, tfHan);
+            type.applyTypeRole(row, M3Tokens.TypeRole.BODY_LARGE, tfHan);
             row.setOnClickListener(v -> {
                 dialog.dismiss();
                 onPick.accept(index);
@@ -6049,11 +4599,11 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         head.setPadding(dp(16), 0, dp(16), 0);
-        head.addView(mixedM3Label("FEEDBACK / 反馈与交流",
-                        M3Tokens.TypeRole.LABEL_LARGE, m3Primary()),
+        head.addView(type.mixedM3Label("FEEDBACK / 反馈与交流",
+                        M3Tokens.TypeRole.LABEL_LARGE, theme.primary()),
                 new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView close = m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
-                m3OnSurfaceVariant(), tfHan);
+        TextView close = type.m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
+                theme.onSurfaceVariant(), tfHan);
         close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         close.setPadding(dp(12), dp(14), 0, dp(14));
         close.setOnClickListener(v -> dialog.dismiss());
@@ -6066,24 +4616,24 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(dp(16), 0, dp(16), 4);
-        TextView title = m3Label("遇到问题，或者想聊冲印？",
-                M3Tokens.TypeRole.HEADLINE_SMALL, m3OnSurface(), tfHan);
+        TextView title = type.m3Label("遇到问题，或者想聊冲印？",
+                M3Tokens.TypeRole.HEADLINE_SMALL, theme.onSurface(), tfHan);
         body.addView(title);
-        TextView copyText = m3Label("渲染报错、导出异常、想要某支胶片，直接发在群里。"
+        TextView copyText = type.m3Label("渲染报错、导出异常、想要某支胶片，直接发在群里。"
                 + "问题能复现的话，把「复制错误信息」的内容一起贴上。",
-                M3Tokens.TypeRole.BODY_MEDIUM, m3OnSurfaceVariant(), tfHan);
+                M3Tokens.TypeRole.BODY_MEDIUM, theme.onSurfaceVariant(), tfHan);
         copyText.setLineSpacing(dp(4), 1f);
         LinearLayout.LayoutParams copyTextLp = new LinearLayout.LayoutParams(-1, -2);
         copyTextLp.topMargin = dp(9);
         body.addView(copyText, copyTextLp);
 
-        TextView number = m3Label(QQ_GROUP, M3Tokens.TypeRole.DISPLAY_SMALL,
-                m3Primary(), tfDisplay);
+        TextView number = type.m3Label(QQ_GROUP, M3Tokens.TypeRole.DISPLAY_SMALL,
+                theme.primary(), tfDisplay);
         LinearLayout.LayoutParams numberLp = new LinearLayout.LayoutParams(-1, -2);
         numberLp.topMargin = dp(16);
         body.addView(number, numberLp);
-        TextView hint = m3Label("QQ 群号，点下面按钮复制后搜索加入",
-                M3Tokens.TypeRole.LABEL_MEDIUM, m3OnSurfaceVariant(), tfHan);
+        TextView hint = type.m3Label("QQ 群号，点下面按钮复制后搜索加入",
+                M3Tokens.TypeRole.LABEL_MEDIUM, theme.onSurfaceVariant(), tfHan);
         LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(-1, -2);
         hintLp.topMargin = dp(5);
         body.addView(hint, hintLp);
@@ -6096,25 +4646,25 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setPadding(dp(16), dp(16), dp(16), dp(16));
 
-        TextView open = m3Label("打开 QQ", M3Tokens.TypeRole.LABEL_LARGE,
-                m3Primary(), tfHan);
+        TextView open = type.m3Label("打开 QQ", M3Tokens.TypeRole.LABEL_LARGE,
+                theme.primary(), tfHan);
         open.setGravity(android.view.Gravity.CENTER);
         android.graphics.drawable.GradientDrawable openBg = new android.graphics.drawable.GradientDrawable();
-        openBg.setColor(m3Role(com.google.android.material.R.attr.colorSurfaceContainerHigh,
+        openBg.setColor(theme.role(com.google.android.material.R.attr.colorSurfaceContainerHigh,
                 Palette.Role.SURFACE_ELEVATED));
-        openBg.setStroke(dp(1), m3Primary());
+        openBg.setStroke(dp(1), theme.primary());
         open.setBackground(openBg);
         open.setOnClickListener(v -> openQqGroup());
         LinearLayout.LayoutParams openLp = new LinearLayout.LayoutParams(0, dp(42), 1f);
         openLp.rightMargin = dp(8);
         actions.addView(open, openLp);
 
-        TextView copy = m3Label("复制群号", M3Tokens.TypeRole.LABEL_LARGE,
-                m3Role(com.google.android.material.R.attr.colorOnPrimary,
+        TextView copy = type.m3Label("复制群号", M3Tokens.TypeRole.LABEL_LARGE,
+                theme.role(com.google.android.material.R.attr.colorOnPrimary,
                         Palette.Role.ON_ACCENT), tfHan);
         copy.setGravity(android.view.Gravity.CENTER);
         android.graphics.drawable.GradientDrawable copyBg = new android.graphics.drawable.GradientDrawable();
-        copyBg.setColor(m3Primary());
+        copyBg.setColor(theme.primary());
         copy.setBackground(copyBg);
         copy.setOnClickListener(v -> {
             if (copyToClipboard("SpektraLab 反馈群", QQ_GROUP)) {
@@ -6135,8 +4685,8 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
     /** The mute link shown on the automatic popup. */
     private void addFeedbackMute(LinearLayout card, android.app.Dialog dialog,
                                           android.content.SharedPreferences p) {
-        TextView mute = m3Label("不再自动弹出", M3Tokens.TypeRole.LABEL_MEDIUM,
-                m3OnSurfaceVariant(), tfHan);
+        TextView mute = type.m3Label("不再自动弹出", M3Tokens.TypeRole.LABEL_MEDIUM,
+                theme.onSurfaceVariant(), tfHan);
         mute.setGravity(android.view.Gravity.CENTER);
         mute.setPaintFlags(mute.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         mute.setPadding(0, 0, 0, dp(14));
@@ -6175,11 +4725,11 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         final android.app.Dialog dialog = new android.app.Dialog(this);
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundColor(m3Role(
+        card.setBackgroundColor(theme.role(
                 com.google.android.material.R.attr.colorSurfaceContainerHigh,
                 Palette.Role.SURFACE_ELEVATED));
         View cap = new View(this);
-        cap.setBackgroundColor(m3Primary());
+        cap.setBackgroundColor(theme.primary());
         card.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
 
         addFeedbackHeader(card, dialog);
@@ -6237,8 +4787,8 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         final LinearLayout column = sheetColumn(dialog, title);
 
         if (note != null && !note.isEmpty()) {
-            final TextView noteView = m3Label(note, M3Tokens.TypeRole.BODY_MEDIUM,
-                    m3OnSurfaceVariant(), tfHan);
+            final TextView noteView = type.m3Label(note, M3Tokens.TypeRole.BODY_MEDIUM,
+                    theme.onSurfaceVariant(), tfHan);
             noteView.setLineSpacing(dp(3), 1f);
             noteView.setPadding(dp(16), 0, dp(16), dp(4));
             column.addView(noteView, new LinearLayout.LayoutParams(-1, -2));
@@ -6331,7 +4881,7 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         live().dataText = "";
         live().dateTextB = "";
         syncToggleRows();
-        syncDateDetail();
+        syncEdgeDateDetail();
         if (session != null) {
             onEdgeChanged();
         }
@@ -6349,6 +4899,9 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
             return;
         }
         showingOriginal = !showingOriginal;
+        if (currentFrame >= 0 && currentFrame < frames.size()) {
+            frames.get(currentFrame).setOriginal(showingOriginal);
+        }
         if (showingOriginal) {
             compare.setAfter(null);
             emptyState.setVisibility(View.GONE);
@@ -6422,7 +4975,9 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
         rebuildFormatCards();
         // The page's Gate row and switch follow the same available set: a shape
         // no Gate can hold cannot keep the Rebate on.
-        syncRebatePage();
+        if (edgePagesPanel != null) {
+            edgePagesPanel.syncRebate();
+        }
         try {
             DebugSink.text("overscan", "aspect=" + aspect + " gates=" + edgeIds
                     + " chosen=" + live().overscanFormat + " scale=" + live().filmFormatMm);
@@ -6529,8 +5084,8 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
 
         LinearLayout textCol = new LinearLayout(this);
         textCol.setOrientation(LinearLayout.VERTICAL);
-        textCol.addView(m3Label(labelText, M3Tokens.TypeRole.LABEL_LARGE,
-                m3Role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK), tfHan));
+        textCol.addView(type.m3Label(labelText, M3Tokens.TypeRole.LABEL_LARGE,
+                theme.role(com.google.android.material.R.attr.colorOnSurface, Palette.Role.INK), tfHan));
         if (detail != null) {
             LinearLayout.LayoutParams detailLp = new LinearLayout.LayoutParams(-1, -2);
             detailLp.topMargin = dp(3);
@@ -6570,23 +5125,19 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
     }
 
     /** Show the date back's line only while the imprint is enabled. */
-    private void syncDateDetail() {
-        if (dateDetail == null) {
-            return;
-        }
-        if (live().dateOn) {
-            dateDetail.setText(imprintDate());
-            dateDetail.setVisibility(View.VISIBLE);
-        } else {
-            dateDetail.setText("");
-            dateDetail.setVisibility(View.GONE);
+    private void syncEdgeDateDetail() {
+        if (edgePagesPanel != null) {
+            edgePagesPanel.syncDateDetail();
         }
     }
 
     /** Re-apply a restored Look to the Edge pages' switches and controls. */
     private void syncToggleRows() {
-        syncRebatePage();
-        syncDatePage();
+        if (edgePagesPanel == null) {
+            return;
+        }
+        edgePagesPanel.syncRebate();
+        edgePagesPanel.syncDate();
     }
 
     /**
@@ -6861,35 +5412,24 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
                 + "\n" + driverLine
                 + "\nDNG 只给电脑上的 Lightroom / ACR 用：手机版 Lr 打不开是已知问题，"
                   + "遇到报错不必反馈。";
-        showActionSheet("导出照片", note, new String[]{
-                "JPEG · 实时画质",
-                "JPEG · 预览画质 · 长边 3400",
-                "JPEG · 全尺寸（原图）",
-                "TIFF 16 位 · 实时画质",
-                "TIFF 16 位 · 预览画质 · 长边 3400",
-                "TIFF 16 位 · 全尺寸（原图）",
-                "DNG · 全尺寸（电脑用 · 手机版打不开）",
-                "批量导出全部帧…"
-        }, which -> {
-            if (which == 7) { showBatchExportDialog(); return; }
-            if (which == 6) { exportImage("dng", "full"); return; }
-            exportImage(which >= 3 ? "tiff" : "jpeg",
-                        which % 3 == 0 ? "live" : which % 3 == 1 ? "preview" : "full");
-        });
-    }
+        new ExportSheet(new ExportSheet.Host() {
+            @Override public String note() {
+                return note;
+            }
 
-    /** Pick a format for the whole strip; each Frame reopens before its export. */
-    private void showBatchExportDialog() {
-        showActionSheet("批量导出全部帧",
-                "逐帧重开并导出；没有胶片的帧会跳过",
-                new String[]{"JPEG · 实时画质", "JPEG · 全尺寸",
-                        "TIFF 16 位 · 全尺寸", "DNG · 全尺寸"},
-                which -> {
-                    if (which == 0) { startBatchExport("jpeg", "live"); }
-                    else if (which == 1) { startBatchExport("jpeg", "full"); }
-                    else if (which == 2) { startBatchExport("tiff", "full"); }
-                    else if (which == 3) { startBatchExport("dng", "full"); }
-                });
+            @Override public void showSheet(String title, String body, String[] rows,
+                                            java.util.function.IntConsumer onPick) {
+                showActionSheet(title, body, rows, onPick::accept);
+            }
+
+            @Override public void export(String format, String tier) {
+                exportImage(format, tier);
+            }
+
+            @Override public void exportBatch(String format, String tier) {
+                startBatchExport(format, tier);
+            }
+        }).show();
     }
 
     /** Reset from the old single control strip: delegate to the film page. */
@@ -6904,35 +5444,27 @@ rebateControls.addView(rebateValueRow("帧种子", rebateFrameSeedValue,
      * story: what the file is, and what this phone renders in one go.
      */
     private void showImportBudgetDialog(final Uri uri, final int w, final int h, final int capPixels) {
-        final double fit = importScale(w, h, capPixels);
-        final int sw = Math.max(1, (int) Math.round(w * fit));
-        final int sh = Math.max(1, (int) Math.round(h * fit));
-        final String budgetMessage = "原图 " + w + "×" + h + "（" + megapixels(w, h) + " MP），这台机器一次能渲染约 "
-                + String.format(java.util.Locale.US, "%.1f", capPixels / 1e6) + " MP"
-                + (live().overscanOn ? "（已按片边预留画布，片边会把画布再撑大约 1.5 倍）" : "") + "。"
-                + "\n\n按 " + sw + "×" + sh + " 导入一定出得来；按原尺寸可能在本机渲染失败（E-1001）。";
-        showActionSheet("这张图超过本机预算", budgetMessage, new String[]{
-                "按 " + sw + "×" + sh + " 导入", "按原尺寸", "取消"
-        }, which -> {
-            if (which == 0) {
-                importBudgetAccepted = true;
-                loadImage(uri);
-            } else if (which == 1) {
-                importAtNativeSize = true;
-                loadImage(uri);
-            }
-        });
-    }
-
-    /**
-     * The scale the import will actually apply, so the dialog can name the size
-     * it is about to deliver -- the same three ceilings, in the same order, as
-     * `loadImage` below.
-     */
-    private double importScale(int w, int h, int capPixels) {
         final long available = availableMemoryBytes();
-        return ImportBudget.scale(w, h, capPixels, IMPORT_LONG_EDGE,
-                available > 0 ? DeviceProbe.maxPixelsByMemory(available) : 0);
+        final ImportBudgetSheet.Request request = new ImportBudgetSheet.Request(
+                uri, w, h, capPixels, IMPORT_LONG_EDGE,
+                available > 0 ? (int) DeviceProbe.maxPixelsByMemory(available) : 0,
+                live().overscanOn);
+        new ImportBudgetSheet(new ImportBudgetSheet.Host() {
+            @Override public void showSheet(String title, String body, String[] rows,
+                                            java.util.function.IntConsumer onPick) {
+                showActionSheet(title, body, rows, onPick::accept);
+            }
+
+            @Override public void importFit(Uri picked) {
+                importBudgetAccepted = true;
+                loadImage(picked);
+            }
+
+            @Override public void importOriginal(Uri picked) {
+                importAtNativeSize = true;
+                loadImage(picked);
+            }
+        }).show(request);
     }
 
     private static String megapixels(int w, int h) {
@@ -7563,6 +6095,7 @@ refreshEdgeFormats();
 
     private void loadImage(Uri uri) {
         final boolean reopening = reopeningFrame;
+        renderEpoch.bump();
         sourceUri = uri;
         prepareImportState(reopening);
         try {
@@ -7625,9 +6158,9 @@ refreshEdgeFormats();
             setOriginalVisual(true);
             finishImportRender();
         } catch (Throwable t) {
+            restoringOriginal = false;
             if (pendingSession != null) {
                 pendingSession = null;
-                restoringOriginal = false;
                 SessionDocument.file(getNoBackupFilesDir()).delete();
             }
             lastImportError = describeImportFailure(t);
@@ -7998,6 +6531,7 @@ refreshEdgeFormats();
 
     private void loadRawImage(Uri uri) {
         final boolean reopening = reopeningFrame;
+        renderEpoch.bump();
         // The Look the RAW session must carry, snapshotted here on the UI
         // thread: `solve` below meters with it, and the worker never reads a
         // control.
@@ -8031,11 +6565,11 @@ refreshEdgeFormats();
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         head.setPadding(dp(16), 0, dp(16), 0);
-        TextView kicker = mixedM3Label("ERROR / 错误详情",
-                M3Tokens.TypeRole.LABEL_LARGE, m3Primary());
+        TextView kicker = type.mixedM3Label("ERROR / 错误详情",
+                M3Tokens.TypeRole.LABEL_LARGE, theme.primary());
         head.addView(kicker, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView close = m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
-                m3OnSurfaceVariant(), tfHan);
+        TextView close = type.m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
+                theme.onSurfaceVariant(), tfHan);
         close.setPaintFlags(close.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         close.setPadding(dp(12), dp(14), 0, dp(14));
         close.setOnClickListener(v -> dialog.dismiss());
@@ -8049,20 +6583,20 @@ refreshEdgeFormats();
         LinearLayout bodyBox = new LinearLayout(this);
         bodyBox.setOrientation(LinearLayout.VERTICAL);
         bodyBox.setPadding(dp(16), 0, dp(16), 4);
-        TextView titleView = m3Label(shownTitle, M3Tokens.TypeRole.TITLE_LARGE,
-                m3OnSurface(), tfHan);
+        TextView titleView = type.m3Label(shownTitle, M3Tokens.TypeRole.TITLE_LARGE,
+                theme.onSurface(), tfHan);
         bodyBox.addView(titleView);
-        TextView advice = m3Label("请复制下面的完整信息，方便定位问题。",
-                M3Tokens.TypeRole.BODY_MEDIUM, m3OnSurfaceVariant(), tfHan);
+        TextView advice = type.m3Label("请复制下面的完整信息，方便定位问题。",
+                M3Tokens.TypeRole.BODY_MEDIUM, theme.onSurfaceVariant(), tfHan);
         LinearLayout.LayoutParams adviceLp = new LinearLayout.LayoutParams(-1, -2);
         adviceLp.topMargin = dp(8);
         bodyBox.addView(advice, adviceLp);
-        TextView detail = m3Label(shownBody, M3Tokens.TypeRole.BODY_SMALL,
-                m3OnSurface(), tfHan);
+        TextView detail = type.m3Label(shownBody, M3Tokens.TypeRole.BODY_SMALL,
+                theme.onSurface(), tfHan);
         detail.setTextIsSelectable(true);
         detail.setPadding(dp(12), dp(11), dp(12), dp(11));
         android.graphics.drawable.GradientDrawable detailBg = new android.graphics.drawable.GradientDrawable();
-        detailBg.setColor(m3Role(
+        detailBg.setColor(theme.role(
                 com.google.android.material.R.attr.colorSurfaceContainerLowest,
                 Palette.Role.SURFACE_SUNKEN));
         detail.setBackground(detailBg);
@@ -8080,25 +6614,25 @@ refreshEdgeFormats();
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setPadding(dp(16), dp(14), dp(16), dp(16));
-        TextView closeAction = m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
-                m3Primary(), tfHan);
+        TextView closeAction = type.m3Label("关闭", M3Tokens.TypeRole.LABEL_LARGE,
+                theme.primary(), tfHan);
         closeAction.setGravity(android.view.Gravity.CENTER);
         android.graphics.drawable.GradientDrawable closeBg = new android.graphics.drawable.GradientDrawable();
-        closeBg.setColor(m3Role(
+        closeBg.setColor(theme.role(
                 com.google.android.material.R.attr.colorSurfaceContainerHigh,
                 Palette.Role.SURFACE_ELEVATED));
-        closeBg.setStroke(dp(1), m3Primary());
+        closeBg.setStroke(dp(1), theme.primary());
         closeAction.setBackground(closeBg);
         closeAction.setOnClickListener(v -> dialog.dismiss());
         LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(0, dp(48), 1f);
         closeLp.rightMargin = dp(8);
         actions.addView(closeAction, closeLp);
-        TextView copy = m3Label("复制错误信息", M3Tokens.TypeRole.LABEL_LARGE,
-                m3Role(com.google.android.material.R.attr.colorOnPrimary,
+        TextView copy = type.m3Label("复制错误信息", M3Tokens.TypeRole.LABEL_LARGE,
+                theme.role(com.google.android.material.R.attr.colorOnPrimary,
                         Palette.Role.ON_ACCENT), tfHan);
         copy.setGravity(android.view.Gravity.CENTER);
         android.graphics.drawable.GradientDrawable copyBg = new android.graphics.drawable.GradientDrawable();
-        copyBg.setColor(m3Primary());
+        copyBg.setColor(theme.primary());
         copy.setBackground(copyBg);
         copy.setOnClickListener(v -> {
             try {
@@ -8141,11 +6675,11 @@ refreshEdgeFormats();
             final android.app.Dialog dialog = new android.app.Dialog(this);
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
-            card.setBackgroundColor(m3Role(
+            card.setBackgroundColor(theme.role(
                     com.google.android.material.R.attr.colorSurfaceContainerHigh,
                     Palette.Role.SURFACE_ELEVATED));
             View cap = new View(this);
-            cap.setBackgroundColor(m3Role(com.google.android.material.R.attr.colorError,
+            cap.setBackgroundColor(theme.role(com.google.android.material.R.attr.colorError,
                     Palette.Role.ACCENT));
             card.addView(cap, new LinearLayout.LayoutParams(-1, dp(3)));
 
@@ -8763,6 +7297,8 @@ refreshEdgeFormats();
             showErrorSnackbar("渲染参数有误", describe(t));
             return;
         }
+        activeRenderEpoch = renderEpoch.current();
+        activeRenderFrame = currentFrame;
         rendering = true;
         progressBar.setVisibility(View.VISIBLE);
         busyLabel.setVisibility(View.VISIBLE);
@@ -8867,8 +7403,32 @@ refreshEdgeFormats();
         }).start();
     }
 
+    /** Take the RENDERING plate off the canvas. Safe to call twice. */
+    private void clearBusyPlate() {
+        if (progressBar != null) {
+            progressBar.setVisibility(View.GONE);
+        }
+        if (busyLabel != null) {
+            busyLabel.setVisibility(View.GONE);
+        }
+    }
+
     /** Show a finished preview and clear the busy state. */
     private void applyPreviewResult(Bitmap bmp, int fw, int fh) {
+        if (!renderEpoch.isCurrent(activeRenderEpoch) || currentFrame != activeRenderFrame
+                || session == null) {
+            try { DebugSink.text("render", "frame changed mid-render; dropped"); }
+            catch (Throwable ignored) { }
+            rendering = false;
+            clearBusyPlate();
+            if (pendingRender) {
+                pendingRender = false;
+                if (live().filmStock != null && session != null) {
+                    renderImage();
+                }
+            }
+            return;
+        }
         showingOriginal = false;
         compare.setAfter(bmp);
         setStage(1, null);
@@ -9368,10 +7928,62 @@ refreshEdgeFormats();
         }
     }
 
+    /**
+     * Gray correlation between the exported JPEG and the canvas on screen.
+     *
+     * @return the score in [-1, 1], or -1 when the file or canvas cannot be read
+     */
+    private static double exportMatchesCanvas(java.io.File file, Bitmap canvas) {
+        if (file == null || canvas == null || canvas.getWidth() <= 0) {
+            return -1;
+        }
+        try {
+            final android.graphics.BitmapFactory.Options bounds =
+                    new android.graphics.BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                return -1;
+            }
+            int sample = 1;
+            while (Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 200) {
+                sample *= 2;
+            }
+            final android.graphics.BitmapFactory.Options opts =
+                    new android.graphics.BitmapFactory.Options();
+            opts.inSampleSize = sample;
+            final Bitmap decoded = android.graphics.BitmapFactory.decodeFile(
+                    file.getAbsolutePath(), opts);
+            if (decoded == null) {
+                return -1;
+            }
+            final int gw = 48;
+            final int gh = Math.max(8, Math.round(gw * (float) decoded.getHeight()
+                    / decoded.getWidth()));
+            final Bitmap a = Bitmap.createScaledBitmap(decoded, gw, gh, true);
+            final Bitmap b = Bitmap.createScaledBitmap(canvas, gw, gh, true);
+            final int[] pa = new int[gw * gh];
+            final int[] pb = new int[gw * gh];
+            a.getPixels(pa, 0, gw, 0, 0, gw, gh);
+            b.getPixels(pb, 0, gw, 0, 0, gw, gh);
+            if (a != decoded) {
+                a.recycle();
+            }
+            if (b != canvas) {
+                b.recycle();
+            }
+            decoded.recycle();
+            return ExportMatch.ncc(pa, pb);
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
     /** Write the rendered file to the gallery and publish the result. */
     private void finishExport(java.io.File tmp, int[] info, String canvas, long t0,
                                   String format, String tier, String ext, String mime,
-                                  boolean tiff, boolean dng, java.util.function.IntConsumer onDone) throws Exception {
+                                  boolean tiff, boolean dng, boolean suspect,
+                                  java.util.function.IntConsumer onDone) throws Exception {
         uploadExportProgress(tmp);
         uploadVkLog();
         int w = info[0], h = info[1];
@@ -9406,10 +8018,17 @@ refreshEdgeFormats();
         final String sizeLabel = bytes > 0
                 ? String.format(java.util.Locale.getDefault(), "%.1f MB", bytes / 1048576.0) : "?";
         runOnUiThread(() -> {
-            applyExportResult(outUri, mime, canvas, fw, fh,
-                    fRender, secs, sizeLabel, tiff, dng);
+            if (suspect) {
+                statusText.setText("导出结构异常：可能花屏，请再导一次");
+                showSnackbar("导出结构异常：文件已保存，但可能花屏，请再导一次");
+                exportProgressBar.setVisibility(View.GONE);
+                setStep(2);
+            } else {
+                applyExportResult(outUri, mime, canvas, fw, fh,
+                        fRender, secs, sizeLabel, tiff, dng);
+            }
             if (onDone != null) {
-                onDone.accept(1);
+                onDone.accept(suspect ? 0 : 1);
             }
         });
         }
@@ -9451,18 +8070,15 @@ refreshEdgeFormats();
                 }
             };
                 runOnUiThread(tick);
-                int[] info;
-                final String canvas;
+                final ExportOutcome outcome;
                 try {
-                final ExportRender rendered = renderExportFile(tmp, exportParams,
-                        exportViewAdjust, rawExportPath, tier, dng, tiff);
-                info = rendered.info;
-                canvas = rendered.canvas;
+                    outcome = renderExportAttempts(tmp, exportParams, exportViewAdjust,
+                            rawExportPath, tier, dng, tiff);
                 } finally {
                     spinning.set(false);
                 }
-                finishExport(tmp, info, canvas, t0, format, tier, ext, mime, tiff, dng,
-                        onDone);
+                finishExport(tmp, outcome.info, outcome.canvas, t0, format, tier, ext, mime,
+                        tiff, dng, outcome.suspect, onDone);
             } catch (Throwable e) {
                 final String msg = describe(e);
                 try { DebugSink.text("export-error", "tier=" + tier + " " + msg); } catch (Throwable ignored) {}
@@ -9484,6 +8100,66 @@ refreshEdgeFormats();
                 }
             }
         }).start();
+    }
+
+    /** Render, and retry once when the written JPEG does not match the canvas. */
+    private ExportOutcome renderExportAttempts(java.io.File tmp, String exportParams,
+                                               double[] viewAdjust, String rawPath,
+                                               String tier, boolean dng, boolean tiff) {
+        ExportOutcome outcome = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            final ExportRender rendered = renderExportFile(tmp, exportParams, viewAdjust,
+                    rawPath, tier, dng, tiff);
+            outcome = new ExportOutcome(rendered.info, rendered.canvas, false);
+            if (tiff || dng) {
+                return outcome;
+            }
+            final double ncc = exportMatchesCanvas(tmp, lastRenderedBitmap);
+            if (!ExportMatch.suspect(ncc)) {
+                logExportNcc(ncc);
+                return outcome;
+            }
+            outcome = new ExportOutcome(rendered.info, rendered.canvas, true);
+            logExportCorrupt(ncc, rendered.info, tier, attempt);
+            if (attempt == 1) {
+                return outcome;
+            }
+            tmp.delete();
+        }
+        return outcome;
+    }
+
+    private static void logExportNcc(double ncc) {
+        if (ncc >= 0) {
+            final String line = String.format(java.util.Locale.US, "canvas NCC %.3f", ncc);
+            android.util.Log.i("SpektraLabExport", line);
+            try {
+                DebugSink.text("export-selfcheck", line);
+            } catch (Throwable ignored) { }
+        }
+    }
+
+    private static void logExportCorrupt(double ncc, int[] info, String tier, int attempt) {
+        final String line = String.format(java.util.Locale.US,
+                "canvas NCC %.3f at %dx%d tier=%s attempt=%d",
+                ncc, info[0], info[1], tier, attempt);
+        android.util.Log.w("SpektraLabExport", line);
+        try {
+            DebugSink.textNow("export-corrupt", line);
+        } catch (Throwable ignored) { }
+    }
+
+    /** The engine's export result, the canvas it drew, and the self-check verdict. */
+    private static final class ExportOutcome {
+        private final int[] info;
+        private final String canvas;
+        private final boolean suspect;
+
+        private ExportOutcome(int[] info, String canvas, boolean suspect) {
+            this.info = info;
+            this.canvas = canvas;
+            this.suspect = suspect;
+        }
     }
 
     /**

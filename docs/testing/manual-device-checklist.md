@@ -24,6 +24,9 @@ Android version, and Theme mode.
 - [ ] `adb shell cmd netpolicy` is not needed; the app only reaches HTTPS endpoints and the loopback debug sink.
 - [ ] Import a JPEG, choose a film and a tab, then force-stop and relaunch: the same source, Look and tab return; the saved Look is not re-rendered if the Frame was left on Original.
 - [ ] Revoke the source (delete it or remove the provider) before relaunch: the app drops the session document and opens the empty state instead of a broken Frame.
+- [ ] Develop Frame A, switch it to 原图, import Frame B, then reopen A: A comes back on 原图 with its film readout still shown; reopening B develops B.
+- [ ] Switch photos while a preview is rendering: the new photo never keeps the RENDERING plate and no stale bitmap lands on it.
+- [ ] Export a full-size JPEG: the export completes, logs `export-selfcheck` with NCC above 0.55, and reports success once. A deliberately truncated file is reported as 结构异常 and retried once, not announced as clean.
 
 ## Normal and boundary
 

@@ -24,6 +24,23 @@ public final class ImportBudgetCheck {
         eq(30_000_000, ImportBudget.areaCap(0, 30_000_000), "memory cap wins");
         eq(1_000_000, ImportBudget.areaCap(0, 0), "no memory is the floor");
         eq(1_000_000, ImportBudget.areaCap(0, 1), "floor is one megapixel");
+
+        final app.spektralab.ui.panel.ImportBudgetSheet.Request request =
+                new app.spektralab.ui.panel.ImportBudgetSheet.Request(
+                        null, 1000, 500, 10_000_000, 8000, 250_000, false);
+        final int[] fit = app.spektralab.ui.panel.ImportBudgetSheet.fitSize(request);
+        eq(707, fit[0], "fit width");
+        eq(354, fit[1], "fit height");
+        final String[] rows = app.spektralab.ui.panel.ImportBudgetSheet.rows(request);
+        eq(3, rows.length, "three budget rows");
+        if (!rows[0].startsWith("按 707×354")) {
+            throw new AssertionError("first budget row must name the fit size");
+        }
+        checks++;
+        if (!rows[1].equals("按原尺寸") || !rows[2].equals("取消")) {
+            throw new AssertionError("budget row order changed");
+        }
+        checks++;
         System.out.println("ImportBudgetCheck: " + checks + " checks passed");
     }
 

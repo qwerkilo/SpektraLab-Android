@@ -1,5 +1,6 @@
 package app.spektralab;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -35,6 +36,18 @@ public final class PanelRowsTest {
     }
 
     @Test
+    public void rebateSwitchEnablesTheControlGroup() {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "边框");
+        click(activity, "片边  REBATE");
+        final View mode = find(activity, "片边模式");
+        assertNotNull("no rebate mode row", mode);
+        assertFalse("the control group starts dimmed", mode.isEnabled());
+        clickTarget(find(activity, "开启片边"));
+        assertTrue("the rebate switch must enable the control group", mode.isEnabled());
+    }
+
+    @Test
     public void opticsKeepsItsReadout() {
         final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
         click(activity, "光学");
@@ -47,6 +60,18 @@ public final class PanelRowsTest {
         click(activity, "光学");
         assertShown(activity, "测光");
         assertShown(activity, "视图");
+    }
+
+    @Test
+    public void opticsPanelKeepsAllChipsAndChoices() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "光学");
+        final ViewGroup panel = (ViewGroup) privateView(activity, "opticsPanel");
+        final java.util.List<View> chips = new java.util.ArrayList<>();
+        collectByType(panel, com.google.android.material.chip.Chip.class, chips);
+        org.junit.Assert.assertEquals("expected the 22-parameter strip", 22, chips.size());
+        assertShown(activity, "镜头滤镜 / CAMERA FILTER");
+        assertShown(activity, "保护基准 / PROTECTION NORM");
     }
 
     @Test
@@ -124,7 +149,7 @@ public final class PanelRowsTest {
         try {
             final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
             click(activity, "尺度");
-            final ViewGroup strip = (ViewGroup) privateView(activity, "formatCardStrip");
+            final ViewGroup strip = privateScaleStrip(activity);
             assertTrue("no Scale format cards", strip.getChildCount() > 0);
             final float density = activity.getResources().getDisplayMetrics().density;
             final View card = strip.getChildAt(0);
@@ -209,6 +234,18 @@ public final class PanelRowsTest {
         final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
         click(activity, "胶片");
         assertShown(activity, "预设");
+    }
+
+    @Test
+    public void filmPanelKeepsShelfBrandsAndPaperRow() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "胶片");
+        assertShown(activity, "FILM STOCK / 胶片");
+        assertShown(activity, "相纸 / 拷贝片");
+        final ViewGroup brandRow = (ViewGroup) privateView(activity, "brandRow");
+        assertTrue("no brand facets", brandRow.getChildCount() >= 3);
+        final ViewGroup shelf = (ViewGroup) privateView(activity, "filmChipRow");
+        assertTrue("no film shelf", shelf.getChildCount() > 1);
     }
 
     @Test
@@ -300,6 +337,29 @@ public final class PanelRowsTest {
                 privateView(activity, "panelHolder"), controls.getChildAt(0));
         org.junit.Assert.assertSame("the tab dock must be the last control child",
                 privateView(activity, "tabLayout"), controls.getChildAt(1));
+    }
+
+    @Test
+    public void stagePanelKeepsItsReadoutAndScanLayers() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        assertNotNull("no file readout", find(activity, "未选择照片"));
+        assertNotNull("no print exposure readout", find(activity, "PRINT EXPOSURE"));
+        assertNotNull("no scan chip", find(activity, "SCAN · 扫描"));
+        assertNotNull("no scan readout card", find(activity, "SCAN INSPECT · CENTRE ROW"));
+        assertTrue("the stage must live inside mainCol",
+                privateView(activity, "stageView").getParent() != null);
+    }
+
+    private static ViewGroup privateScaleStrip(MainActivity activity)
+            throws Exception {
+        final java.lang.reflect.Field field =
+                MainActivity.class.getDeclaredField("scalePanel");
+        field.setAccessible(true);
+        final Object panel = field.get(activity);
+        assertNotNull("no scale panel", panel);
+        final java.lang.reflect.Method strip =
+                panel.getClass().getMethod("strip");
+        return (ViewGroup) strip.invoke(panel);
     }
 
     private static View privateView(MainActivity activity, String field)

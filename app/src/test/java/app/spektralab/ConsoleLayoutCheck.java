@@ -50,13 +50,16 @@ public final class ConsoleLayoutCheck {
     }
 
     private static void wideWidths() {
-        require("600 dp control column is 300 dp",
-                ConsoleLayout.controlColumnWidthDp(600) == 300);
-        // 600 - 80 rail - 300 control floor = 220. The spec records this as the
-        // wide-layout consequence; 280 cannot coexist with a 300 dp control
-        // column inside a 600 dp window.
-        require("600 dp stage column is 220 dp",
-                ConsoleLayout.stageColumnWidthDp(600) == 220);
+        require("600 dp is not two columns", !ConsoleLayout.isTwoColumn(600));
+        require("600 dp control deck uses the content column",
+                ConsoleLayout.controlColumnWidthDp(600) == 520);
+        require("600 dp stage uses the content column",
+                ConsoleLayout.stageColumnWidthDp(600) == 520);
+        require("720 dp starts two columns", ConsoleLayout.isTwoColumn(720));
+        require("720 dp control column is 300 dp",
+                ConsoleLayout.controlColumnWidthDp(720) == 300);
+        require("720 dp stage column is 340 dp",
+                ConsoleLayout.stageColumnWidthDp(720) == 340);
         // 800 - 80 rail = 720; 720 * 0.40 = 288, clamped up to the 300 dp floor.
         require("800 dp control column is 300 dp",
                 ConsoleLayout.controlColumnWidthDp(800) == 300);
@@ -76,7 +79,7 @@ public final class ConsoleLayoutCheck {
 
     private static void everyWideWidthFits() {
         int previous = -1;
-        for (int width = ConsoleLayout.WIDE_BREAKPOINT_DP; width <= 1400; ++width) {
+        for (int width = ConsoleLayout.TWO_COLUMN_BREAKPOINT_DP; width <= 1400; ++width) {
             final int rail = ConsoleLayout.railWidthDp(width);
             final int control = ConsoleLayout.controlColumnWidthDp(width);
             final int stage = ConsoleLayout.stageColumnWidthDp(width);

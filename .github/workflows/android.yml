@@ -79,8 +79,8 @@ jobs:
         id: donor
         uses: actions/cache@v4
         with:
-          path: app/build/SpektraLab-1.6.0e-qa.apk
-          key: donor-SpektraLab-1.6.0e
+          path: app/build/SpektraLab-1.6.2m-arm64-v8a.apk
+          key: donor-SpektraLab-1.6.2m
 
       - name: Fetch the donor APK
         if: steps.donor.outputs.cache-hit != 'true'
@@ -89,12 +89,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           New-Item -ItemType Directory -Force -Path app\build | Out-Null
-          $url = 'https://github.com/SAINTTaiYi/SpektraLab-Android/releases/download/v1.6.0e/SpektraLab-1.6.0e-arm64-v8a.apk'
-          $out = 'app\build\SpektraLab-1.6.0e-qa.apk'
+          $url = 'https://github.com/SAINTTaiYi/SpektraLab-Android/releases/download/v1.6.2m/SpektraLab-1.6.2m-arm64-v8a.apk'
+          $out = 'app\build\SpektraLab-1.6.2m-arm64-v8a.apk'
           $ok = $false
           for ($i = 1; $i -le 4 -and -not $ok; $i++) {
-            & gh release download v1.6.0e --repo SAINTTaiYi/SpektraLab-Android `
-              --pattern 'SpektraLab-1.6.0e-arm64-v8a.apk' --output $out --clobber
+            & gh release download v1.6.2m --repo SAINTTaiYi/SpektraLab-Android `
+              --pattern 'SpektraLab-1.6.2m-arm64-v8a.apk' --output $out --clobber
             if ((Test-Path $out) -and (Get-Item $out).Length -gt 10MB) {
               $ok = $true
               break

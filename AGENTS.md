@@ -6,7 +6,7 @@ Unofficial Android port of the SpektraLab film/paper simulation engine (Vulkan).
 
 On this Windows checkout use `.\gradlew.bat`; the wrapper is committed. Gradle needs `local.properties` with `sdk.dir=F:\\android-sdk`, JDK 17 or 21, SDK 36.
 
-- `assembleDebug` stages `assets/` and `arm64-v8a` libraries from a donor APK, default `app/build/SpektraLab-1.6.0e-qa.apk`; override with `-PbaseApk=<path>`.
+- `assembleDebug` stages `assets/` and `arm64-v8a` libraries from a donor APK, default `app/build/SpektraLab-1.6.2m-arm64-v8a.apk`; override with `-PbaseApk=<path>`.
 - The donor's `stock_catalog.json` is excluded on purpose. `generateStockCatalog` rebuilds it from the staged profiles, so `targetPrint` and spectral arrays match the profiles. A donor catalogue without `targetPrint` silently disables automatic paper selection.
 - Sign with `SPK_KEYSTORE`, `SPK_KS_PASS`, `SPK_KEY_PASS`, `SPK_KEY_ALIAS`. Without them Gradle uses a debug key that cannot update an installed release build.
 - For Android 15/16 (16 KB pages): run `.\gradlew.bat align16k` and install `app/build/outputs/apk/debug/app-debug-16k-signed.apk`; the plain debug APK is only 4 KB zip-aligned.
@@ -40,10 +40,25 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `PresetAmount.java` — the 0–1 draft blend used by the built-in/preset strength sheet. Numbers and equal-length numeric arrays interpolate; booleans, strings and seeds/turns switch at 50 %.
 - `StockCatalogue.java` — the single store for film/print entries. The Activity exposes read-only views; do not add a parallel list.
 - `core/SessionDocument.java` — the current source URI, Look JSON, tab, Scan state and Original/developed display state; written atomically under `noBackupFilesDir` and restored only when the source is still readable.
+- `core/ReopenDecision.java` — whether a reopened Frame develops its saved Look or stays on 原图.
+- `core/RenderEpoch.java` — the canvas generation; a render from an ended epoch must not paint.
+- `core/ExportMatch.java` — 48-column grayscale NCC between an exported JPEG and the canvas, with the retry threshold.
 - `ui/GlassStyle.java` — Prism Table glass radii, alpha, outline and elevation tokens, guarded by `GlassStyleCheck`.
+- `ui/M3Chrome.java` — shared checked-colour pair, alpha, M3 opacity, weight synthesis and CJK ranges; guarded by `M3ChromeCheck`.
+- `ui/ConsoleType.java` — the brand typography instance (label, mixed CJK/Latin runs, M3 type roles, line height). Build labels through it; do not add another `TfSpan` or text-size literal.
+- `ui/ConsoleTheme.java` — the M3 role resolvers and Prism glass surface. One instance is refreshed with the palette on every rebuild; do not add another `MaterialColors.getColor` in `MainActivity`.
 - `core/ExportDigest.java` — length + SHA-256 verification for a gallery export.
+- `ConsoleLayout.java` — rail and column arithmetic. The rail starts at 600 dp; `isTwoColumn` starts at 720 dp, because a 600 dp window cannot fit a readable Frame column and a 300 dp panel beside the rail.
+- `ui/panel/StagePanel.java` — builds the stage tree (Compare/Scan layers, scrims, readouts, empty/RAW/busy states, scan chip/card, progress) and exposes its children; the Activity keeps the Frame, render thread and scan/histogram state through `StagePanel.Host`.
+- `ui/panel/FilmPanel.java` — builds the film section head slot, brand facets, shelf, spectral card, measured row, note and paper row; the Activity still owns the catalogue and refresh policy. Theme rebuild restores the shelf scroll from `UiState.filmScrollX`.
+- `ui/panel/OpticsPanel.java` — builds the whole optics page (head, entries, 22-parameter strip, readout, 48 dp slider, camera-filter and protection-norm rows) and owns `styleChip`; the Activity supplies `Host` and keeps the Look plus the one-render-per-release policy.
+- `ui/panel/ScalePanel.java` — builds the Scale gate strip and cards (geometry, checked style, empty state, accessibility role, tap and reveal); the Activity still owns the Gate Look fields and `pickScale`.
+- `ui/panel/EdgeHomePanel.java` — builds the 边框 landing page and its two entry cards; summaries come from the Activity's refresher list, and its `Host` opens the pages in `EdgePagesPanel`.
+- `ui/panel/ExportSheet.java` — owns both export sheets (single and batch rows) and their format/tier routing; `ExportSheetCheck` pins the order. The Activity still supplies the note and the writers.
+- `ui/panel/ImportBudgetSheet.java` — owns the oversized-import sheet: fit size, body, and the three rows. `ImportBudgetCheck` pins the fit arithmetic and row order.
+- `ui/panel/EdgePagesPanel.java` — builds the 片边 and 日期水印 secondary pages (switch-owned dimming, gate card, button rows, eight sliders, seed/date/text dialogs); its `Host` supplies the live Look through `EdgeLookAccess`, the shared switch row, the dialogs and `commitRebate`, while the Activity keeps `edgePageIndex` and page visibility.
 - `ui/widget/` — extracted custom views (`SpectralRail`, `ToolGlyph`, `ArrowView`, `GuideView`, `EdgeBackdrop`, `SnackbarHost`, `CompareView`, `ScanOverlayView`, `SpectrumCurveView`, `HistogramView`). New views go here. See “Material 3 components” before adding one.
-- `core/` — framework-free rules and format helpers (`Metering`, `HueCorrection`, `Histogram`, `LivePreviewGate`, `ScanProfile`, …). `model/` — immutable records (`FilmStock`, `Frame`). `ui/` — presentation state (`UiState`, `ThemeMode`). The root package keeps the composition root and the remaining domain seams (`Look`, `GateScale`, `OpticsDelta`, `Palette`, `M3Tokens`, `UpdateGate`, `SpkError`).
+- `core/` — framework-free rules and format helpers (`Metering`, `HueCorrection`, `Histogram`, `LivePreviewGate`, `ScanProfile`, …). `model/` — immutable records (`FilmStock`, `Frame`). `ui/` — presentation state (`UiState`, `ThemeMode`). The root package keeps the composition root and the remaining domain seams (`Look`, `EdgeLookAccess`, `GateScale`, `OpticsDelta`, `Palette`, `M3Tokens`, `UpdateGate`, `SpkError`).
 - `SpektraLabEngine.java` — JNI facade; loads bundled `.so` by absolute path, no `static {}` loader. `spektralab_jni.cpp` — session/render/export; `spektralab_raw_jni.cpp` — LibRaw decode. The engine is not in this repo; only `patches/engine-android.patch` and `docs/tiling.md` are.
 
 ## Material 3 components
@@ -52,12 +67,12 @@ Prefer Material Components over framework widgets for every control and chrome s
 
 - A raw `TextView` is only a typographic surface. Free-text dialogs use `TextInputLayout` + `TextInputEditText`; do not add a framework `EditText`. `M3ComponentCheck` fails `checkJvm` when `MainActivity` constructs a framework interactive widget.
 - Custom Views in `ui/widget` are only for canvas or data visuals with no M3 equivalent. A new interactive control needs an M3 component first, a 48 dp touch target, and a TalkBack role/state description.
-- Every screen must work in both themes, with dynamic colour, at 390 dp and at the ≥600 dp rail; M3 defaults must not be overridden with fixed colours.
+- Every screen must work in both themes, with dynamic colour, at 390 dp, at the 600 dp rail (single column) and at the ≥720 dp two-column split; M3 defaults must not be overridden with fixed colours.
 
 ## Traps
 
 - `spk_result.row_stride_px` is in **pixels**, 4 uint16 per pixel: `rgba16 + y * stride * 4`.
-- Imports have no hard pixel cap: the banded 1.6.0e renderer returns 0 from `maxFramePixels`, and the only ceiling is the memory estimate (`DeviceProbe.maxPixelsByMemory`, based on `max(available, total × 0.45)`), with a 12000 px long edge. Asking before shrinking is preferred to refusing; do not reintroduce a binding or 42 MP fallback.
+- Imports have no hard pixel cap: the banded 1.6.2m renderer returns 0 from `maxFramePixels`, and the only ceiling is the memory estimate (`DeviceProbe.maxPixelsByMemory`, based on `max(available, total × 0.45)`), with a 12000 px long edge. Asking before shrinking is preferred to refusing; do not reintroduce a binding or 42 MP fallback.
 - `build-engine.sh <unit>...` is incremental, but a header change needs a full rebuild; otherwise vtable/ABI skew. Both JNI units are recompiled every build on purpose; a stale `spektralab_raw_jni.o` links and breaks the first RAW open.
 - `app/build/sources.txt` is generated by `build-dex.sh`; do not edit it.
 - Reversal/slide film: `scan_film` must ride the **stock delta**, not the slider delta. The Print stock stays stored but unused while a slide is selected; preview and export must send the same value.
@@ -85,12 +100,12 @@ Use the global `droidmind` MCP; do not start with raw `adb`.
 ## Upstreams
 
 - **Engine**: `JamesQiu2005/SpektraLab`, branch `assist/vulkan-engine-1.3.4` at `445e314`. Sync by reapplying `patches/engine-android.patch`; never merge the desktop app.
-- **Android app**: `SAINTTaiYi/SpektraLab-Android` at `1.6.0e` (`08183cd`). The fork's `origin` is `qwerkilo/SpektraLab-Android`; pushing there does not update the upstream channel. The 1.6.0e native core is merged; live preview, batch import/export, metering, hue, histogram and preview gamut are in the M3 console. Upstream 58/77 MP controls remain the follow-up M3 port.
+- **Android app**: `SAINTTaiYi/SpektraLab-Android` at `1.6.2m` (`b17f6d2`). The fork's `origin` is `qwerkilo/SpektraLab-Android`; pushing there does not update the upstream channel. The 1.6.2m native core is merged; per-frame 原图, render epoch and export self-check are ported. Upstream feedback QR and old Console chrome are intentionally not ported.
 - On Windows, build-tools 34 `d8` crashes on `MainActivity$1.class`. Use the R8 jar in `android-sdk/cmdline-tools/latest/lib/r8.jar` with JDK 17.
 
 ## Release
 
-- Version is duplicated in `AndroidManifest.xml`, `app/build.gradle` and the channel files; `VersionCheck` fails `checkJvm` on a mismatch. Current stable: **156 / `1.4.4-m3a`** (`update.json`). Current preview: **326 / `1.6.0e-m3`** (`preview.json`).
+- Version is duplicated in `AndroidManifest.xml`, `app/build.gradle` and the channel files; `VersionCheck` fails `checkJvm` on a mismatch. Current stable: **156 / `1.4.4-m3a`** (`update.json`). Current preview: **385 / `1.6.2m-m3`** (`preview.json`).
 - `UpdateCheck` compares version **and** channel, and reads only the fork's endpoints. `ReleaseUrl` allowlists `spektralab.workshop.skin`, the update host, and the fork's GitHub release paths.
 - Stable is gated by `docs/known-issues.md`. KI-1 (>16.7 MP rebate bottom print) is fixed in the 1.4.4 engine and recorded as `Release gate: accepted`; do not reopen it without a new reproduction.
 - `[CHANNEL=preview|stable] CF_TOKEN=... ./scripts/announce.sh <code> <name> <apk|-> "note"...` writes and pushes the channel file, purges jsDelivr, uploads a stable APK to KV (24 MiB limit), and creates a GitHub Release. It targets `qwerkilo/SpektraLab-Android`; confirm the identity before announcing.

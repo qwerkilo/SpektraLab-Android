@@ -8,6 +8,7 @@ package app.spektralab.ui;
  */
 public final class UiState {
     private int edgePageIndex = -1;
+    private int filmScrollX;
     private int stageMode;
     private int activeTab;
     private boolean panelCollapsed;
@@ -141,5 +142,13 @@ public final class UiState {
 
     public void setEdgePageIndex(int value) {
         edgePageIndex = value;
+    }
+
+    public int filmScrollX() {
+        return filmScrollX;
+    }
+
+    public void setFilmScrollX(int value) {
+        filmScrollX = value;
     }
 }
