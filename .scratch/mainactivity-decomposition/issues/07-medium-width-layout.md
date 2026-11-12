@@ -2,33 +2,36 @@
 
 **Type:** bug
 **Blocked by:** none
-**Status:** ready
+**Status:** completed
 
-**Symptom:** at exactly 600 dp (the rail breakpoint) the two-column shell
-leaves the Frame column `600 - 80 rail - 300 control = 220 dp`. At that width
-the 2×2 readout table clips its labels, the film section head clips to
-`FILM S TOC...`, and the paper row truncates. Reproduced on `10.110.67.69:43657`
-with `wm size 1800x2608` (600 dp at 480 dpi), before and after the panel
-decomposition.
+**Symptom:** at exactly 600 dp the two-column shell left the Frame column
+`600 - 80 rail - 300 control = 220 dp`. The 2×2 readout clipped its labels, the
+film section head clipped to `FILM S TOC...`, and the paper row truncated.
 
-**Cause:** `ConsoleLayout` documents 220 dp as an accepted consequence, but it
-is not usable. The stage floor (280), control floor (300) and rail (80) cannot
-fit 600 dp, so the two-column layout must not start at 600.
+**Fix:** the rail still starts at 600 dp, but the stage and control deck stack
+in one column until 720 dp. `ConsoleLayout.isTwoColumn()` owns the split; the
+Activity reparents `controls` between `body` (phone/two-column) and `mainCol`
+(medium single column). In medium mode the rail replaces the bottom tabs, so
+the deck is `CONTROLS_OPEN_DP - TABS_HEIGHT_DP`.
 
-**Fix direction:** add a medium mode at 600–719 dp: keep the navigation rail
-and stack the stage and control deck in one content column (rail + single pane,
-M3 medium guidance). Start the two-column split at 720 dp. This keeps the rail
-at 600 dp and gives the Frame and panel the full 520 dp content width.
+**Gotcha found during the fix:** `setPanelCollapsed(false)` ran after the
+responsive pass and reset the deck to `MATCH_PARENT` because it keyed only on
+`wideLayout`. It now keys on `isTwoColumn`, otherwise the deck eats the stage.
 
-A first attempt wrapped `mainCol` + `controls` in a `content` column and flipped
-its orientation, but the stage collapsed to zero height; revert was clean.
-Implement with a layout test that asserts the stage and controls both get a
-non-zero height in medium mode before relying on a screenshot.
+**Evidence (device `10.110.67.69:43657`, release-signed 16 KB):**
+
+- 390 dp: phone shell unchanged (screenshot `n3.png`).
+- 600 dp (`wm size 1800x2608`): rail + stage + full-width 2×2 readout + film
+  panel, no clipping; `FILM STOCK / 胶片` head fits.
+- 720 dp (`wm size 2160x2608`): two columns with a 340 dp stage and 300 dp
+  panel.
+- Device restored to 1200×2608 / 480 dpi / font 1.0.
 
 **Acceptance**
 
-- [ ] 600–719 dp: rail visible, stage above controls, both full content width.
-- [ ] ≥720 dp: two columns as today.
-- [ ] 390 dp phone unchanged.
-- [ ] `ConsoleLayoutCheck` covers the medium boundary.
-- [ ] Device screenshots at 600, 720 and 390 dp.
+- [x] 600–719 dp: rail visible, stage above controls, both full content width.
+- [x] ≥720 dp: two columns.
+- [x] 390 dp phone unchanged.
+- [x] `ConsoleLayoutCheck` covers 600/720; full-width and two-column sums are
+      asserted separately.
+- [x] Device screenshots at 600, 720 and 390 dp.

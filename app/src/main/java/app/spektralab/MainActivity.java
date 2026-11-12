@@ -782,9 +782,10 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         wideLayout = wide;
+        final boolean twoColumn = ConsoleLayout.isTwoColumn(widthDp);
         body.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         applyRailLayout(wide, widthDp);
-        applyColumnWidths(wide, widthDp);
+        applyColumnWidths(wide, twoColumn, widthDp);
         // On a wide window the control column is a distinct instrument rail:
         // the page colour would otherwise run on below the panel and read as
         // an unfinished half-column. The film curve then takes the rest of the
@@ -796,7 +797,7 @@ public class MainActivity extends AppCompatActivity {
         // On a wide window the floating bar spans the page; keep the control
         // column's own heading below it. On the phone the sheet is already
         // below the stage, so it only needs its normal breathing room.
-        panelHolder.setPadding(dp(16), dp(wide ? TOP_APP_BAR_HEIGHT_DP + 8 : 8),
+        panelHolder.setPadding(dp(16), dp(twoColumn ? TOP_APP_BAR_HEIGHT_DP + 8 : 8),
                 dp(16), dp(PANEL_BOTTOM_DP));
         applyFilmCurveHeight(wide);
     }
@@ -816,7 +817,20 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** The stage column against the control column. */
-    private void applyColumnWidths(boolean wide, int widthDp) {
+    private void applyColumnWidths(boolean wide, boolean twoColumn, int widthDp) {
+        final int controlHeight = dp(wide && !twoColumn
+                ? CONTROLS_OPEN_DP - TABS_HEIGHT_DP
+                : (panelCollapsed ? CONTROLS_CLOSED_DP : CONTROLS_OPEN_DP));
+        final android.view.ViewGroup controlParent =
+                (android.view.ViewGroup) controls.getParent();
+        final android.view.ViewGroup target = wide && !twoColumn ? mainCol : body;
+        if (controlParent != target) {
+            if (controlParent != null) {
+                controlParent.removeView(controls);
+            }
+            target.addView(controls, new LinearLayout.LayoutParams(-1, controlHeight));
+        }
+
         LinearLayout.LayoutParams mainLp = (LinearLayout.LayoutParams) mainCol.getLayoutParams();
         mainLp.width = wide ? 0 : -1;
         mainLp.height = wide ? -1 : 0;
@@ -825,16 +839,15 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout.LayoutParams controlLp =
                 (LinearLayout.LayoutParams) controls.getLayoutParams();
-        controlLp.width = wide ? dp(ConsoleLayout.controlColumnWidthDp(widthDp)) : -1;
-        controlLp.height = wide
-                ? -1 : dp(panelCollapsed ? CONTROLS_CLOSED_DP : CONTROLS_OPEN_DP);
+        controlLp.width = twoColumn ? dp(ConsoleLayout.controlColumnWidthDp(widthDp)) : -1;
+        controlLp.height = twoColumn ? -1 : controlHeight;
         controlLp.weight = 0f;
         controls.setLayoutParams(controlLp);
 
         LinearLayout.LayoutParams panelLp =
                 (LinearLayout.LayoutParams) panelHolder.getLayoutParams();
-        panelLp.height = wide ? 0 : dp(PANEL_HEIGHT_DP);
-        panelLp.weight = wide ? 1f : 0f;
+        panelLp.height = twoColumn ? 0 : dp(PANEL_HEIGHT_DP);
+        panelLp.weight = twoColumn ? 1f : 0f;
         panelHolder.setLayoutParams(panelLp);
     }
 
@@ -4379,14 +4392,19 @@ card.setOnClickListener(v -> {
         }
         if (controls != null) {
             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) controls.getLayoutParams();
-            if (wideLayout) {
+            if (wideLayout && ConsoleLayout.isTwoColumn(currentWidthDp())) {
                 // The column keeps the window height; collapsing hides only the
                 // panel, leaving the tabs where they are.
                 lp.width = dp(ConsoleLayout.controlColumnWidthDp(currentWidthDp()));
                 lp.height = -1;
             } else {
                 lp.width = -1;
-                lp.height = dp(collapsed ? CONTROLS_CLOSED_DP : CONTROLS_OPEN_DP);
+                // The rail replaces the bottom tabs in the single-column wide
+                // shell, so the deck is only the panel plus its shell padding.
+                final boolean medium = wideLayout && !ConsoleLayout.isTwoColumn(currentWidthDp());
+                lp.height = dp(medium
+                        ? CONTROLS_OPEN_DP - TABS_HEIGHT_DP
+                        : (collapsed ? CONTROLS_CLOSED_DP : CONTROLS_OPEN_DP));
             }
             lp.weight = 0f;
             controls.setLayoutParams(lp);
@@ -4394,8 +4412,9 @@ card.setOnClickListener(v -> {
         if (panelHolder != null) {
             LinearLayout.LayoutParams lp =
                     (LinearLayout.LayoutParams) panelHolder.getLayoutParams();
-            lp.height = wideLayout ? 0 : dp(PANEL_HEIGHT_DP);
-            lp.weight = wideLayout ? 1f : 0f;
+            final boolean twoColumn = ConsoleLayout.isTwoColumn(currentWidthDp());
+            lp.height = twoColumn ? 0 : dp(PANEL_HEIGHT_DP);
+            lp.weight = twoColumn ? 1f : 0f;
             panelHolder.setLayoutParams(lp);
         }
     }

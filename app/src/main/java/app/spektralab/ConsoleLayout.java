@@ -15,6 +15,12 @@ package app.spektralab;
 public final class ConsoleLayout {
     /** 600 dp is Android's tablet-width breakpoint and the rail's minimum. */
     public static final int WIDE_BREAKPOINT_DP = 600;
+    /**
+     * Below this the rail stays, but the stage and the control deck stack in
+     * one column. At 600 dp the rail leaves 520 dp of content; splitting that
+     * into a 220 dp Frame column and a 300 dp panel clips both.
+     */
+    public static final int TWO_COLUMN_BREAKPOINT_DP = 720;
     /** The M3 navigation rail's container width at and above the breakpoint. */
     public static final int RAIL_WIDTH_DP = 80;
     /** The narrowest control column that still fits the optics rows. */
@@ -34,9 +40,14 @@ public final class ConsoleLayout {
 
     private ConsoleLayout() { }
 
-    /** True when the window is wide enough for the rail and two-column Console. */
+    /** True when the window is wide enough for the rail. */
     public static boolean isWide(int widthDp) {
         return widthDp >= WIDE_BREAKPOINT_DP;
+    }
+
+    /** True when the stage and the control deck fit side by side. */
+    public static boolean isTwoColumn(int widthDp) {
+        return widthDp >= TWO_COLUMN_BREAKPOINT_DP;
     }
 
     /**
@@ -55,6 +66,7 @@ public final class ConsoleLayout {
     public static int controlColumnWidthDp(int widthDp) {
         if (!isWide(widthDp)) return Math.max(0, widthDp);
         final int content = Math.max(0, widthDp - railWidthDp(widthDp));
+        if (!isTwoColumn(widthDp)) return content;
         final int byFraction = Math.round(content * CONTROL_FRACTION);
         final int clamped = Math.max(CONTROL_MIN_DP,
                 Math.min(CONTROL_MAX_DP, byFraction));
@@ -67,7 +79,8 @@ public final class ConsoleLayout {
      */
     public static int stageColumnWidthDp(int widthDp) {
         if (!isWide(widthDp)) return Math.max(0, widthDp);
-        return Math.max(0, widthDp - railWidthDp(widthDp)
-                - controlColumnWidthDp(widthDp));
+        final int content = Math.max(0, widthDp - railWidthDp(widthDp));
+        if (!isTwoColumn(widthDp)) return content;
+        return Math.max(0, content - controlColumnWidthDp(widthDp));
     }
 }
