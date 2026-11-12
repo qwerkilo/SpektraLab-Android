@@ -26,7 +26,9 @@ checkJvm, lintDebug, testDebugUnitTest — all green, 21 Robolectric tests.
   exists because `Look`'s edge fields are package-private. Delete it when those
   fields gain public accessors.
 - The stage status-line max width uses `stageWidth - 96 dp` rather than 60 % of
-  the window. Same result at 390 dp; check at ≥600 dp on device.
+  the window. Same result at 390 dp; at 600 dp the whole two-column layout is
+  being reworked by ticket 07 because the 220 dp frame column clips the readout
+  and the film header.
 - `EdgePagesPanel` mutates the live Look directly, matching the pre-extraction
   Edge pages; it does not introduce a new `FrameLookSession` bypass.
 
