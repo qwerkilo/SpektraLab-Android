@@ -26,7 +26,7 @@ Make `MainActivity` a **composition root** and extract vertical feature
 - `StagePanel` — preview, scrims, file/exposure readouts, histogram, scan overlay.
 - `FilmPanel` — brand facets, shelf, presets, film note, paper row, spectrum card.
 - `OpticsPanel` — parameter strip, slider, View/Meter/Scanner entries.
-- `ScaleEdgePanel` — format cards, gate, rebate page, date page, composition sheet.
+- `ScalePanel + EdgeHomePanel + EdgePagesPanel` — format cards, gate, rebate page, date page, composition sheet.
 - `ImportExportController` — picking, import budget, batch, export sheets.
 
 Each panel owns its view tree and a `refresh()` path. It talks to the Console

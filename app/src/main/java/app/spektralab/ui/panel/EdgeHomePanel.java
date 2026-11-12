@@ -42,7 +42,6 @@ public final class EdgeHomePanel {
     private final Typeface tfHan;
     private final Host host;
     private final Consumer<Runnable> refreshers;
-    private final View head;
 
     private final LinearLayout root;
 
@@ -54,7 +53,6 @@ public final class EdgeHomePanel {
         this.theme = theme;
         this.tfBody = tfBody;
         this.tfHan = tfHan;
-        this.head = head;
         this.host = host;
         this.refreshers = refreshers;
 

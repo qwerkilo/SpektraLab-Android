@@ -37,12 +37,15 @@ import app.spektralab.ui.widget.SpectralRail;
  */
 public final class StagePanel {
     /** The stage's clearance below the floating top bar. */
-    public static final int TOP_CLEARANCE_DP = 52;
+    public static final int TOP_CLEARANCE_DP = 78;
 
     /** The Activity-side behaviour the stage cannot own yet. */
     public interface Host {
         /** The bitmap the stage is showing: the Original or the last preview. */
         Bitmap displayedBitmap();
+
+        /** True when a source file is loaded; the Scan chip depends on it. */
+        boolean sourcePresent();
 
         /** The bitmap Scan inspect may read, or null when there is none. */
         Bitmap scanBitmap();
@@ -66,8 +69,6 @@ public final class StagePanel {
     private final Typeface tfHan;
     private final Host host;
     private final boolean largeText;
-    private final boolean sourcePresent;
-
     private final FrameLayout root;
     private final CompareView compare;
     private final ScanOverlayView scanOverlay;
@@ -92,8 +93,7 @@ public final class StagePanel {
 
     public StagePanel(Activity activity, ConsoleType type, ConsoleTheme theme,
                       Palette palette, Typeface tfDisplay, Typeface tfBody,
-                      Typeface tfHan, Host host, boolean largeText,
-                      boolean sourcePresent) {
+                      Typeface tfHan, Host host, boolean largeText) {
         this.activity = activity;
         this.type = type;
         this.theme = theme;
@@ -103,7 +103,6 @@ public final class StagePanel {
         this.tfHan = tfHan;
         this.host = host;
         this.largeText = largeText;
-        this.sourcePresent = sourcePresent;
 
         root = new FrameLayout(activity);
         root.setBackgroundColor(palette.color(Palette.Role.STAGE));
@@ -270,7 +269,7 @@ public final class StagePanel {
         scanToggleChip.setChecked(visible);
         scanToggleChip.setEnabled(toggleEnabled);
         scanToggleChip.setAlpha(toggleEnabled ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
-        scanToggleChip.setVisibility(toggleEnabled || (visible && sourcePresent)
+        scanToggleChip.setVisibility(toggleEnabled || (visible && host.sourcePresent())
                 ? View.VISIBLE : View.GONE);
         final String state;
         if (visible) {

@@ -297,7 +297,6 @@ public class MainActivity extends AppCompatActivity {
     /** True between a real touch-down and touch-up; mid-drag never commits. */
     private boolean trackingOpticsTouch = false;
     private HorizontalScrollView opticsStripScroll;
-    private LinearLayout opticsStrip;
     private final List<Chip> opticsChips = new ArrayList<>();
     private Slider opticsSlider;
     private final android.os.Handler viewAdjustHandler =
@@ -918,11 +917,7 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** Build the stage frame and its Compare and Scan layers. */
-        /** The empty-stage import control. */
-        /** The RAW-loaded placeholder under the stage. */
-        /** The rendering overlay label. */
-        /** The shelf handle in the stage's bottom-left corner. */
+    /** The shelf handle in the stage's bottom-left corner. */
     private void addShelfHandle(android.widget.FrameLayout stage) {
 shelfHandle = buildShelfHandle();
 android.widget.FrameLayout.LayoutParams handleLp = new android.widget.FrameLayout.LayoutParams(
@@ -1048,6 +1043,10 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
                         return MainActivity.this.scanBitmap();
                     }
 
+                    @Override public boolean sourcePresent() {
+                        return sourceUri != null;
+                    }
+
                     @Override public void onImportMenu() {
                         showImportMenu();
                     }
@@ -1059,7 +1058,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
                     @Override public void onScanSample(ScanSample sample, float fraction) {
                         MainActivity.this.onScanSample(sample, fraction);
                     }
-                }, veryLargeText(), sourceUri != null);
+                }, veryLargeText());
         final android.widget.FrameLayout stage = stagePanel.frame();
         stageView = stage;
         compare = stagePanel.compare();
@@ -1630,19 +1629,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
      * top left, print exposure at the top right, live state at the lower
      * right. The Spectral rail takes the right edge.
      */
-    /** The top and bottom stage scrims. */
-        /** The file name and frame meta in the top-left corner. */
-        /** The print exposure readout in the top-right corner. */
-        /** The status line and the spectral rail. */
             /**
      * Scan inspect's two controls: a checkable M3 chip under the file readout,
      * and an M3 filled-card readout above the shelf handle. The readout is
      * deliberately away from the print-exposure corner, the status line, and
      * the folded shelf so the three never share a corner.
      */
-    /** The Scan inspect toggle chip under the file readout. */
-        /** The Scan inspect readout card above the shelf handle. */
-            /** Turn Scan inspect on or off. It never renders and never edits a Look. */
+                /** Turn Scan inspect on or off. It never renders and never edits a Look. */
     private void toggleScan() {
         if (scanBitmap() == null) {
             showSnackbar("先导入一张照片");
@@ -3164,9 +3157,6 @@ card.setOnClickListener(v -> {
             @Override public boolean unlocked() {
                 return opticsUnlocked;
             }
-            @Override public String lockReason() {
-                return opticsLockReason();
-            }
             @Override public void onLocked() {
                 showSnackbar(opticsLockReason());
             }
@@ -3212,7 +3202,6 @@ card.setOnClickListener(v -> {
 
     /** Keep the Activity's aliases on the panel's children. */
     private void bindOpticsPanel() {
-        opticsStrip = null;
         opticsChips.clear();
         opticsChips.addAll(opticsPanelView.chips());
         opticsStripScroll = opticsPanelView.stripScroll();

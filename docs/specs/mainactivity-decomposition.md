@@ -38,7 +38,7 @@ the hosts. A panel is recreated on a theme rebuild; it never stores Look state.
 | `StagePanel` | stage image, scrims, file/exposure readouts, histogram, scan overlay and scan readout | `displayedBitmap`, `scanState`, `toggleHistogram`, `onScanSample` |
 | `FilmPanel` | brand facets, shelf, preset entry, film note, paper row, spectrum card | `look`, `applyFilm`, `applyPrint`, `applyPreset`, `renderRequested` |
 | `OpticsPanel` | parameter strip, one slider, View/Meter/Scanner entries, lock | `look`, `editOptics`, `openView`, `openMeter`, `openScanner` |
-| `ScaleEdgePanel` | format cards, gate, rebate page, date page, composition sheet | `look`, `applyGate`, `openRebate`, `openDate`, `openCompose` |
+| `ScalePanel + EdgeHomePanel + EdgePagesPanel` | format cards, gate, rebate page, date page, composition sheet | `look`, `applyGate`, `openRebate`, `openDate`, `openCompose` |
 | `ImportExportController` | picker, import budget dialog, batch import/export, export sheet | `currentSession`, `registerFrame`, `startRender`, `export` |
 
 Shared theme, typography, M3 role and sheet helpers move to `ui/M3Chrome`
@@ -55,8 +55,8 @@ glass surface.
    spectrum card move with it.
 4. **Optics**: extract `OpticsPanel`; strip, slider, View/Meter/Scanner entries
    and the panel lock move with it.
-5. **Scale/Edge**: extract `ScaleEdgePanel`; format cards, rebate, date and
-   compose sheet move with it.
+5. **Scale/Edge**: extract `ScalePanel + EdgeHomePanel + EdgePagesPanel`; format cards, rebate, date and
+   compose sheet is a later slice.
 6. **Import/Export**: extract `ImportExportController`; picker, budget, batch
    and export sheet move with it.
 

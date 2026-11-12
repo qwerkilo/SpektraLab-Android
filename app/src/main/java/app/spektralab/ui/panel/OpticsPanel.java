@@ -39,8 +39,6 @@ public final class OpticsPanel {
 
         boolean unlocked();
 
-        String lockReason();
-
         void onLocked();
 
         void onSelect(int index);
@@ -192,7 +190,7 @@ public final class OpticsPanel {
         titles.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         lockNote = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                theme.onSurfaceVariant(), tfBody);
+                theme.onSurfaceVariant(), tfHan);
         lockNote.setSingleLine(true);
         lockNote.setEllipsize(TextUtils.TruncateAt.END);
         lockNote.setVisibility(View.GONE);
@@ -296,7 +294,7 @@ public final class OpticsPanel {
         unitLp.bottomMargin = dp(4);
         values.addView(unit, unitLp);
         delta = type.m3Label("", M3Tokens.TypeRole.LABEL_MEDIUM,
-                theme.onSurfaceVariant(), tfBody);
+                theme.onSurfaceVariant(), tfDisplay);
         final LinearLayout.LayoutParams deltaLp = new LinearLayout.LayoutParams(-2, -2);
         deltaLp.leftMargin = dp(10);
         deltaLp.bottomMargin = dp(4);
@@ -304,7 +302,7 @@ public final class OpticsPanel {
         block.addView(values, new LinearLayout.LayoutParams(-1, -2));
 
         range = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                theme.onSurfaceVariant(), tfBody);
+                theme.onSurfaceVariant(), tfHan);
         range.setSingleLine(false);
         block.addView(range, new LinearLayout.LayoutParams(-1, -2));
         return block;
