@@ -14,5 +14,5 @@ Order (all touch `MainActivity`, so run sequentially):
 
 Preview target: 385 / `1.6.2m-m3`. Stable remains 156.
 
-Status: 01–05 completed; 06 in progress (device audit interrupted by the
-wireless endpoint going offline).
+Status: 01–06 completed. Device audit on `10.110.67.69:43683` confirmed
+per-frame 原图 and the export self-check (`NCC 0.986`).

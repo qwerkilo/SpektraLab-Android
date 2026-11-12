@@ -2,14 +2,20 @@
 
 **Type:** task
 **Blocked by:** 05
-**Status:** in progress
+**Status:** completed
 
-**Resolution so far:** preview is 385 / `1.6.2m-m3` in the manifest, Gradle,
+**Resolution:** preview is 385 / `1.6.2m-m3` in the manifest, Gradle,
 `VersionCheck` and `preview.json`; `update.json` stays 156. `checkstyleGovernance`,
 `checkJvm` (including the three new checks), `lintDebug`, `testDebugUnitTest`
-and `align16k` + `ApkPolicy` 15/15 pass. Device: clean install, CineStill 800T
-render, 原图 state; the switch-back and export self-check remain because the
-wireless endpoint dropped.
+and `align16k` + `ApkPolicy` 15/15 pass.
+
+Device on `10.110.67.69:43683` (1200×2608, Android 17): fresh launch restored
+frame-a on 已恢复 · 原图 with its 800T Look; imported frame-b as an empty Look;
+switching back to frame-a returned to 原图 with 800T still shown; JPEG export
+reported `780×860 · 0.4 MB · 渲染 0.096 秒` and `logcat -s SpektraLabExport`
+printed `canvas NCC 0.986`, so the self-check ran and passed. Evidence in
+`prototypes/shots/u162/`. The `libz_1.so` 4 KB ELF warning still appears at
+launch; it predates this sync and is recorded.
 
 **What to build:** Close the sync.
 

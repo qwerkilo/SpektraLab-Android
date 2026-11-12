@@ -9501,18 +9501,21 @@ refreshEdgeFormats();
 
     private static void logExportNcc(double ncc) {
         if (ncc >= 0) {
+            final String line = String.format(java.util.Locale.US, "canvas NCC %.3f", ncc);
+            android.util.Log.i("SpektraLabExport", line);
             try {
-                DebugSink.text("export-selfcheck",
-                        String.format(java.util.Locale.US, "canvas NCC %.3f", ncc));
+                DebugSink.text("export-selfcheck", line);
             } catch (Throwable ignored) { }
         }
     }
 
     private static void logExportCorrupt(double ncc, int[] info, String tier, int attempt) {
+        final String line = String.format(java.util.Locale.US,
+                "canvas NCC %.3f at %dx%d tier=%s attempt=%d",
+                ncc, info[0], info[1], tier, attempt);
+        android.util.Log.w("SpektraLabExport", line);
         try {
-            DebugSink.textNow("export-corrupt", String.format(java.util.Locale.US,
-                    "canvas NCC %.3f at %dx%d tier=%s attempt=%d",
-                    ncc, info[0], info[1], tier, attempt));
+            DebugSink.textNow("export-corrupt", line);
         } catch (Throwable ignored) { }
     }
 
