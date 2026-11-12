@@ -19,9 +19,13 @@ head slot, the 片边 / 日期水印 entry cards, live summaries through the Act
 refresher list, and the footer note. Its `Host` supplies both summaries and
 page entries.
 
+**Device:** on `10.110.67.69:43657` the 边框 page shows both entry cards at
+their 176 dp width with the live summaries (`未开启 · 点进去设置`), and tapping
+片边 opens the REBATE page with 开启片边, 片门格式 135 全画幅, 片边文字, 片基雾
+and 漏光. Screenshots `edge-home.png` / `edge-rebate-page.png`.
+
 **Remaining:** the rebate page, date page and compose sheet still live in the
-Activity. Device verification of the Edge home was blocked by the phone going
-offline after install.
+Activity.
 
 **TDD seams**
 
