@@ -42,6 +42,7 @@ import app.spektralab.core.SpectrumSamples;
 import app.spektralab.core.StockNames;
 import app.spektralab.ui.ConsoleTheme;
 import app.spektralab.ui.ConsoleType;
+import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
 import app.spektralab.core.ImportBudget;
 import app.spektralab.model.FilmStock;
@@ -145,7 +146,6 @@ public class MainActivity extends AppCompatActivity {
     private int sourceWidth, sourceHeight;
     private CompareView compare;
     private HistogramView histogram;
-    private boolean histogramOn;
     /** What the import put on the stage: the frame before any film. */
     private Bitmap beforeBitmap;
     private TextView statusText;
@@ -384,6 +384,7 @@ public class MainActivity extends AppCompatActivity {
     /** The shell: `body` stacks or splits into `mainCol` and `controls`. */
     private LinearLayout body, mainCol, controls, panelHolder, formatCardStrip;
     private View stageView;
+    private StagePanel stagePanel;
     /** True while the window is at the two-column Console width. */
     private boolean wideLayout = false;
     private HorizontalScrollView formatScroll;
@@ -803,7 +804,6 @@ public class MainActivity extends AppCompatActivity {
         panelHolder.setPadding(dp(16), dp(wide ? TOP_APP_BAR_HEIGHT_DP + 8 : 8),
                 dp(16), dp(PANEL_BOTTOM_DP));
         applyFilmCurveHeight(wide);
-        updateStageReadoutWidths();
     }
 
     /** The leading navigation rail replaces the phone tabs on a wide window. */
@@ -860,23 +860,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** Keep the status line inside the stage when the stage is not full width. */
-    private void updateStageReadoutWidths() {
-        if (statusText == null || stageView == null) {
-            return;
-        }
-        final int stageWidth = stageView.getWidth();
-        if (stageWidth <= 0) {
-            return;
-        }
-        final int byScreen = Math.round(currentWidthDp() * 0.60f
-                * getResources().getDisplayMetrics().density);
-        final int wanted = Math.max(dp(120), Math.min(byScreen, stageWidth - dp(48)));
-        if (statusText.getMaxWidth() != wanted) {
-            statusText.setMaxWidth(wanted);
-        }
-    }
-
-    /** Rotations and foldable resizes arrive here because the manifest keeps
+        /** Rotations and foldable resizes arrive here because the manifest keeps
      *  the Activity alive; no Frame, Look, or render is touched. */
     /** System Back leaves a secondary page before it leaves the Console. */
     @Override
@@ -939,103 +923,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** Build the stage frame and its Compare and Scan layers. */
-    private android.widget.FrameLayout createStage() {
-android.widget.FrameLayout stage = new android.widget.FrameLayout(this);
-stageView = stage;
-stage.setBackgroundColor(palette.color(Palette.Role.STAGE));
-stage.setClipChildren(false);
-stage.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
-        updateStageReadoutWidths());
-
-compare = new CompareView(this,
-        theme.role(com.google.android.material.R.attr.colorOutline, Palette.Role.LINE),
-        theme.surface(), theme.primary());
-compare.setVisibility(View.GONE);
-stage.addView(compare, new android.widget.FrameLayout.LayoutParams(-1, -1));
-
-// Scan inspect draws over the picture but under the corner readouts and
-// the shelf handle. It handles touches only while the mode is on; when
-// it is off, CompareView keeps the divider and the long-press hold.
-scanOverlay = new ScanOverlayView(this, palette, compare, this::onScanSample);
-scanOverlay.setVisibility(View.GONE);
-stage.addView(scanOverlay, new android.widget.FrameLayout.LayoutParams(-1, -1));
-
-histogram = new HistogramView(this);
-histogram.setContentDescription("RGB 直方图");
-histogram.setVisibility(histogramOn ? View.VISIBLE : View.GONE);
-if (histogramOn) {
-    histogram.setBitmap(displayedBitmap());
-}
-
-        return stage;
-    }
-
-    /** The empty-stage import control. */
-    private void addStageEmptyState(android.widget.FrameLayout stage) {
-LinearLayout empty = new LinearLayout(this);
-empty.setOrientation(LinearLayout.VERTICAL);
-empty.setGravity(android.view.Gravity.CENTER);
-empty.setPadding(dp(16), dp(16), dp(16), dp(16));
-// One control, in the middle of the frame. The index line, the NO IMAGE
-// headline and the "select a RAW or JPEG" subtitle said the same thing
-// three times over, in three type sizes, and only the last of them
-// could be acted on.
-LinearLayout load = new LinearLayout(this);
-load.setOrientation(LinearLayout.HORIZONTAL);
-load.setGravity(android.view.Gravity.CENTER);
-load.setBackground(pressableFill(Palette.Role.SURFACE_ELEVATED));
-load.setPadding(dp(18), 0, dp(18), 0);
-load.setOnClickListener(v -> showImportMenu());
-// At 2.0× the room above the sheet is too short for both the floating
-// bar and a centred import pill; clear the bar and drop the stage's
-// corner readouts, which the 2×2 table below already carries.
-if (veryLargeText()) {
-    load.setTranslationY(dp(32));
-}
-load.addView(type.m3Label("选择照片",
-        veryLargeText() ? M3Tokens.TypeRole.LABEL_MEDIUM : M3Tokens.TypeRole.LABEL_LARGE,
-        theme.primary(), tfHan));
-ArrowView loadArrow = new ArrowView(this, palette.color(Palette.Role.ACCENT));
-LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(14), dp(14));
-arrowLp.leftMargin = dp(8);
-load.addView(loadArrow, arrowLp);
-empty.addView(load, new LinearLayout.LayoutParams(-2, dp(48)));
-stage.addView(empty, new android.widget.FrameLayout.LayoutParams(-1, -1));
-emptyState = empty;
-    }
-
-    /** The RAW-loaded placeholder under the stage. */
-    private void addStageRawState(android.widget.FrameLayout stage) {
-LinearLayout raw = new LinearLayout(this);
-raw.setOrientation(LinearLayout.VERTICAL);
-raw.setGravity(android.view.Gravity.CENTER);
-raw.setPadding(dp(24), dp(16), dp(24), dp(16));
-raw.setVisibility(View.GONE);
-TextView rawTitle = type.label("RAW LOADED", 34, palette.color(Palette.Role.STAGE_INK), tfDisplay);
-rawTitle.setLetterSpacing(-0.055f);
-raw.addView(rawTitle);
-rawName = type.label("", 9, palette.color(Palette.Role.STAGE_INK), tfHan);
-rawName.setAlpha(0.7f);
-rawName.setLineSpacing(dp(4), 1f);
-rawName.setGravity(android.view.Gravity.CENTER);
-LinearLayout.LayoutParams rawNameLp = new LinearLayout.LayoutParams(-2, -2);
-rawNameLp.topMargin = dp(13);
-raw.addView(rawName, rawNameLp);
-stage.addView(raw, new android.widget.FrameLayout.LayoutParams(-1, -1));
-rawState = raw;
-    }
-
-    /** The rendering overlay label. */
-    private void addStageBusyLabel(android.widget.FrameLayout stage) {
-busyLabel = type.label("RENDERING", 18, palette.color(Palette.Role.STAGE_INK), tfDisplay);
-busyLabel.setLetterSpacing(0.14f);
-busyLabel.setGravity(android.view.Gravity.CENTER);
-busyLabel.setBackgroundColor(palette.color(Palette.Role.STAGE_BUSY));
-busyLabel.setVisibility(View.GONE);
-stage.addView(busyLabel, new android.widget.FrameLayout.LayoutParams(-1, -1));
-    }
-
-    /** The shelf handle in the stage's bottom-left corner. */
+        /** The empty-stage import control. */
+        /** The RAW-loaded placeholder under the stage. */
+        /** The rendering overlay label. */
+        /** The shelf handle in the stage's bottom-left corner. */
     private void addShelfHandle(android.widget.FrameLayout stage) {
 shelfHandle = buildShelfHandle();
 android.widget.FrameLayout.LayoutParams handleLp = new android.widget.FrameLayout.LayoutParams(
@@ -1046,36 +937,8 @@ stage.addView(shelfHandle, handleLp);
     }
 
     /** The preview and export progress bars. */
-    private void addStageProgress(android.widget.FrameLayout stage) {
-
-android.widget.FrameLayout jobs = new android.widget.FrameLayout(this);
-progressBar = new LinearProgressIndicator(this);
-progressBar.setIndeterminate(true);
-progressBar.setTrackThickness(dp(2));
-progressBar.setIndicatorColor(palette.color(Palette.Role.STAGE_INK));
-progressBar.setTrackColor(android.graphics.Color.TRANSPARENT);
-progressBar.setVisibility(View.GONE);
-jobs.addView(progressBar, new android.widget.FrameLayout.LayoutParams(-1, dp(2)));
-exportProgressBar = new LinearProgressIndicator(this);
-exportProgressBar.setIndeterminate(true);
-exportProgressBar.setTrackThickness(dp(2));
-exportProgressBar.setIndicatorColor(palette.color(Palette.Role.STAGE_INK));
-exportProgressBar.setTrackColor(android.graphics.Color.TRANSPARENT);
-exportProgressBar.setVisibility(View.GONE);
-jobs.addView(exportProgressBar, new android.widget.FrameLayout.LayoutParams(-1, dp(2)));
-stage.addView(jobs, new android.widget.FrameLayout.LayoutParams(-1, dp(2), android.view.Gravity.BOTTOM));
-    }
-
-    /** Keep TalkBack on the scan line after its toggle. */
-    private void wireScanTraversal() {
-if (scanToggleChip != null) {
-    scanToggleChip.setId(View.generateViewId());
-    scanOverlay.setId(View.generateViewId());
-    scanOverlay.setAccessibilityTraversalAfter(scanToggleChip.getId());
-}
-    }
-
-    /** Build the four-tab control deck that owns the panel. */
+        /** Keep TalkBack on the scan line after its toggle. */
+        /** Build the four-tab control deck that owns the panel. */
     private void buildControlDeck() {
 controls = new LinearLayout(this);
 controls.setOrientation(LinearLayout.VERTICAL);
@@ -1157,16 +1020,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         mainCol.setBackgroundColor(theme.background());
         body.addView(mainCol, new LinearLayout.LayoutParams(-1, 0, 1f));
 
-        final android.widget.FrameLayout stage = createStage();
-        addStageEmptyState(stage);
-        addStageRawState(stage);
-        addStageBusyLabel(stage);
-        addStageReadouts(stage);
-        addScanControls(stage);
-        wireScanTraversal();
-        addShelfHandle(stage);
-        addStageProgress(stage);
-
+        final android.widget.FrameLayout stage = buildStagePanel();
         mainCol.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         final LinearLayout.LayoutParams readoutLp =
@@ -1184,6 +1038,56 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
 
         applyResponsiveLayout(ConsoleLayout.isWide(currentWidthDp()), currentWidthDp());
         finishUiBuild();
+    }
+
+    /** Build the stage and re-point the Activity aliases at its children. */
+    private android.widget.FrameLayout buildStagePanel() {
+        stagePanel = new StagePanel(this, type, theme, palette, tfDisplay, tfBody, tfHan,
+                new StagePanel.Host() {
+                    @Override public Bitmap displayedBitmap() {
+                        return MainActivity.this.displayedBitmap();
+                    }
+
+                    @Override public Bitmap scanBitmap() {
+                        return MainActivity.this.scanBitmap();
+                    }
+
+                    @Override public void onImportMenu() {
+                        showImportMenu();
+                    }
+
+                    @Override public void onToggleScan() {
+                        toggleScan();
+                    }
+
+                    @Override public void onScanSample(ScanSample sample, float fraction) {
+                        MainActivity.this.onScanSample(sample, fraction);
+                    }
+                }, veryLargeText(), sourceUri != null);
+        final android.widget.FrameLayout stage = stagePanel.frame();
+        stageView = stage;
+        compare = stagePanel.compare();
+        scanOverlay = stagePanel.scanOverlay();
+        histogram = stagePanel.histogram();
+        emptyState = stagePanel.emptyState();
+        rawState = stagePanel.rawState();
+        rawName = stagePanel.rawName();
+        busyLabel = (TextView) stagePanel.busyLabel();
+        fileLabel = stagePanel.fileLabel();
+        stageMeta = stagePanel.stageMeta();
+        stageExposureValue = stagePanel.stageExposureValue();
+        statusText = stagePanel.statusText();
+        spectralRail = stagePanel.spectralRail();
+        scanToggleChip = stagePanel.scanToggleChip();
+        scanReadout = stagePanel.scanReadout();
+        scanReadoutRgb = stagePanel.scanReadoutRgb();
+        scanReadoutLambda = stagePanel.scanReadoutLambda();
+        stagePanel.wireScanTraversal();
+        addShelfHandle(stage);
+        stagePanel.addProgress();
+        progressBar = stagePanel.progressBar();
+        exportProgressBar = stagePanel.exportProgressBar();
+        return stage;
     }
 
     /** Add the Prism top bar above the stage without consuming a page row. */
@@ -1641,8 +1545,8 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
 
     /** Keep the optional histogram tied to what the canvas is showing. */
     private void updateHistogram(Bitmap bitmap) {
-        if (histogramOn && histogram != null) {
-            histogram.setBitmap(bitmap);
+        if (stagePanel != null) {
+            stagePanel.updateHistogram(bitmap);
         }
     }
 
@@ -1651,21 +1555,20 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         if (readoutSpectrumCell == null) {
             return;
         }
+        final boolean on = stagePanel != null && stagePanel.histogramOn();
         readoutSpectrumCell.setContentDescription("光谱读数，直方图"
-                + (histogramOn ? "已显示" : "已隐藏") + "，点按切换");
+                + (on ? "已显示" : "已隐藏") + "，点按切换");
     }
 
     /** Show or hide the stage histogram; it never triggers a render. */
     private void toggleHistogram() {
-        histogramOn = !histogramOn;
-        if (histogram != null) {
-            histogram.setVisibility(histogramOn ? View.VISIBLE : View.GONE);
-            if (histogramOn) {
-                histogram.setBitmap(displayedBitmap());
-            }
+        if (stagePanel == null) {
+            return;
         }
+        stagePanel.toggleHistogram();
         syncHistogramAccessibility();
-        showSnackbar(histogramOn ? "直方图已显示" : "直方图已隐藏", Snackbar.LENGTH_SHORT);
+        showSnackbar(stagePanel.histogramOn() ? "直方图已显示" : "直方图已隐藏",
+                Snackbar.LENGTH_SHORT);
     }
 
     private void refreshReadoutStrip() {
@@ -1732,262 +1635,18 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
      * right. The Spectral rail takes the right edge.
      */
     /** The top and bottom stage scrims. */
-    private void addStageScrims(android.widget.FrameLayout stage) {
-        View topScrim = new View(this);
-        topScrim.setBackground(new android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{
-                        palette.color(Palette.Role.STAGE_SCRIM_TOP),
-                        palette.color(Palette.Role.STAGE_SCRIM_MID),
-                        palette.color(Palette.Role.STAGE_SCRIM_END)}));
-        topScrim.setClickable(false);
-        stage.addView(topScrim, new android.widget.FrameLayout.LayoutParams(
-                -1, dp(76), android.view.Gravity.TOP));
-
-        View bottomScrim = new View(this);
-        bottomScrim.setBackground(new android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,
-                new int[]{
-                        palette.color(Palette.Role.STAGE_SCRIM_TOP),
-                        palette.color(Palette.Role.STAGE_SCRIM_MID),
-                        palette.color(Palette.Role.STAGE_SCRIM_END)}));
-        bottomScrim.setClickable(false);
-        stage.addView(bottomScrim, new android.widget.FrameLayout.LayoutParams(
-                -1, dp(68), android.view.Gravity.BOTTOM));
-
-    }
-
-    /** The file name and frame meta in the top-left corner. */
-    private void addStageFileReadout(android.widget.FrameLayout stage) {
-        LinearLayout info = new LinearLayout(this);
-        info.setOrientation(LinearLayout.VERTICAL);
-        info.setClickable(false);
-        fileLabel = type.label("未选择照片", 6.5f, palette.color(Palette.Role.STAGE_INK), tfHan);
-        fileLabel.setAlpha(0.82f);
-        fileLabel.setSingleLine(true);
-        fileLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        fileLabel.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
-        info.addView(fileLabel, new LinearLayout.LayoutParams(-1, -2));
-        stageMeta = type.label("NO FRAME", 5.5f,
-                palette.color(Palette.Role.STAGE_INK), tfBody);
-        stageMeta.setAlpha(0.66f);
-        stageMeta.setLetterSpacing(0.12f);
-        stageMeta.setSingleLine(true);
-        stageMeta.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
-        LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(-1, -2);
-        metaLp.topMargin = dp(2);
-        info.addView(stageMeta, metaLp);
-        android.widget.FrameLayout.LayoutParams infoLp = new android.widget.FrameLayout.LayoutParams(
-                -1, -2, android.view.Gravity.TOP | android.view.Gravity.START);
-        infoLp.leftMargin = dp(14);
-        // Keep the file name clear of the exposure block in the other corner.
-        infoLp.rightMargin = dp(122);
-        infoLp.topMargin = dp(STAGE_TOP_CLEARANCE_DP);
-        stage.addView(info, infoLp);
-
-    }
-
-    /** The print exposure readout in the top-right corner. */
-    private void addStageExposureReadout(android.widget.FrameLayout stage) {
-        LinearLayout exposure = new LinearLayout(this);
-        exposure.setOrientation(LinearLayout.VERTICAL);
-        exposure.setGravity(android.view.Gravity.END);
-        exposure.setClickable(false);
-        TextView exposureCaption = type.label("PRINT EXPOSURE", 5.5f,
-                palette.color(Palette.Role.STAGE_INK), tfBody);
-        exposureCaption.setAlpha(0.66f);
-        exposureCaption.setLetterSpacing(0.12f);
-        exposureCaption.setGravity(android.view.Gravity.END);
-        exposureCaption.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
-        exposure.addView(exposureCaption);
-        LinearLayout exposureRow = new LinearLayout(this);
-        exposureRow.setOrientation(LinearLayout.HORIZONTAL);
-        exposureRow.setGravity(android.view.Gravity.BOTTOM | android.view.Gravity.END);
-        stageExposureValue = type.label("1.00", 27,
-                palette.color(Palette.Role.STAGE_INK), tfDisplay);
-        stageExposureValue.setLetterSpacing(-0.05f);
-        stageExposureValue.setSingleLine(true);
-        stageExposureValue.setShadowLayer(dp(3), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
-        exposureRow.addView(stageExposureValue);
-        TextView ev = type.label("EV", 7,
-                palette.color(Palette.Role.STAGE_INK), tfBody);
-        ev.setAlpha(0.8f);
-        LinearLayout.LayoutParams evLp = new LinearLayout.LayoutParams(-2, -2);
-        evLp.leftMargin = dp(4);
-        evLp.bottomMargin = dp(3);
-        exposureRow.addView(ev, evLp);
-        exposure.addView(exposureRow);
-        // The histogram lives inside the exposure block so it can never draw
-        // over the EV value, at any font scale.
-        final LinearLayout.LayoutParams histogramLp =
-                new LinearLayout.LayoutParams(dp(132), dp(64));
-        histogramLp.topMargin = dp(6);
-        histogramLp.gravity = android.view.Gravity.END;
-        exposure.addView(histogram, histogramLp);
-        android.widget.FrameLayout.LayoutParams exposureLp = new android.widget.FrameLayout.LayoutParams(
-                -2, -2, android.view.Gravity.TOP | android.view.Gravity.END);
-        exposureLp.rightMargin = dp(34);
-        exposureLp.topMargin = dp(STAGE_TOP_CLEARANCE_DP - 4);
-        stage.addView(exposure, exposureLp);
-
-    }
-
-    /** The status line and the spectral rail. */
-    private void addStageStatusAndRail(android.widget.FrameLayout stage) {
-        statusText = type.label("等待导入", 6.5f,
-                palette.color(Palette.Role.STAGE_INK), tfHan);
-        statusText.setSingleLine(true);
-        statusText.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        statusText.setGravity(android.view.Gravity.END);
-        statusText.setAlpha(0.76f);
-        statusText.setShadowLayer(dp(2), 0, dp(1), palette.color(Palette.Role.STAGE_SHADOW));
-        statusText.setMaxWidth(Math.round(getResources().getConfiguration().screenWidthDp
-                * 0.60f * getResources().getDisplayMetrics().density));
-        android.widget.FrameLayout.LayoutParams statusLp = new android.widget.FrameLayout.LayoutParams(
-                -2, -2, android.view.Gravity.BOTTOM | android.view.Gravity.END);
-        statusLp.rightMargin = dp(34);
-        statusLp.bottomMargin = dp(10);
-        stage.addView(statusText, statusLp);
-
-        spectralRail = new SpectralRail(this, palette);
-        spectralRail.setBackgroundColor(palette.color(Palette.Role.STAGE_SCRIM_TOP));
-        stage.addView(spectralRail, new android.widget.FrameLayout.LayoutParams(
-                dp(26), -1, android.view.Gravity.END));
-    }
-
-    private void addStageReadouts(android.widget.FrameLayout stage) {
-        addStageScrims(stage);
-        if (veryLargeText()) {
-            // The 2×2 table carries film, paper, exposure and spectrum; at
-            // 2.0× the stage is too short to repeat the file and exposure
-            // corners without colliding with the import control.
-            addStageStatusAndRail(stage);
-            return;
-        }
-        addStageFileReadout(stage);
-        addStageExposureReadout(stage);
-        addStageStatusAndRail(stage);
-    }
-
-    /**
+        /** The file name and frame meta in the top-left corner. */
+        /** The print exposure readout in the top-right corner. */
+        /** The status line and the spectral rail. */
+            /**
      * Scan inspect's two controls: a checkable M3 chip under the file readout,
      * and an M3 filled-card readout above the shelf handle. The readout is
      * deliberately away from the print-exposure corner, the status line, and
      * the folded shelf so the three never share a corner.
      */
     /** The Scan inspect toggle chip under the file readout. */
-    private void buildScanToggleChip(android.widget.FrameLayout stage) {
-        final int chipSurface = theme.role(
-                com.google.android.material.R.attr.colorSurfaceContainerLow,
-                Palette.Role.SURFACE_ELEVATED);
-        final int chipSelected = theme.role(
-                com.google.android.material.R.attr.colorSecondaryContainer,
-                Palette.Role.ACCENT_SOFT);
-        final int chipText = theme.role(
-                com.google.android.material.R.attr.colorOnSurfaceVariant,
-                Palette.Role.MUTED_INK);
-        final int chipTextSelected = theme.role(
-                com.google.android.material.R.attr.colorOnSecondaryContainer,
-                Palette.Role.ACCENT);
-        final int chipOutline = theme.role(
-                com.google.android.material.R.attr.colorOutlineVariant,
-                Palette.Role.LINE);
-        final Chip chip = new Chip(this, null,
-                com.google.android.material.R.attr.chipStyle);
-        chip.setCheckable(true);
-        chip.setCheckedIconVisible(false);
-        chip.setChipIconVisible(false);
-        chip.setEnsureMinTouchTargetSize(true);
-        chip.setText(type.mixedText("SCAN · 扫描", M3Tokens.TypeRole.LABEL_LARGE.weight));
-        type.applyTypeRole(chip, M3Tokens.TypeRole.LABEL_LARGE, tfHan);
-        chip.setGravity(android.view.Gravity.CENTER);
-        chip.setSingleLine(true);
-        chip.setChipBackgroundColor(M3Chrome.checkedColors(chipSelected, chipSurface));
-        chip.setChipStrokeWidth(Math.max(1, dp(1)));
-        chip.setChipStrokeColor(M3Chrome.checkedColors(chipSelected, chipOutline));
-        chip.setTextColor(M3Chrome.checkedColors(chipTextSelected, chipText));
-        chip.setContentDescription("扫描检视，点击开启");
-        chip.setOnClickListener(v -> toggleScan());
-        scanToggleChip = chip;
-        android.widget.FrameLayout.LayoutParams toggleLp =
-                new android.widget.FrameLayout.LayoutParams(
-                        -2, -2, android.view.Gravity.TOP | android.view.Gravity.START);
-        toggleLp.leftMargin = dp(14);
-        toggleLp.topMargin = dp(STAGE_TOP_CLEARANCE_DP + 42);
-        stage.addView(chip, toggleLp);
-
-    }
-
-    /** The Scan inspect readout card above the shelf handle. */
-    private void buildScanReadoutCard(android.widget.FrameLayout stage) {
-        // A filled M3 card is the readout surface; the numbers inside stay
-        // measured text, and the card remains a non-interactive announcement.
-        final int cardSurface = theme.role(
-                com.google.android.material.R.attr.colorSurfaceContainer,
-                Palette.Role.SURFACE_ELEVATED);
-        final int cardText = theme.role(
-                com.google.android.material.R.attr.colorOnSurface,
-                Palette.Role.INK);
-        final int cardMuted = theme.role(
-                com.google.android.material.R.attr.colorOnSurfaceVariant,
-                Palette.Role.MUTED_INK);
-        final MaterialCardView card = new MaterialCardView(this, null,
-                com.google.android.material.R.attr.materialCardViewFilledStyle);
-        card.setCardBackgroundColor(cardSurface);
-        card.setRadius(dp(M3Tokens.ShapeRole.SMALL.radiusDp));
-        card.setCardElevation(0f);
-        card.setUseCompatPadding(false);
-        card.setClickable(false);
-        card.setFocusable(false);
-        card.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-        card.setVisibility(View.GONE);
-        scanReadout = card;
-
-        final LinearLayout block = new LinearLayout(this);
-        block.setOrientation(LinearLayout.VERTICAL);
-        block.setPadding(dp(12), dp(7), dp(12), dp(8));
-        card.addView(block, new android.widget.FrameLayout.LayoutParams(-2, -2));
-
-        // A bare addView in a vertical LinearLayout takes MATCH_PARENT width,
-        // so the caption used to be measured against the narrower RGB line and
-        // clipped at 390 dp. Wrapping it makes the caption the block's widest
-        // child and gives the readout one stable width while the numbers change.
-        final TextView caption = type.m3Label("SCAN INSPECT · CENTRE ROW",
-                M3Tokens.TypeRole.LABEL_SMALL, cardMuted, tfBody);
-        caption.setSingleLine(true);
-        caption.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        block.addView(caption, new LinearLayout.LayoutParams(-2, -2));
-
-        scanReadoutRgb = type.m3Label("R \u2014  G \u2014  B \u2014",
-                M3Tokens.TypeRole.BODY_SMALL, cardText, tfBody);
-        scanReadoutRgb.setSingleLine(true);
-        scanReadoutRgb.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        final LinearLayout.LayoutParams rgbLp = new LinearLayout.LayoutParams(-2, -2);
-        rgbLp.topMargin = dp(3);
-        block.addView(scanReadoutRgb, rgbLp);
-
-        scanReadoutLambda = type.m3Label("\u03bb \u2014",
-                M3Tokens.TypeRole.BODY_SMALL, cardText, tfDisplay);
-        scanReadoutLambda.setSingleLine(true);
-        scanReadoutLambda.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        block.addView(scanReadoutLambda, new LinearLayout.LayoutParams(-2, -2));
-
-        android.widget.FrameLayout.LayoutParams readoutLp =
-                new android.widget.FrameLayout.LayoutParams(
-                        -2, -2, android.view.Gravity.BOTTOM | android.view.Gravity.START);
-        readoutLp.leftMargin = dp(14);
-        // Clear of the 62 dp shelf handle and its 12 dp margin.
-        readoutLp.bottomMargin = dp(84);
-        stage.addView(card, readoutLp);
-    }
-
-    private void addScanControls(android.widget.FrameLayout stage) {
-        buildScanToggleChip(stage);
-        buildScanReadoutCard(stage);
-        updateScanToggleVisual(false);
-    }
-
-    /** Turn Scan inspect on or off. It never renders and never edits a Look. */
+        /** The Scan inspect readout card above the shelf handle. */
+            /** Turn Scan inspect on or off. It never renders and never edits a Look. */
     private void toggleScan() {
         if (scanBitmap() == null) {
             showSnackbar("先导入一张照片");
@@ -2021,43 +1680,13 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
         return showingOriginal ? beforeBitmap : lastRenderedBitmap;
     }
 
-    /** Put the overlay, its readout, and the curve mark on one state. */
+    /** Put the overlay, its readout, and the chip on one scan state. */
     private void syncScanAvailability() {
-        if (scanOverlay == null) {
+        if (stagePanel == null) {
             return;
         }
         final Bitmap bitmap = scanBitmap();
-        final boolean available = bitmap != null;
-        // Put the Activity's fraction onto the overlay first: a null bitmap
-        // still reports, and must not carry the previous frame's position back.
-        scanOverlay.setFraction(scanFraction);
-        scanOverlay.setPreviewBitmap(bitmap);
-        final boolean show = scanVisible && available;
-        scanOverlay.setScanVisible(show);
-        if (scanReadout != null) {
-            scanReadout.setVisibility(show ? View.VISIBLE : View.GONE);
-        }
-        updateScanToggleVisual(available);
-    }
-
-    /** The toggle's chip state: enabled only when there is a preview to read. */
-    private void updateScanToggleVisual(boolean enabled) {
-        if (scanToggleChip == null) {
-            return;
-        }
-        scanToggleChip.setChecked(scanVisible);
-        scanToggleChip.setEnabled(enabled);
-        scanToggleChip.setAlpha(enabled ? 1f : M3Tokens.DISABLED_CONTENT_ALPHA);
-        // The empty stage has no preview to inspect; leaving the pill visible
-        // lets it collide with the central import button at 2.0× text.
-        scanToggleChip.setVisibility(enabled || (scanVisible && sourceUri != null)
-                ? View.VISIBLE : View.GONE);
-        final String state = scanVisible
-                ? (enabled ? "扫描检视已开启，点击关闭"
-                        : "扫描检视已开启，等待预览")
-                : (enabled ? "扫描检视，点击开启"
-                        : "扫描检视，需先导入照片");
-        scanToggleChip.setContentDescription(state);
+        stagePanel.syncScan(scanVisible, scanFraction, bitmap, bitmap != null);
     }
 
     /** The overlay reports every move; the readout and the curve follow it. */

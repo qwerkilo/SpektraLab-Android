@@ -302,6 +302,17 @@ public final class PanelRowsTest {
                 privateView(activity, "tabLayout"), controls.getChildAt(1));
     }
 
+    @Test
+    public void stagePanelKeepsItsReadoutAndScanLayers() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        assertNotNull("no file readout", find(activity, "未选择照片"));
+        assertNotNull("no print exposure readout", find(activity, "PRINT EXPOSURE"));
+        assertNotNull("no scan chip", find(activity, "SCAN · 扫描"));
+        assertNotNull("no scan readout card", find(activity, "SCAN INSPECT · CENTRE ROW"));
+        assertTrue("the stage must live inside mainCol",
+                privateView(activity, "stageView").getParent() != null);
+    }
+
     private static View privateView(MainActivity activity, String field)
             throws Exception {
         final java.lang.reflect.Field declared = MainActivity.class.getDeclaredField(field);

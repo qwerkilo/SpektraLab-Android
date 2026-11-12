@@ -16,4 +16,6 @@ Target: `MainActivity` under 4,500 lines, feature panels in
 `app.spektralab.ui.panel`, no second render path.
 
 Status: 01 completed — `M3Chrome`, `ConsoleType` and `ConsoleTheme` extracted
-and device-checked at 390/600 dp in both themes. 02 StagePanel is next.
+and device-checked at 390/600 dp in both themes. 02 StagePanel in progress —
+the whole stage tree is built by `ui.panel.StagePanel`; the Activity still owns
+the scan-fraction/visibility and histogram state until the next slice.
