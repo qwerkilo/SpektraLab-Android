@@ -46,6 +46,7 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `ui/GlassStyle.java` — Prism Table glass radii, alpha, outline and elevation tokens, guarded by `GlassStyleCheck`.
 - `ui/M3Chrome.java` — shared checked-colour pair, alpha, M3 opacity, weight synthesis and CJK ranges; guarded by `M3ChromeCheck`.
 - `ui/ConsoleType.java` — the brand typography instance (label, mixed CJK/Latin runs, M3 type roles, line height). Build labels through it; do not add another `TfSpan` or text-size literal.
+- `ui/ConsoleTheme.java` — the M3 role resolvers and Prism glass surface. One instance is refreshed with the palette on every rebuild; do not add another `MaterialColors.getColor` in `MainActivity`.
 - `core/ExportDigest.java` — length + SHA-256 verification for a gallery export.
 - `ui/widget/` — extracted custom views (`SpectralRail`, `ToolGlyph`, `ArrowView`, `GuideView`, `EdgeBackdrop`, `SnackbarHost`, `CompareView`, `ScanOverlayView`, `SpectrumCurveView`, `HistogramView`). New views go here. See “Material 3 components” before adding one.
 - `core/` — framework-free rules and format helpers (`Metering`, `HueCorrection`, `Histogram`, `LivePreviewGate`, `ScanProfile`, …). `model/` — immutable records (`FilmStock`, `Frame`). `ui/` — presentation state (`UiState`, `ThemeMode`). The root package keeps the composition root and the remaining domain seams (`Look`, `GateScale`, `OpticsDelta`, `Palette`, `M3Tokens`, `UpdateGate`, `SpkError`).

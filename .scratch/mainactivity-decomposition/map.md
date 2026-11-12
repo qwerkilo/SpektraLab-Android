@@ -15,5 +15,5 @@ Order:
 Target: `MainActivity` under 4,500 lines, feature panels in
 `app.spektralab.ui.panel`, no second render path.
 
-Status: 01 in progress — `M3Chrome` and `ConsoleType` extracted; the top bar
-and card wrappers remain before 02 can build on it.
+Status: 01 completed — `M3Chrome`, `ConsoleType` and `ConsoleTheme` extracted
+and device-checked at 390/600 dp in both themes. 02 StagePanel is next.

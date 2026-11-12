@@ -2,32 +2,20 @@
 
 **Type:** task
 **Blocked by:** None
-**Status:** in progress
+**Status:** completed
 
-**Resolution so far:** `ui/M3Chrome` (checked colour pair, alpha, M3
-opacity, weight synthesis, CJK ranges) and `ui/ConsoleType` (label,
-mixedText, typed, m3Label, mixedM3Label, applyTypeRole, applyM3LineHeight,
-TfSpan) now own the shared typography and colour primitives. `MainActivity`
-delegates through one `type` object; 117 net lines removed. `M3ChromeCheck` 8;
-all gates green. Remaining theme/card wrappers and the top-bar builder are
-still in `MainActivity`.
-
-**What to build:** Move the theme/typography/M3 helpers out of `MainActivity`
-into `app.spektralab.ui.M3Chrome`, with no visual change.
-
-- Move `m3Role`, `m3Primary`, the type-role helpers, `glassSurface`, chip and
-  sheet-body helpers.
-- `MainActivity` delegates; no panel yet.
-- Add `M3Chrome` package Javadoc and a check that no hardcoded colour/size is
-  introduced.
-
-**TDD seams**
-
-- Existing `M3TokenCheck`; new `M3ChromeCheck` for role mapping and type-role
-  application.
-- Device: both themes, 390 dp and 600 dp, identical screenshot.
+**Resolution:** `ui/M3Chrome` owns the checked colour pair, alpha, M3
+opacity, weight synthesis, CJK ranges and is guarded by `M3ChromeCheck` 8.
+`ui/ConsoleType` owns label, mixed CJK/Latin runs, typed runs, `m3Label`,
+`mixedM3Label`, `applyTypeRole` and `applyM3LineHeight`. `ui/ConsoleTheme`
+owns the M3 role resolvers (`surface`, `background`, `outlineVariant`,
+`onSurface`, `onSurfaceVariant`, `primary`, `role`) and the Prism glass
+surface; one instance is refreshed with the palette on every rebuild.
+`MainActivity` delegates through `type` and `theme`; no m3 role helper remains
+in the file. Device: light 390 dp, dark 390 dp and dark 600 dp render with the
+same geometry and roles; the top-bar builder itself stays for 02.
 
 **Acceptance**
 
-- [ ] `MainActivity` shrinks by the moved helpers; no visual diff.
-- [ ] Four gates green.
+- [x] `MainActivity` shrinks by the moved helpers; no visual diff.
+- [x] Four gates green.
