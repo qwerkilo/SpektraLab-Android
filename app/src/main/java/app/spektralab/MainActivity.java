@@ -34,6 +34,7 @@ import app.spektralab.core.ScanProfile;
 import app.spektralab.core.ScanSample;
 import app.spektralab.core.SessionDocument;
 import app.spektralab.core.ExportDigest;
+import app.spektralab.core.BatchPlan;
 import app.spektralab.core.ExportMatch;
 import app.spektralab.core.GalleryExport;
 import app.spektralab.core.SpectrumCurve;
@@ -7754,27 +7755,30 @@ refreshEdgeFormats();
             return;
         }
         saveLookIntoFrames();
-        final java.util.List<Frame> batch = new java.util.ArrayList<>(frames);
+        final boolean[] eligible = new boolean[frames.size()];
+        for (int i = 0; i < frames.size(); ++i) {
+            final Frame frame = frames.get(i);
+            eligible[i] = frame.session() != null && frame.session().look().filmStock != null;
+        }
+        final BatchPlan plan = BatchPlan.of(eligible);
+        if (plan.isEmpty()) {
+            showSnackbar("没有可导出的帧：先给至少一张照片选胶片");
+            return;
+        }
         final int home = currentFrame;
         batchExportRunning = true;
         batchExportAbort = false;
-        new Thread(() -> runBatchExport(batch, home, format, tier),
+        new Thread(() -> runBatchExport(plan, home, format, tier),
                 "batch-export").start();
     }
 
-    private void runBatchExport(java.util.List<Frame> batch, int home,
-                                String format, String tier) {
+    private void runBatchExport(BatchPlan plan, int home, String format, String tier) {
         int ok = 0;
         int failed = 0;
         try {
-            for (int i = 0; i < batch.size() && !batchExportAbort; ++i) {
-                final Frame frame = batch.get(i);
-                if (frame.session() == null || frame.session().look().filmStock == null) {
-                    ++failed;
-                    continue;
-                }
-                final int index = i;
-                final String label = "批量导出 " + (i + 1) + "/" + batch.size();
+            for (int n = 0; n < plan.size() && !batchExportAbort; ++n) {
+                final int index = plan.frameAt(n);
+                final String label = plan.label(n);
                 runOnUiThread(() -> {
                     statusText.setText(label);
                     cancelLivePreview();

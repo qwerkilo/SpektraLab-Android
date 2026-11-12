@@ -42,6 +42,7 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `core/SessionDocument.java` — the current source URI, Look JSON, tab, Scan state and Original/developed display state; written atomically under `noBackupFilesDir` and restored only when the source is still readable.
 - `core/ReopenDecision.java` — whether a reopened Frame develops its saved Look or stays on 原图.
 - `core/RenderEpoch.java` — the canvas generation; a render from an ended epoch must not paint.
+- `core/BatchPlan.java` — batch export order and progress; frames without a film stock are skipped, not counted as failures.
 - `core/ExportMatch.java` — 48-column grayscale NCC between an exported JPEG and the canvas, with the retry threshold.
 - `ui/GlassStyle.java` — Prism Table glass radii, alpha, outline and elevation tokens, guarded by `GlassStyleCheck`.
 - `ui/M3Chrome.java` — shared checked-colour pair, alpha, M3 opacity, weight synthesis and CJK ranges; guarded by `M3ChromeCheck`.

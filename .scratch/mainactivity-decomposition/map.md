@@ -21,5 +21,7 @@ Status: 01, 02 completed — `M3Chrome`, `ConsoleType`, `ConsoleTheme` and
 theme rebuild. 04 OpticsPanel completed — head, 22-chip strip, readout, slider
 and both choice rows are panel-built; only the Look and commit policy stay in
 the Activity. 05 Scale/Edge completed for the Gate strip and Edge landing page;
-05b carries the rebate/date pages. 06 Import/Export is the next frontier once
-05b lands.
+05b carries the rebate/date pages and is completed. 07 completed — the rail
+starts at 600 dp and the two-column split at 720 dp. 06 is in progress: export
+and import-budget sheets plus `BatchPlan` are extracted; picker launchers,
+writers and the batch reopen loop stay in the Activity.

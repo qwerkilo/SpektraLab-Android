@@ -14,9 +14,16 @@
 
 **Landed:** `ui.panel.ExportSheet` owns both export sheets (eight single rows
 including the batch entry, four batch rows) and their format/tier routing;
-`ExportSheetCheck` pins the order. The Activity still builds the explanatory
-note from the device probe and budget, and still owns the writers, batch runner,
-picker launchers and budget dialog. Device-checked on `10.110.67.69:38555`.
+`ExportSheetCheck` pins the order. `ui.panel.ImportBudgetSheet` owns the
+oversized-import body, fit size and three rows; `ImportBudgetCheck` pins the
+arithmetic and order. `core.BatchPlan` now drives batch order and progress:
+frames without a film stock are skipped instead of being counted as failures,
+and the denominator counts only frames that will export. The Activity still
+owns the picker launchers, writers, batch runner and the per-frame reopen loop.
+
+Device-checked export sheets on `10.110.67.69:38555`; the budget sheet has
+check coverage but its on-device pass is still owed (the phone locked during
+the attempt).
 
 **TDD seams**
 
@@ -27,5 +34,8 @@ picker launchers and budget dialog. Device-checked on `10.110.67.69:38555`.
 **Acceptance**
 
 - [ ] Import and export behaviour matches the pre-slice build.
-- [ ] `MainActivity` under 4,500 lines after this slice.
+- [ ] `MainActivity` under 4,500 lines after this slice. (Not reached: the
+  remaining coordination, picker and worker code is still in the Activity. The
+  line target is deferred to a later controller slice rather than pretending the
+  current split meets it.)
 - [ ] Four gates green; `align16k` ok.
