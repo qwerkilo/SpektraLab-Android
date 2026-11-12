@@ -42,6 +42,7 @@ import app.spektralab.core.SpectrumSamples;
 import app.spektralab.core.StockNames;
 import app.spektralab.ui.ConsoleTheme;
 import app.spektralab.ui.ConsoleType;
+import app.spektralab.ui.panel.FilmPanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
 import app.spektralab.core.ImportBudget;
@@ -385,6 +386,7 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout body, mainCol, controls, panelHolder, formatCardStrip;
     private View stageView;
     private StagePanel stagePanel;
+    private FilmPanel filmPanel;
     /** True while the window is at the two-column Console width. */
     private boolean wideLayout = false;
     private HorizontalScrollView formatScroll;
@@ -690,6 +692,7 @@ public class MainActivity extends AppCompatActivity {
         s.setScanFraction(scanFraction);
         s.setScanVisible(scanVisible);
         s.setEdgePageIndex(edgePageIndex);
+        s.setFilmScrollX(filmChipScroll == null ? 0 : filmChipScroll.getScrollX());
         return s;
     }
 
@@ -714,6 +717,9 @@ public class MainActivity extends AppCompatActivity {
         scanFraction = s.scanFraction();
         scanVisible = s.scanVisible();
         refreshFilmPanel();
+        if (filmChipScroll != null) {
+            filmChipScroll.post(() -> filmChipScroll.scrollTo(s.filmScrollX(), 0));
+        }
     }
 
     private void restoreCompare(UiState s) {
@@ -2392,133 +2398,27 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
     }
 
     /** The brand facet row above the film shelf. */
-    private void buildFilmBrandRow(LinearLayout panel) {
-        HorizontalScrollView brandScroll = new HorizontalScrollView(this);
-        brandScroll.setHorizontalScrollBarEnabled(false);
-        brandScroll.setClipToPadding(false);
-        brandScroll.setFillViewport(false);
-        brandRow = new ChipGroup(this);
-        brandRow.setSingleLine(true);
-        brandRow.setSingleSelection(true);
-        brandRow.setSelectionRequired(true);
-        brandRow.setChipSpacingHorizontal(dp(4));
-        brandRow.setChipSpacingVertical(0);
-        brandScroll.addView(brandRow, new android.widget.FrameLayout.LayoutParams(-2, -2));
-        panel.addView(brandScroll, new LinearLayout.LayoutParams(-1, dp(MIN_TOUCH_DP)));
-
-    }
-
-    /** The horizontal film chip shelf. */
-    private void buildFilmChipScroll(LinearLayout panel) {
-        filmChipScroll = new HorizontalScrollView(this);
-        filmChipScroll.setHorizontalScrollBarEnabled(false);
-        filmChipScroll.setClipToPadding(false);
-        filmChipScroll.setFillViewport(false);
-        filmChipRow = new LinearLayout(this);
-        filmChipRow.setOrientation(LinearLayout.HORIZONTAL);
-        filmChipRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        filmChipScroll.addView(filmChipRow, new android.widget.FrameLayout.LayoutParams(-2, -1));
-        panel.addView(filmChipScroll, new LinearLayout.LayoutParams(-1, dp(FILM_CARD_HEIGHT_DP)));
-
-    }
-
-    /** The spectral curve card. */
-    private void buildFilmCurveCard(LinearLayout panel) {
-        // The plot is a custom view inside a real M3 card: the surface, radius,
-        // and outline are Material's; ticket 08 owns the plot's geometry.
-        filmCurveCard = new MaterialCardView(this);
-        filmCurveCard.setCardElevation(0f);
-        filmCurveCard.setRadius(dp(M3Tokens.ShapeRole.MEDIUM.radiusDp));
-        filmCurveCard.setCardBackgroundColor(theme.role(
-                com.google.android.material.R.attr.colorSurfaceContainer,
-                Palette.Role.SURFACE_ELEVATED));
-        filmCurveCard.setStrokeWidth(dp(1));
-        filmCurveCard.setStrokeColor(theme.role(
-                com.google.android.material.R.attr.colorOutlineVariant,
-                Palette.Role.LINE));
-        filmCurve = new SpectrumCurveView(this, palette, tfBody);
-        filmCurveCard.addView(filmCurve, new android.widget.FrameLayout.LayoutParams(-1, -1));
-        panel.addView(filmCurveCard, new LinearLayout.LayoutParams(-1, dp(FILM_CURVE_HEIGHT_DP)));
-
-    }
-
-    /** The measured-value row and the film note. */
-    private void buildFilmMetrics(LinearLayout panel) {
-        filmMetricsRow = new LinearLayout(this);
-        filmMetricsRow.setOrientation(LinearLayout.HORIZONTAL);
-        filmMetricsRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        panel.addView(filmMetricsRow,
-                new LinearLayout.LayoutParams(-1, -2));
-        filmMetricsRow.setMinimumHeight(dp(FILM_METRICS_HEIGHT_DP));
-
-        filmNote = type.m3Label("", M3Tokens.TypeRole.LABEL_SMALL,
-                theme.onSurfaceVariant(), tfBody);
-        filmNote.setSingleLine(false);
-        filmNote.setMaxLines(2);
-        filmNote.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        panel.addView(filmNote, new LinearLayout.LayoutParams(-1, -2));
-
-    }
-
-    /** The paper choice row. */
-    private void buildPaperRow(LinearLayout panel) {
-        LinearLayout paperRow = new LinearLayout(this);
-        paperRow.setOrientation(LinearLayout.HORIZONTAL);
-        paperRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        paperRow.addView(type.mixedM3Label("相纸 / 拷贝片",
-                M3Tokens.TypeRole.LABEL_LARGE, theme.onSurfaceVariant()));
-        MaterialCardView paperChoice = new MaterialCardView(this);
-        paperChoice.setCardElevation(0f);
-        paperChoice.setRadius(dp(M3Tokens.ShapeRole.SMALL.radiusDp));
-        paperChoice.setCardBackgroundColor(theme.role(
-                com.google.android.material.R.attr.colorSurfaceContainerHigh,
-                Palette.Role.SURFACE_ELEVATED));
-        paperChoice.setStrokeWidth(0);
-        paperChoice.setClickable(true);
-        paperChoice.setFocusable(true);
-        paperChoice.setContentDescription("选择相纸 / 拷贝片");
-        paperChoice.setRippleColor(ColorStateList.valueOf(
-                M3Chrome.withOpacity(theme.primary(), M3Tokens.StateLayer.PRESSED.opacity)));
-        paperChoice.setOnClickListener(v -> showPaperPicker());
-        LinearLayout paperInner = new LinearLayout(this);
-        paperInner.setOrientation(LinearLayout.HORIZONTAL);
-        paperInner.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
-        paperInner.setPadding(dp(12), 0, dp(10), 0);
-        paperValue = type.m3Label("Kodak Portra Endura",
-                M3Tokens.TypeRole.BODY_MEDIUM, theme.onSurface(), tfHan);
-        paperValue.setSingleLine(true);
-        paperValue.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        paperValue.setGravity(android.view.Gravity.END);
-        paperInner.addView(paperValue, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView paperArrow = type.m3Label("↓", M3Tokens.TypeRole.LABEL_LARGE,
-                theme.primary(), tfBody);
-        LinearLayout.LayoutParams paperArrowLp = new LinearLayout.LayoutParams(-2, -2);
-        paperArrowLp.leftMargin = dp(7);
-        paperInner.addView(paperArrow, paperArrowLp);
-        paperChoice.addView(paperInner,
-                new android.widget.FrameLayout.LayoutParams(-1, -1));
-        paperRow.addView(paperChoice,
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        paperChoice.setMinimumHeight(dp(PAPER_ROW_HEIGHT_DP));
-        panel.addView(paperRow,
-                new LinearLayout.LayoutParams(-1, -2));
-        paperRow.setMinimumHeight(dp(PAPER_ROW_HEIGHT_DP));
-    }
-
-    private View buildFilmPanel() {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(sectionHead("FILM STOCK / 胶片",
-                        "全部胶片", this::showFilmPicker, this::resetFilmPanel,
+        /** The horizontal film chip shelf. */
+        /** The spectral curve card. */
+        /** The measured-value row and the film note. */
+        /** The paper choice row. */
+        private View buildFilmPanel() {
+        filmPanel = new FilmPanel(this, type, theme, palette, tfBody, tfHan,
+                this::showPaperPicker,
+                sectionHead("FILM STOCK / 胶片", "全部胶片",
+                        this::showFilmPicker, this::resetFilmPanel,
                         this::showPresetsPanel),
-                new LinearLayout.LayoutParams(-1, -2));
-
-        buildFilmBrandRow(panel);
-        buildFilmChipScroll(panel);
-        buildFilmCurveCard(panel);
-        buildFilmMetrics(panel);
-        buildPaperRow(panel);
-        return panel;
+                FILM_CARD_HEIGHT_DP, FILM_CURVE_HEIGHT_DP, FILM_METRICS_HEIGHT_DP,
+                PAPER_ROW_HEIGHT_DP, MIN_TOUCH_DP);
+        brandRow = filmPanel.brandRow();
+        filmChipScroll = filmPanel.chipScroll();
+        filmChipRow = filmPanel.chipRow();
+        filmCurveCard = filmPanel.curveCard();
+        filmCurve = filmPanel.curve();
+        filmMetricsRow = filmPanel.metricsRow();
+        filmNote = filmPanel.filmNote();
+        paperValue = filmPanel.paperValue();
+        return filmPanel.view();
     }
 
     /** A film record currently on the strip, or null when none is chosen. */

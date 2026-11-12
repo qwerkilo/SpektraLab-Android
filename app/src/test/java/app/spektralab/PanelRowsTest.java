@@ -212,6 +212,18 @@ public final class PanelRowsTest {
     }
 
     @Test
+    public void filmPanelKeepsShelfBrandsAndPaperRow() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        click(activity, "胶片");
+        assertShown(activity, "FILM STOCK / 胶片");
+        assertShown(activity, "相纸 / 拷贝片");
+        final ViewGroup brandRow = (ViewGroup) privateView(activity, "brandRow");
+        assertTrue("no brand facets", brandRow.getChildCount() >= 3);
+        final ViewGroup shelf = (ViewGroup) privateView(activity, "filmChipRow");
+        assertTrue("no film shelf", shelf.getChildCount() > 1);
+    }
+
+    @Test
     public void presetsListBuiltInLooksFirst() {
         final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
         click(activity, "预设");
