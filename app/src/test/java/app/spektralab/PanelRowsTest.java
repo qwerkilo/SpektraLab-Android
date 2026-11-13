@@ -326,6 +326,20 @@ public final class PanelRowsTest {
     }
 
     @Test
+    public void spectrumCellTogglesTheStageHistogram() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        final View histogram = privateView(activity, "histogram");
+        final View cell = privateView(activity, "readoutSpectrumCell");
+        assertTrue("the spectrum cell must be clickable", cell.isClickable());
+        org.junit.Assert.assertEquals(View.GONE, histogram.getVisibility());
+
+        cell.performClick();
+        org.junit.Assert.assertEquals(View.VISIBLE, histogram.getVisibility());
+        cell.performClick();
+        org.junit.Assert.assertEquals(View.GONE, histogram.getVisibility());
+    }
+
+    @Test
     public void prismShellFloatsTheBarAndDocksTheTabs() throws Exception {
         final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
         final ViewGroup root = (ViewGroup) privateView(activity, "uiRoot");
