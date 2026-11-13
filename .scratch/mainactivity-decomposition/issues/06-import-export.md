@@ -47,3 +47,5 @@ the attempt).
 **Note extraction (2026-11-13):** ExportSheet.note(limited, driverLine) now owns the TIFF/DNG explanation; ExportSheetCheck 23 checks pin both variants. The Activity no longer carries the sheet copy.
 
 **Batch export device (2026-11-13):** two frames loaded, only the first has C200. 批量导出 JPEG realtime wrote exactly one file (`Pictures/SpektraLab/SpektraLab_1794534007986.jpg`, 1.5 MB) and restored the starting frame afterwards; the film-less frame was skipped instead of being counted as a failure. The import-budget sheet remains without a device pass.
+
+**Import-budget device (2026-11-13):** a synthetic 9000×6500 / 58.5 MP JPEG in Documents opened 「这张图超过本机预算」 with the correct machine budget (55.2 MP) and fit size (6576×4749). The dialog rows did not accept `input tap` on this ROM; `TAB` + `ENTER` dismissed it via the cancel row, so the actual fit import and full-size attempt are still unverified.
