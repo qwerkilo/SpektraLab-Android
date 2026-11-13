@@ -4,6 +4,7 @@ Spec: `docs/specs/import-pipeline.md`
 Base: `master` at `4e85643`
 
 1. **01 `importer.StillDecoder`** — decode, EXIF, scale. No engine.
+1b. **01b `importer.SourcePacker`** — packed, 2 Robolectric tests.
 2. **02 `importer.RawDecoder`** — LibRaw session open + preview, blocked by 01.
 3. **03 `importer.ImportController`** — packing, preview publish, session,
    failure text; blocked by 01/02.

@@ -52,6 +52,7 @@ import app.spektralab.ui.panel.ScalePanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
 import app.spektralab.core.ImportBudget;
+import app.spektralab.importer.SourcePacker;
 import app.spektralab.importer.StillDecoder;
 import app.spektralab.model.FilmStock;
 import app.spektralab.ui.GlassStyle;
@@ -5883,28 +5884,10 @@ card.setOnClickListener(v -> {
     }
 
     /** Decode, rotate and scale one still, publishing its source size. */
-    /** Pack the decoded still into the engine's float RGB buffer, one row at a time. */
+    /** Pack the decoded still into the engine's float RGB buffer. */
     private void packSourcePixels() {
-        // A full int[] of 20 MP would be another 80 MB on the Java heap next
-        // to the direct buffer. `allocateDirect` is capped at the heap growth
-        // limit (512 MB on many phones), so a 45 MP frame is malloc'd through
-        // the engine instead; the buffer has no cleaner and must be freed.
-        if (sourcePixels != null) {
-            SpektraLabEngine.freeDirect(sourcePixels);
-            sourcePixels = null;
-        }
-        final long bytes = (long) sourceWidth * sourceHeight * 3L * 4L;
-        sourcePixels = SpektraLabEngine.allocDirect(bytes).order(ByteOrder.nativeOrder());
-        final int[] rowPixels = new int[sourceWidth];
-        for (int y = 0; y < sourceHeight; y++) {
-            sourceBitmap.getPixels(rowPixels, 0, sourceWidth, 0, y, sourceWidth, 1);
-            for (int px : rowPixels) {
-                sourcePixels.putFloat(((px >> 16) & 0xFF) / 255.0f);
-                sourcePixels.putFloat(((px >> 8) & 0xFF) / 255.0f);
-                sourcePixels.putFloat((px & 0xFF) / 255.0f);
-            }
-        }
-        sourcePixels.rewind();
+        SourcePacker.release(sourcePixels);
+        sourcePixels = SourcePacker.pack(sourceBitmap, SpektraLabEngine::allocDirect);
     }
 
     /** Publish the still's comparison preview and its stage header. */
