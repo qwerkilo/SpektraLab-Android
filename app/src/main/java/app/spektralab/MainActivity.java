@@ -53,6 +53,7 @@ import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
 import app.spektralab.core.ImportBudget;
 import app.spektralab.importer.SourcePacker;
+import app.spektralab.importer.StillPreview;
 import app.spektralab.importer.StillDecoder;
 import app.spektralab.model.FilmStock;
 import app.spektralab.ui.GlassStyle;
@@ -5892,17 +5893,7 @@ card.setOnClickListener(v -> {
 
     /** Publish the still's comparison preview and its stage header. */
     private void publishStillPreview(Uri uri) {
-        final float edge = Math.max(sourceWidth, sourceHeight);
-        final float preview = Math.min(1f, 1024f / edge);
-        final int pw = Math.max(1, Math.round(sourceWidth * preview));
-        final int ph = Math.max(1, Math.round(sourceHeight * preview));
-        beforeBitmap = Bitmap.createScaledBitmap(sourceBitmap, pw, ph, true);
-        // A source already within the preview edge is returned unchanged by
-        // createScaledBitmap. Recycling it here would leave CompareView
-        // holding a recycled bitmap and crash the next draw.
-        if (beforeBitmap != sourceBitmap) {
-            sourceBitmap.recycle();
-        }
+        beforeBitmap = StillPreview.create(sourceBitmap, 1024);
         sourceBitmap = null;
         compare.setBefore(beforeBitmap);
         statusText.setText("Local preview");

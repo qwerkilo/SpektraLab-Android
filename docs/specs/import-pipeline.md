@@ -18,8 +18,10 @@ path, in slices that keep the engine contract unchanged.
    engine call, no UI callback.
 2. **SourcePacker** (landed) — RGBA→RGB float plane, row buffer, engine
    allocator injection, release. Covered by `SourcePackerTest`.
-3. **RawDecoder** — the LibRaw path behind one result object.
-4. **ImportController** — pixel packing, preview publish, session open and
+3. **StillPreview** (landed) — fit/no-upscale and the source-recycle rule;
+   `StillPreviewTest` covers 4 cases.
+4. **RawDecoder** — the LibRaw path behind one result object.
+5. **ImportController** — pixel packing, preview publish, session open and
    failure text, behind a Host.
 
 ## Stories

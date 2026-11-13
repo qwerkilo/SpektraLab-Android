@@ -50,6 +50,7 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `ui/ConsoleTheme.java` — the M3 role resolvers and Prism glass surface. One instance is refreshed with the palette on every rebuild; do not add another `MaterialColors.getColor` in `MainActivity`.
 - `core/ExportDigest.java` — length + SHA-256 verification for a gallery export.
 - `importer/StillDecoder.java` — decode → EXIF orientation → exact scale for one still; no engine call or View. The Activity keeps the budget question, packing and session.
+- `importer/StillPreview.java` — comparison preview fit and the recycle rule; never upscales, and only recycles the source when a copy was made.
 - `importer/SourcePacker.java` — RGBA→RGB float plane, one row buffer, allocator injected so the native plane is testable; release through `SpektraLabEngine.freeDirect`.
 - `export/ExportRunner.java` — one export from temp file to gallery row: render + RAW session, NCC retry, MediaStore publish, diagnostics; the Activity supplies the Host and the render mutex.
 - `ConsoleLayout.java` — rail and column arithmetic. The rail starts at 600 dp; `isTwoColumn` starts at 720 dp, because a 600 dp window cannot fit a readable Frame column and a 300 dp panel beside the rail.
