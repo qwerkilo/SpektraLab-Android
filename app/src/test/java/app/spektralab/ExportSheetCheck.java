@@ -39,6 +39,14 @@ public final class ExportSheetCheck {
                         && "full".equals(ExportSheet.BATCH_CHOICES[3].tier));
         require("batch rows are not nested batches",
                 !ExportSheet.BATCH_CHOICES[0].batch && !ExportSheet.BATCH_CHOICES[3].batch);
+
+        final String limited = ExportSheet.note(true, "driver-line");
+        require("limited note carries the driver line", limited.contains("driver-line"));
+        require("limited note still offers JPEG", limited.contains("JPEG"));
+        final String full = ExportSheet.note(false, "driver-line");
+        require("full note offers 8-bit JPEG", full.contains("8 位"));
+        require("both notes warn that DNG is a desktop hand-off",
+                limited.contains("DNG") && full.contains("DNG"));
         plusOne();
         System.out.println("ExportSheetCheck: " + checks + " checks passed");
     }

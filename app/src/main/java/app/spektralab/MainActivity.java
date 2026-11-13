@@ -5389,12 +5389,6 @@ card.setOnClickListener(v -> {
             showSnackbar("先导入一张照片");
             return;
         }
-        final String full = (sourceWidth > 0 && sourceHeight > 0)
-                ? "全尺寸 " + sourceWidth + "×" + sourceHeight : "全尺寸";
-        final String fullNote = probe.isLimited()
-                ? "（本机上限约 " + String.format(java.util.Locale.US, "%.1f", maxImportPixels() / 1e6)
-                  + " MP，可能导出失败）"
-                : "（原图）";
         // What the driver says it can take, as opposed to what this build
         // currently lets through. The two were only ever visible as one number,
         // and it was always the smaller -- so a phone reporting 2 GiB of
@@ -5408,28 +5402,7 @@ card.setOnClickListener(v -> {
         } else {
             driverLine = probe.valid ? "驱动未报单缓冲上限（分块渲染）" : "设备信息读取失败";
         };
-        // One sheet, six rows. It was two -- format, then size -- and the first
-        // thing that did was hide "全尺寸（原图）" behind a tap that nobody
-        // expects from a menu that used to end in it.
-        final boolean limited = probe.isLimited();
-        // "the gallery says it is corrupt" is a question this sheet can answer
-        // before the file is written, not after: Android's picture viewer does
-        // not read 16-bit TIFF at all, and the phone's Lightroom does.
-        // DNG is shipped as a file for a desktop, and says so on the tin. The
-        // phone's Lightroom refuses every linear DNG this writer produces --
-        // four containers, two photometrics, 600x400 through 3000x2000, a
-        // correct XYZ(D50) colour matrix, a camera-shaped IFD0 preview -- with
-        // "failed to load the development version", which Adobe lists as a
-        // known Android bug. Rather than let that read as our defect, the row
-        // and the note name the destination and close the question.
-        final String note = (limited
-                ? "TIFF 是 16 位；"
-                  + "导出后点导出旁边的「分享」，分享到 Lightroom 即可使用（手机相册多半不显示 TIFF）。JPEG 哪儿都能看。"
-                : "TIFF 是 16 位；"
-                  + "导出后点导出旁边的「分享」，分享到 Lightroom 即可使用（手机相册多半不显示 TIFF）。JPEG 是 8 位、哪儿都能看")
-                + "\n" + driverLine
-                + "\nDNG 只给电脑上的 Lightroom / ACR 用：手机版 Lr 打不开是已知问题，"
-                  + "遇到报错不必反馈。";
+        final String note = ExportSheet.note(probe.isLimited(), driverLine);
         new ExportSheet(new ExportSheet.Host() {
             @Override public String note() {
                 return note;
