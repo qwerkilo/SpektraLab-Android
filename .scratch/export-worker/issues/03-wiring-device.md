@@ -33,3 +33,8 @@ single and batch exports through `ExportRunner`, and run the device matrix.
 - `checkstyleGovernance`, `checkJvm`, `lintDebug`, `testDebugUnitTest` green.
 - `align16k` + `ApkPolicy` green.
 - `MainActivity` line count recorded before/after.
+
+## Progress
+
+- JPEG preview and full size verified after 02 (2026-11-13).
+- TIFF / DNG, a forced NCC retry and a batch on the new runner are still open; the sheet row taps kept landing on the JPEG full row, so no TIFF file was produced.
