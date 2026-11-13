@@ -52,6 +52,7 @@ public final class ImportBudgetSheet {
     }
 
     private final Host host;
+    private Request request;
 
     public ImportBudgetSheet(Host host) {
         this.host = host;
@@ -86,13 +87,20 @@ public final class ImportBudgetSheet {
 
     /** Show the sheet and route the pick. */
     public void show(Request request) {
-        host.showSheet("这张图超过本机预算", body(request), rows(request), which -> {
-            if (which == 0) {
-                host.importFit(request.uri);
-            } else if (which == 1) {
-                host.importOriginal(request.uri);
-            }
-        });
+        this.request = request;
+        host.showSheet("这张图超过本机预算", body(request), rows(request), this::pick);
+    }
+
+    /** Route one row; zero fits, one goes native, anything else cancels. */
+    public void pick(int which) {
+        if (request == null) {
+            return;
+        }
+        if (which == 0) {
+            host.importFit(request.uri);
+        } else if (which == 1) {
+            host.importOriginal(request.uri);
+        }
     }
 
     static String megapixels(int width, int height) {
