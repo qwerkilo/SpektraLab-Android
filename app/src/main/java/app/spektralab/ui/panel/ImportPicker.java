@@ -41,12 +41,14 @@ public final class ImportPicker {
     /** Gallery or the photo picker. */
     public void pickGallery() {
         final List<Intent> chain = new ArrayList<>();
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
-            chain.add(new Intent(android.provider.MediaStore.ACTION_PICK_IMAGES));
-        }
+        // GET_CONTENT first: on HyperOS the ACTION_PICK_IMAGES component resolves
+        // but finishes immediately, so preferring it makes 从相册选择 do nothing.
         chain.add(new Intent(Intent.ACTION_GET_CONTENT)
                 .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
                 .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true));
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            chain.add(new Intent(android.provider.MediaStore.ACTION_PICK_IMAGES));
+        }
         chain.add(new Intent(Intent.ACTION_OPEN_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
                 .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)

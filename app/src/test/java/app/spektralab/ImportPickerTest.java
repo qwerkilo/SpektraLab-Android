@@ -47,14 +47,23 @@ public class ImportPickerTest {
     }
 
     @Test
-    public void galleryPrefersThePhotoPickerThenFallsBackToDocuments() {
+    public void galleryUsesTheRomGalleryBeforeThePhotoPicker() {
         final Recorder host = new Recorder();
         new ImportPicker(host).pickGallery();
 
         assertEquals(1, host.started.size());
+        assertEquals(Intent.ACTION_GET_CONTENT, host.started.get(0).getAction());
+        assertTrue(!host.noPicker);
+    }
+
+    @Test
+    public void galleryFallsBackToThePhotoPicker() {
+        final Recorder host = new Recorder();
+        host.refuseFirst = 1;
+        new ImportPicker(host).pickGallery();
+
         assertEquals(android.provider.MediaStore.ACTION_PICK_IMAGES,
                 host.started.get(0).getAction());
-        assertTrue(!host.noPicker);
     }
 
     @Test
@@ -109,7 +118,8 @@ public class ImportPickerTest {
         new ImportPicker(host).pickGallery();
 
         assertEquals(2, host.started.size());
-        assertEquals(Intent.ACTION_GET_CONTENT, host.started.get(1).getAction());
+        assertEquals(android.provider.MediaStore.ACTION_PICK_IMAGES,
+                host.started.get(1).getAction());
         assertTrue(!host.noPicker);
     }
 

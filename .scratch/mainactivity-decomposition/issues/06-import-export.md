@@ -41,3 +41,5 @@ the attempt).
 - [ ] Four gates green; `align16k` ok.
 
 **Additional extraction (2026-11-13):** ui.panel.ImportPicker owns both intent chains and the first-resolvable launch; ImportPickerTest covers order, grant, fallback and no-picker. core.BatchPlan skips frames with no film and keeps the progress denominator honest (BatchPlanCheck 12). The Activity keeps onActivityResult, the budget decision, writers and the reopen loop.
+
+**Device (2026-11-13):** on HyperOS both entries now open a real picker. 「从相册选择」 originally did nothing because ACTION_PICK_IMAGES resolved but finished immediately; ImportPicker now asks ACTION_GET_CONTENT first, which opens the system photo picker with multi-select and the 100-photo cap, and keeps ACTION_PICK_IMAGES only as a fallback. 「从文件管理器选择」 opens the system file picker.
