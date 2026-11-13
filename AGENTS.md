@@ -49,6 +49,7 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `ui/ConsoleType.java` — the brand typography instance (label, mixed CJK/Latin runs, M3 type roles, line height). Build labels through it; do not add another `TfSpan` or text-size literal.
 - `ui/ConsoleTheme.java` — the M3 role resolvers and Prism glass surface. One instance is refreshed with the palette on every rebuild; do not add another `MaterialColors.getColor` in `MainActivity`.
 - `core/ExportDigest.java` — length + SHA-256 verification for a gallery export.
+- `export/ExportRunner.java` — one export from temp file to gallery row: render + RAW session, NCC retry, MediaStore publish, diagnostics; the Activity supplies the Host and the render mutex.
 - `ConsoleLayout.java` — rail and column arithmetic. The rail starts at 600 dp; `isTwoColumn` starts at 720 dp, because a 600 dp window cannot fit a readable Frame column and a 300 dp panel beside the rail.
 - `ui/panel/StagePanel.java` — builds the stage tree (Compare/Scan layers, scrims, readouts, empty/RAW/busy states, scan chip/card, progress) and exposes its children; the Activity keeps the Frame, render thread and scan/histogram state through `StagePanel.Host`.
 - `ui/panel/FilmPanel.java` — builds the film section head slot, brand facets, shelf, spectral card, measured row, note and paper row; the Activity still owns the catalogue and refresh policy. Theme rebuild restores the shelf scroll from `UiState.filmScrollX`.

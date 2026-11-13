@@ -2,7 +2,7 @@
 
 **Type:** task
 **Blocked by:** 02
-**Status:** blocked
+**Status:** ready
 
 **What to build:** delete the old export helpers from `MainActivity`, route
 single and batch exports through `ExportRunner`, and run the device matrix.

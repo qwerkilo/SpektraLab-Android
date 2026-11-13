@@ -2,7 +2,7 @@
 
 **Type:** task
 **Blocked by:** 01
-**Status:** ready
+**Status:** completed
 
 **What to build:** `app.spektralab.export.ExportRunner`, owning one export
 from temp file to gallery row.
@@ -33,3 +33,9 @@ loop. Those stay in the Activity for 03.
 - One JPEG, one TIFF and one DNG export produce the same files and status text.
 - Failure deletes the pending row and the temp file.
 - `checkJvm` green; no new Android dependency.
+
+## Landed
+
+pp.spektralab.export.ExportRunner owns the worker, the temp file, render + RAW session, the NCC retry, the MediaStore row and diagnostics. MainActivity keeps the Host (session, mutex, bitmap, resolver, UI callbacks) and lost the render/finish/gallery helpers; 8235 → 7938 lines.
+
+**Device (2026-11-13):** JPEG preview exported 2048×1536 · 1.4 MB · 0.576 s, byte size identical to the pre-extraction run (1,512,246 B).
