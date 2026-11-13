@@ -26,7 +26,7 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 
 - `checkJvm` compiles the `*Check.java` programs against the real debug classpath and runs each one from the repo root. A new check needs `checkJvm --rerun-tasks`, or Gradle may report the task up to date and skip it.
 - `testDebugUnitTest` runs the JUnit 4 + Robolectric tests in `src/test/java` (currently `PanelRowsTest`, SDK 35). AGP's unit-test compiler excludes `*Check.java`; those desktop-style programs stay on `checkJvm`.
-- `checkstyleGovernance` enforces the Alibaba-style subset on `core/**`, `model/**`, `ui/**`, `export/**` and `MainActivity`. Do not exclude a file to make a change pass; move code to its owning package.
+- `checkstyleGovernance` enforces the Alibaba-style subset on `core/**`, `model/**`, `ui/**`, `export/**`, `importer/**` and `MainActivity`. Do not exclude a file to make a change pass; move code to its owning package.
 - `check-manifest.py` and `check-apk.py` pin target SDK, permissions, exports, cleartext and backup.
 - CI runs on PR and `workflow_dispatch` only. `master` is protected by the PR `build` check, so a merge does not re-run the whole suite; dispatch manually to verify `master`. Gradle and the donor APK are cached, and a newer push to the same PR cancels the older run.
 - Device checks: install, then watch logcat tags `SpektraLabJNI` and `SpektraLabRAW`. `DebugSink` posts diagnostics to `127.0.0.1:8770`; driver telemetry goes to `report.workshop.skin`. Manual matrix: `docs/testing/manual-device-checklist.md`.
@@ -49,6 +49,8 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `ui/ConsoleType.java` — the brand typography instance (label, mixed CJK/Latin runs, M3 type roles, line height). Build labels through it; do not add another `TfSpan` or text-size literal.
 - `ui/ConsoleTheme.java` — the M3 role resolvers and Prism glass surface. One instance is refreshed with the palette on every rebuild; do not add another `MaterialColors.getColor` in `MainActivity`.
 - `core/ExportDigest.java` — length + SHA-256 verification for a gallery export.
+- `importer/StillDecoder.java` — decode → EXIF orientation → exact scale for one still; no engine call or View. The Activity keeps the budget question, packing and session.
+- `importer/SourcePacker.java` — RGBA→RGB float plane, one row buffer, allocator injected so the native plane is testable; release through `SpektraLabEngine.freeDirect`.
 - `export/ExportRunner.java` — one export from temp file to gallery row: render + RAW session, NCC retry, MediaStore publish, diagnostics; the Activity supplies the Host and the render mutex.
 - `ConsoleLayout.java` — rail and column arithmetic. The rail starts at 600 dp; `isTwoColumn` starts at 720 dp, because a 600 dp window cannot fit a readable Frame column and a 300 dp panel beside the rail.
 - `ui/panel/StagePanel.java` — builds the stage tree (Compare/Scan layers, scrims, readouts, empty/RAW/busy states, scan chip/card, progress) and exposes its children; the Activity keeps the Frame, render thread and scan/histogram state through `StagePanel.Host`.
