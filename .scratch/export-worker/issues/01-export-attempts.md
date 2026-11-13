@@ -51,3 +51,5 @@ public final class ExportAttempts {
 ## Landed
 
 `core/ExportAttempts` + `ExportAttemptsCheck` (12). `MainActivity#renderExportAttempts` now delegates; TIFF/DNG skip the comparator, a suspect first attempt discards and retries once, and diagnostics keep their tags.
+
+**Device (2026-11-13):** JPEG preview exported 2048×1536 · 1.4 MB · 0.566 s render; one file written, status text unchanged.
