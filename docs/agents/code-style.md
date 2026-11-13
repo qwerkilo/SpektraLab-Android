@@ -59,6 +59,10 @@ depend on a root seam.
   positive film; do not send them from another path or the native engine rejects
   the render with `spk_render failed (-5)`.
 
+- Publish a completion message **after** any restore/reopen step. `reopenFrame`
+  rewrites the status line to 「已恢复 · 原图」; doing it after the summary erased
+  the batch result within a frame on 2026-11-13.
+
 ## Comments
 
 - Class and method Javadoc is English. User-visible text stays Chinese.

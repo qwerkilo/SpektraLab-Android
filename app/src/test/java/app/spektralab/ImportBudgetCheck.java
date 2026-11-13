@@ -41,6 +41,45 @@ public final class ImportBudgetCheck {
             throw new AssertionError("budget row order changed");
         }
         checks++;
+
+        final int[] picked = {0, 0};
+        final java.util.function.IntConsumer[] pending = new java.util.function.IntConsumer[1];
+        final app.spektralab.ui.panel.ImportBudgetSheet sheet =
+                new app.spektralab.ui.panel.ImportBudgetSheet(
+                        new app.spektralab.ui.panel.ImportBudgetSheet.Host() {
+                            @Override public void showSheet(String title, String body, String[] labels,
+                                                            java.util.function.IntConsumer onPick) {
+                                pending[0] = onPick;
+                            }
+
+                            @Override public void importFit(android.net.Uri uri) {
+                                picked[0]++;
+                            }
+
+                            @Override public void importOriginal(android.net.Uri uri) {
+                                picked[1]++;
+                            }
+                        });
+        sheet.show(request);
+        if (pending[0] == null) {
+            throw new AssertionError("the sheet was never shown");
+        }
+        pending[0].accept(0);
+        if (picked[0] != 1 || picked[1] != 0) {
+            throw new AssertionError("row 0 must import the fit size");
+        }
+        checks++;
+        sheet.pick(1);
+        if (picked[0] != 1 || picked[1] != 1) {
+            throw new AssertionError("row 1 must import the native size");
+        }
+        checks++;
+        sheet.pick(2);
+        if (picked[0] != 1 || picked[1] != 1) {
+            throw new AssertionError("cancel must not import anything");
+        }
+        checks++;
+
         System.out.println("ImportBudgetCheck: " + checks + " checks passed");
     }
 
