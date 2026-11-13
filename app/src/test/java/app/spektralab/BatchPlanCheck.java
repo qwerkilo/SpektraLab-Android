@@ -25,12 +25,12 @@ public final class BatchPlanCheck {
         eq(2, mixed.frameAt(1), "second frame skips the ineligible one");
         eq(4, mixed.frameAt(2), "third frame");
         eq(5, mixed.totalFrames(), "total includes skipped frames");
-        eq("批量导出 1/3", mixed.label(0), "first label");
-        eq("批量导出 3/3", mixed.label(2), "last label uses the eligible count");
+        eq("批量导出 1/3（跳过 2 帧）", mixed.label(0), "first label names the skipped frames");
+        eq("批量导出 3/3（跳过 2 帧）", mixed.label(2), "last label uses the eligible count");
 
         final BatchPlan all = BatchPlan.of(new boolean[]{true, true});
         eq(2, all.size(), "all eligible");
-        eq("批量导出 2/2", all.label(1), "all eligible label");
+        eq("批量导出 2/2", all.label(1), "all eligible label has no skip suffix");
 
         System.out.println("BatchPlanCheck: " + checks + " checks passed");
     }

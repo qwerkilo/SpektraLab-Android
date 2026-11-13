@@ -57,6 +57,8 @@ public final class BatchPlan {
 
     /** Progress label for the n-th export, 1-based in the text. */
     public String label(int position) {
-        return "批量导出 " + (position + 1) + "/" + frames.length;
+        final int skipped = total - frames.length;
+        return "批量导出 " + (position + 1) + "/" + frames.length
+                + (skipped > 0 ? "（跳过 " + skipped + " 帧）" : "");
     }
 }
