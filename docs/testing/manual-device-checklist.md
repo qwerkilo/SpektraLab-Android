@@ -77,3 +77,5 @@ Android version, and Theme mode.
 - [ ] Tap 重置当前页 while filtered and scrolled; the filter returns to 全部 and the shelf starts at the left.
 - [ ] Select a stock from another brand; it stays pinned first and remains selected.
 - [ ] Export JPEG, TIFF, and DNG after a theme toggle; files complete and match the preview.
+
+- 批量导出：至少两帧、只给其中一帧选胶片，导出后应只产生一个文件，进度分母不含被跳过的帧，结束后回到起始帧。

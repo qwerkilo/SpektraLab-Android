@@ -10,9 +10,9 @@ import java.util.function.IntConsumer;
  * that hid was "全尺寸（原图）" behind a tap nobody expected. It is one list now,
  * so the mapping lives here instead of in the composition root.
  *
- * <p>The Activity still builds the explanatory note: it needs the device probe,
- * the import budget and the current overscan state, which are runtime facts. The
- * rows and their routing are static and covered by {@code ExportSheetCheck}.
+ * <p>The explanatory note is built here too; the Activity only supplies the two
+ * runtime facts (whether the device is import-limited, and the driver line).
+ * The rows, routing and note are covered by {@code ExportSheetCheck}.
  */
 public final class ExportSheet {
 
@@ -70,6 +70,21 @@ public final class ExportSheet {
 
     public ExportSheet(Host host) {
         this.host = host;
+    }
+
+    /**
+     * The explanatory note: what 16-bit TIFF means on this phone, and that DNG
+     * is a desktop hand-off. The Activity supplies the two runtime facts.
+     */
+    public static String note(boolean limited, String driverLine) {
+        return (limited
+                ? "TIFF 是 16 位；"
+                  + "导出后点导出旁边的「分享」，分享到 Lightroom 即可使用（手机相册多半不显示 TIFF）。JPEG 哪儿都能看。"
+                : "TIFF 是 16 位；"
+                  + "导出后点导出旁边的「分享」，分享到 Lightroom 即可使用（手机相册多半不显示 TIFF）。JPEG 是 8 位、哪儿都能看")
+                + "\n" + driverLine
+                + "\nDNG 只给电脑上的 Lightroom / ACR 用：手机版 Lr 打不开是已知问题，"
+                  + "遇到报错不必反馈。";
     }
 
     /** Show the single export sheet. */

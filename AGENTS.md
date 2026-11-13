@@ -42,6 +42,7 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `core/SessionDocument.java` — the current source URI, Look JSON, tab, Scan state and Original/developed display state; written atomically under `noBackupFilesDir` and restored only when the source is still readable.
 - `core/ReopenDecision.java` — whether a reopened Frame develops its saved Look or stays on 原图.
 - `core/RenderEpoch.java` — the canvas generation; a render from an ended epoch must not paint.
+- `core/BatchPlan.java` — batch export order and progress; frames without a film stock are skipped, not counted as failures.
 - `core/ExportMatch.java` — 48-column grayscale NCC between an exported JPEG and the canvas, with the retry threshold.
 - `ui/GlassStyle.java` — Prism Table glass radii, alpha, outline and elevation tokens, guarded by `GlassStyleCheck`.
 - `ui/M3Chrome.java` — shared checked-colour pair, alpha, M3 opacity, weight synthesis and CJK ranges; guarded by `M3ChromeCheck`.
@@ -54,7 +55,8 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `ui/panel/OpticsPanel.java` — builds the whole optics page (head, entries, 22-parameter strip, readout, 48 dp slider, camera-filter and protection-norm rows) and owns `styleChip`; the Activity supplies `Host` and keeps the Look plus the one-render-per-release policy.
 - `ui/panel/ScalePanel.java` — builds the Scale gate strip and cards (geometry, checked style, empty state, accessibility role, tap and reveal); the Activity still owns the Gate Look fields and `pickScale`.
 - `ui/panel/EdgeHomePanel.java` — builds the 边框 landing page and its two entry cards; summaries come from the Activity's refresher list, and its `Host` opens the pages in `EdgePagesPanel`.
-- `ui/panel/ExportSheet.java` — owns both export sheets (single and batch rows) and their format/tier routing; `ExportSheetCheck` pins the order. The Activity still supplies the note and the writers.
+- `ui/panel/ImportPicker.java` — builds the gallery and Documents intent chains and launches the first resolvable one; `ImportPickerTest` (Robolectric) pins order, grants and fallback.
+- `ui/panel/ExportSheet.java` — owns both export sheets (single and batch rows) and their format/tier routing; `ExportSheetCheck` pins the order and the note. The Activity supplies only the runtime facts and the writers.
 - `ui/panel/ImportBudgetSheet.java` — owns the oversized-import sheet: fit size, body, and the three rows. `ImportBudgetCheck` pins the fit arithmetic and row order.
 - `ui/panel/EdgePagesPanel.java` — builds the 片边 and 日期水印 secondary pages (switch-owned dimming, gate card, button rows, eight sliders, seed/date/text dialogs); its `Host` supplies the live Look through `EdgeLookAccess`, the shared switch row, the dialogs and `commitRebate`, while the Activity keeps `edgePageIndex` and page visibility.
 - `ui/widget/` — extracted custom views (`SpectralRail`, `ToolGlyph`, `ArrowView`, `GuideView`, `EdgeBackdrop`, `SnackbarHost`, `CompareView`, `ScanOverlayView`, `SpectrumCurveView`, `HistogramView`). New views go here. See “Material 3 components” before adding one.
@@ -96,6 +98,7 @@ Use the global `droidmind` MCP; do not start with raw `adb`.
 - For a wide-window check use `wm size 1800x2608` and restore it. Never use `wm density`: it recreates the Activity and clears in-memory Frames, so it cannot prove state preservation.
 - On the 1200×2608 test phone the chat screenshot is shown at about 943×2048; multiply by 1.273 before `input tap`. The film panel's vertical order is 2×2 readout table → section head (预设 / 全部胶片 / 重置当前页) → brand filter row → film shelf → spectrum card. Tap the shelf row for a stock; the brand row sits directly above it.
 - MIUI `GestureStub` / `AntiMistakeTouch` and other apps' full-screen windows can swallow taps over the app; an ignored tap is not proof of an app bug.
+- Read the screen before every tap sequence: a heads-up notification can open another app, so the following taps land there. The 2x2 readout table sits below the stage; tapping the picture never reaches the SPECTRUM cell or the histogram toggle.
 
 ## Upstreams
 

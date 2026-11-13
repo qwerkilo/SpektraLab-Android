@@ -34,6 +34,7 @@ import app.spektralab.core.ScanProfile;
 import app.spektralab.core.ScanSample;
 import app.spektralab.core.SessionDocument;
 import app.spektralab.core.ExportDigest;
+import app.spektralab.core.BatchPlan;
 import app.spektralab.core.ExportMatch;
 import app.spektralab.core.GalleryExport;
 import app.spektralab.core.SpectrumCurve;
@@ -47,6 +48,7 @@ import app.spektralab.ui.panel.EdgeHomePanel;
 import app.spektralab.ui.panel.EdgePagesPanel;
 import app.spektralab.ui.panel.ExportSheet;
 import app.spektralab.ui.panel.ImportBudgetSheet;
+import app.spektralab.ui.panel.ImportPicker;
 import app.spektralab.ui.panel.ScalePanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
@@ -204,6 +206,21 @@ public class MainActivity extends AppCompatActivity {
         // dark session never starts on a light launch surface.
         applyLaunchTheme();
         super.onCreate(savedInstanceState);
+        importPicker = new ImportPicker(new ImportPicker.Host() {
+            @Override public boolean canResolve(Intent intent) {
+                return intent.resolveActivity(getPackageManager()) != null;
+            }
+
+            @Override public void start(Intent intent, int requestCode) {
+                startActivityForResult(intent, requestCode);
+            }
+
+            @Override public void noPicker(boolean documents) {
+                showSnackbar(documents
+                        ? "本机没有可用的文件选择器；请改用相册选择"
+                        : "本机没有可用的图片选择器；请点「导入」→「从文件管理器选择」");
+            }
+        });
         installCrashLogger();
         applyWindowPalette();
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
@@ -418,6 +435,7 @@ public class MainActivity extends AppCompatActivity {
     }
             private final java.util.List<Frame> frames = new java.util.ArrayList<>();
     private boolean batchImportRunning;
+    private ImportPicker importPicker;
     private boolean batchExportRunning;
     private boolean batchExportAbort;
     private LinearLayout sourceBar, sourceRow, thumbStrip;
@@ -5371,12 +5389,6 @@ card.setOnClickListener(v -> {
             showSnackbar("先导入一张照片");
             return;
         }
-        final String full = (sourceWidth > 0 && sourceHeight > 0)
-                ? "全尺寸 " + sourceWidth + "×" + sourceHeight : "全尺寸";
-        final String fullNote = probe.isLimited()
-                ? "（本机上限约 " + String.format(java.util.Locale.US, "%.1f", maxImportPixels() / 1e6)
-                  + " MP，可能导出失败）"
-                : "（原图）";
         // What the driver says it can take, as opposed to what this build
         // currently lets through. The two were only ever visible as one number,
         // and it was always the smaller -- so a phone reporting 2 GiB of
@@ -5390,28 +5402,7 @@ card.setOnClickListener(v -> {
         } else {
             driverLine = probe.valid ? "驱动未报单缓冲上限（分块渲染）" : "设备信息读取失败";
         };
-        // One sheet, six rows. It was two -- format, then size -- and the first
-        // thing that did was hide "全尺寸（原图）" behind a tap that nobody
-        // expects from a menu that used to end in it.
-        final boolean limited = probe.isLimited();
-        // "the gallery says it is corrupt" is a question this sheet can answer
-        // before the file is written, not after: Android's picture viewer does
-        // not read 16-bit TIFF at all, and the phone's Lightroom does.
-        // DNG is shipped as a file for a desktop, and says so on the tin. The
-        // phone's Lightroom refuses every linear DNG this writer produces --
-        // four containers, two photometrics, 600x400 through 3000x2000, a
-        // correct XYZ(D50) colour matrix, a camera-shaped IFD0 preview -- with
-        // "failed to load the development version", which Adobe lists as a
-        // known Android bug. Rather than let that read as our defect, the row
-        // and the note name the destination and close the question.
-        final String note = (limited
-                ? "TIFF 是 16 位；"
-                  + "导出后点导出旁边的「分享」，分享到 Lightroom 即可使用（手机相册多半不显示 TIFF）。JPEG 哪儿都能看。"
-                : "TIFF 是 16 位；"
-                  + "导出后点导出旁边的「分享」，分享到 Lightroom 即可使用（手机相册多半不显示 TIFF）。JPEG 是 8 位、哪儿都能看")
-                + "\n" + driverLine
-                + "\nDNG 只给电脑上的 Lightroom / ACR 用：手机版 Lr 打不开是已知问题，"
-                  + "遇到报错不必反馈。";
+        final String note = ExportSheet.note(probe.isLimited(), driverLine);
         new ExportSheet(new ExportSheet.Host() {
             @Override public String note() {
                 return note;
@@ -5762,67 +5753,13 @@ card.setOnClickListener(v -> {
     }
 
     /**
-     * Tap: the gallery, which is where phone photos and JPEGs are.
-     *
-     * Three intents, in the order the user expects them, and the first one this
-     * ROM can actually resolve wins: the system Photo Picker (13+), then
-     * `GET_CONTENT image/*` (every Android before 13), then the document
-     * picker (every Android, period).
-     *
-     * The chain is not belt-and-braces. A launch that cannot be resolved throws
-     * `ActivityNotFoundException`, and an uncaught throw inside a click handler
-     * does not show an error -- it kills the process. That is exactly the
-     * report "一选导入就自动退回桌面了" on a Honor/HarmonyOS phone: no message,
-     * because there was nothing left alive to show one. Those ROMs ship without
-     * the AOSP Photo Picker activity (it lives in the MediaProvider module, and
-     * an HMS build does not have it) while the `ACTION_PICK_IMAGES` intent
-     * still resolves to the chooser's fallback -- so the check has to be at the
-     * launch, and it has to have somewhere to go next.
+     * Gallery import. The intent chain, its order and the
+     * first-resolvable fallback live in {@code ImportPicker}.
      */
     private void pickImage() {
-        java.util.List<Intent> chain = new ArrayList<>();
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
-            chain.add(new Intent(android.provider.MediaStore.ACTION_PICK_IMAGES));
-        }
-        chain.add(new Intent(Intent.ACTION_GET_CONTENT)
-                .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
-                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true));
-        chain.add(new Intent(Intent.ACTION_OPEN_DOCUMENT)
-                .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
-                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION));
-        if (!launchFirstResolvable(chain, 1)) {
-            showSnackbar("本机没有可用的图片选择器；请点「导入」→「从文件管理器选择」");
-        }
+        importPicker.pickGallery();
     }
 
-    /**
-     * Launch the first intent this ROM resolves, and never let the launch itself
-     * kill the process. False when none of them is available.
-     */
-    private boolean launchFirstResolvable(java.util.List<Intent> chain, int requestCode) {
-        for (Intent intent : chain) {
-            try {
-                if (intent.resolveActivity(getPackageManager()) == null) {
-                    try { DebugSink.text("picker", "unresolvable " + intent.getAction()); }
-                    catch (Throwable ignored) { }
-                    continue;
-                }
-                startActivityForResult(intent, requestCode);
-                try { DebugSink.text("picker", "launched " + intent.getAction()); }
-                catch (Throwable ignored) { }
-                return true;
-            } catch (Throwable t) {
-                // Resolvable and still refused: a provider that vanished
-                // between the check and the launch, a SecurityException, or a
-                // picker that throws from its own onCreate. Next one.
-                try { DebugSink.text("picker", intent.getAction() + " failed: " + t); }
-                catch (Throwable ignored) { }
-            }
-        }
-        return false;
-    }
 
     /**
      * Documents, for RAW. Sony's .ARW and several other RAW containers are
@@ -5839,39 +5776,13 @@ card.setOnClickListener(v -> {
      * to images, which is what "下载后没法导入" describes.
      */
     private void pickRawFile() {
-        final String[] types = {
-                "image/*",
-                "image/heic", "image/heif", "image/x-heic", "image/x-heif", "image/x-cfif",
-                "application/octet-stream",
-                "image/x-sony-arw", "image/x-canon-cr2", "image/x-canon-cr3",
-                "image/x-nikon-nef", "image/x-adobe-dng", "image/x-panasonic-rw2",
-                "image/x-panasonic-raw", "image/x-olympus-orf", "image/x-fuji-raf",
-                "image/x-pentax-pef", "image/x-samsung-srw", "image/x-sigma-x3f"
-        };
-        java.util.List<Intent> chain = new ArrayList<>();
-        Intent documents = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        documents.addCategory(Intent.CATEGORY_OPENABLE);
-        documents.setType("*/*");
-        documents.putExtra(Intent.EXTRA_MIME_TYPES, types);
-        documents.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        documents.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        chain.add(documents);
-        Intent content = new Intent(Intent.ACTION_GET_CONTENT);
-        content.addCategory(Intent.CATEGORY_OPENABLE);
-        content.setType("*/*");
-        content.putExtra(Intent.EXTRA_MIME_TYPES, types);
-        content.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        chain.add(content);
-        if (!launchFirstResolvable(chain, 1)) {
-            showSnackbar("本机没有可用的文件选择器");
-        }
+        importPicker.pickDocuments();
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != 1) {
+        if (requestCode != ImportPicker.REQUEST_CODE) {
             return;
         }
         if (resultCode != RESULT_OK) {
@@ -7754,27 +7665,30 @@ refreshEdgeFormats();
             return;
         }
         saveLookIntoFrames();
-        final java.util.List<Frame> batch = new java.util.ArrayList<>(frames);
+        final boolean[] eligible = new boolean[frames.size()];
+        for (int i = 0; i < frames.size(); ++i) {
+            final Frame frame = frames.get(i);
+            eligible[i] = frame.session() != null && frame.session().look().filmStock != null;
+        }
+        final BatchPlan plan = BatchPlan.of(eligible);
+        if (plan.isEmpty()) {
+            showSnackbar("没有可导出的帧：先给至少一张照片选胶片");
+            return;
+        }
         final int home = currentFrame;
         batchExportRunning = true;
         batchExportAbort = false;
-        new Thread(() -> runBatchExport(batch, home, format, tier),
+        new Thread(() -> runBatchExport(plan, home, format, tier),
                 "batch-export").start();
     }
 
-    private void runBatchExport(java.util.List<Frame> batch, int home,
-                                String format, String tier) {
+    private void runBatchExport(BatchPlan plan, int home, String format, String tier) {
         int ok = 0;
         int failed = 0;
         try {
-            for (int i = 0; i < batch.size() && !batchExportAbort; ++i) {
-                final Frame frame = batch.get(i);
-                if (frame.session() == null || frame.session().look().filmStock == null) {
-                    ++failed;
-                    continue;
-                }
-                final int index = i;
-                final String label = "批量导出 " + (i + 1) + "/" + batch.size();
+            for (int n = 0; n < plan.size() && !batchExportAbort; ++n) {
+                final int index = plan.frameAt(n);
+                final String label = plan.label(n);
                 runOnUiThread(() -> {
                     statusText.setText(label);
                     cancelLivePreview();
@@ -7814,7 +7728,7 @@ refreshEdgeFormats();
         } finally {
             final int okCount = ok;
             final int failedCount = failed;
-            runOnUiThread(() -> finishBatchExport(home, okCount, failedCount));
+            runOnUiThread(() -> finishBatchExport(home, plan.summary(okCount, failedCount)));
         }
     }
 
@@ -7827,13 +7741,11 @@ refreshEdgeFormats();
         }
     }
 
-    private void finishBatchExport(int home, int ok, int failed) {
+    private void finishBatchExport(int home, String msg) {
         batchExportRunning = false;
         if (exportProgressBar != null) {
             exportProgressBar.setVisibility(View.GONE);
         }
-        final String msg = "批量导出完成：" + ok + " 张成功"
-                + (failed > 0 ? "，" + failed + " 张跳过或失败" : "");
         statusText.setText(msg);
         showSnackbar(msg);
         if (home >= 0 && home < frames.size()) {
