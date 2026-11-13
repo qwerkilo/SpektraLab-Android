@@ -19,6 +19,8 @@ tasks.register('checkstyleGovernance', Checkstyle) {
         include 'ui/**/*.java'
         include 'model/**/*.java'
         include 'core/**/*.java'
+        include 'export/**/*.java'
+        include 'importer/**/*.java'
         include 'MainActivity.java'
     }
     configFile = rootProject.file('config/checkstyle/checkstyle.xml')

@@ -52,6 +52,7 @@ import app.spektralab.ui.panel.ScalePanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
 import app.spektralab.core.ImportBudget;
+import app.spektralab.importer.StillDecoder;
 import app.spektralab.model.FilmStock;
 import app.spektralab.ui.GlassStyle;
 import app.spektralab.ui.ThemeMode;
@@ -5962,44 +5963,26 @@ card.setOnClickListener(v -> {
     private boolean decodeStillSource(Uri uri, boolean nativeSize, int forcedCap) {
         final int edgeCap = nativeSize ? Integer.MAX_VALUE : IMPORT_LONG_EDGE;
         final int capPixels = nativeSize ? Integer.MAX_VALUE
-        : (forcedCap > 0 ? forcedCap : maxImportPixels());
-        sourceBitmap = decodeImport(uri, capPixels, edgeCap);
-        if (sourceBitmap == null) {
-            // The old message here was "无法解码图片", which gave the user
-            // nothing to act on. A HEIC/HEIF this phone's decoder refuses is
-            // the common case, so the dialog carries the way out instead of
-            // describing it.
+                : (forcedCap > 0 ? forcedCap : maxImportPixels());
+        final StillDecoder.Result decoded = StillDecoder.decode(getContentResolver(), uri,
+                capPixels, edgeCap, availableMemoryBytes());
+        if (decoded == null) {
+            // A HEIC/HEIF this phone's decoder refuses is the common case, so
+            // the dialog carries the way out instead of describing it.
             showActionSheet("[E-1107] 这张图本机解不开",
-            "多半是 HEIC/HEIF 或 10-bit 的图（三星、iPhone 默认存这种）。\n"
-            + "换「从文件选择」再试一次，读不到的话请先另存为 JPEG。",
-            new String[]{"从文件选择", "取消"}, which -> {
-                if (which == 0) {
-                    pickRawFile();
-                }
-            });
-        return false;
-}
-sourceBitmap = applyExifRotation(uri, sourceBitmap);
-// Three ceilings in three units, and the strictest wins. The rule
-// lives in ImportBudget so the decoder and the budget dialog cannot
-// disagree about what this phone may hold.
-final long availBytes = availableMemoryBytes();
-final double k = ImportBudget.scale(sourceBitmap.getWidth(),
-sourceBitmap.getHeight(), capPixels, edgeCap, availBytes);
-if (k < 1.0) {
-    final int nw = Math.max(1, (int) Math.round(sourceBitmap.getWidth() * k));
-    final int nh = Math.max(1, (int) Math.round(sourceBitmap.getHeight() * k));
-    Bitmap scaled = Bitmap.createScaledBitmap(sourceBitmap, nw, nh, true);
-    if (scaled != sourceBitmap) {
-        sourceBitmap.recycle();
-    }
-    sourceBitmap = scaled;
-    try { DebugSink.text("import-scale", "k=" + k + " -> " + nw + "x" + nh
-            + " avail=" + availBytes); } catch (Throwable ignored) { }
-}
-sourceWidth = sourceBitmap.getWidth();
-sourceHeight = sourceBitmap.getHeight();
-refreshEdgeFormats();
+                    "多半是 HEIC/HEIF 或 10-bit 的图（三星、iPhone 默认存这种）。\n"
+                    + "换「从文件选择」再试一次，读不到的话请先另存为 JPEG。",
+                    new String[]{"从文件选择", "取消"}, which -> {
+                        if (which == 0) {
+                            pickRawFile();
+                        }
+                    });
+            return false;
+        }
+        sourceBitmap = decoded.bitmap;
+        sourceWidth = decoded.width;
+        sourceHeight = decoded.height;
+        refreshEdgeFormats();
         return true;
     }
 
@@ -6760,107 +6743,6 @@ refreshEdgeFormats();
         return v;
     }
 
-    private int readOrientation(Uri uri) {
-        try (InputStream in = getContentResolver().openInputStream(uri)) {
-            if (in != null) {
-                return new androidx.exifinterface.media.ExifInterface(in).getAttributeInt(
-                        androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
-                        androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL);
-            }
-        } catch (Throwable ignored) { }
-        try (android.os.ParcelFileDescriptor fd = getContentResolver().openFileDescriptor(uri, "r")) {
-            if (fd != null) {
-                return new androidx.exifinterface.media.ExifInterface(fd.getFileDescriptor()).getAttributeInt(
-                        androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
-                        androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL);
-            }
-        } catch (Throwable ignored) { }
-        return -1;
-    }
-
-    /**
-     * The image, decoded. `BitmapFactory` first -- the path every JPEG and PNG
-     * has always taken -- and `ImageDecoder` when that comes back empty.
-     *
-     * The second attempt is for HEIC/HEIF. Samsung and iPhone save 10-bit HEIF,
-     * `BitmapFactory.decodeStream` returns null on those (and reports no bounds
-     * at all for the sniff), while the platform decoder behind `ImageDecoder`
-     * (API 28+) hands back a software bitmap. The old code said "无法解码图片"
-     * and stopped -- which a Samsung user read, correctly, as "this app cannot
-     * import my photos".
-     */
-    private Bitmap decodeImport(Uri uri, int capPixels, int edgeCap) {
-        try {
-            BitmapFactory.Options bounds = new BitmapFactory.Options();
-            bounds.inJustDecodeBounds = true;
-            try (InputStream head = getContentResolver().openInputStream(uri)) {
-                if (head != null) {
-                    BitmapFactory.decodeStream(head, null, bounds);
-                }
-            } catch (Throwable t) {
-                try { DebugSink.text("decode", "sniff " + t); } catch (Throwable ignored) { }
-            }
-            if (bounds.outWidth > 0 && bounds.outHeight > 0) {
-                int sample = 1;
-                while ((long) (bounds.outWidth / (sample * 2)) * (bounds.outHeight / (sample * 2)) >= capPixels
-                        || Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= edgeCap) {
-                    sample *= 2;
-                }
-                BitmapFactory.Options opts = new BitmapFactory.Options();
-                opts.inSampleSize = sample;
-                try (InputStream stream = getContentResolver().openInputStream(uri)) {
-                    Bitmap decoded = BitmapFactory.decodeStream(stream, null, opts);
-                    if (decoded != null) {
-                        return decoded;
-                    }
-                    try { DebugSink.text("decode", "null at sample " + sample); }
-                    catch (Throwable ignored) { }
-                } catch (Throwable t) {
-                    try { DebugSink.text("decode", "stream " + t); } catch (Throwable ignored) { }
-                }
-            } else {
-                try { DebugSink.text("decode", "no bounds " + bounds.outWidth + "x" + bounds.outHeight); }
-                catch (Throwable ignored) { }
-            }
-        } catch (Throwable t) {
-            try { DebugSink.text("decode", "outer " + t); } catch (Throwable ignored) { }
-        }
-        return decodeViaImageDecoder(uri, capPixels, edgeCap);
-    }
-
-    /**
-     * The platform decoder through its newer door, scaled in the decoder so the
-     * full-size bitmap never exists. **Software allocator on purpose**: a
-     * hardware bitmap cannot be read back with `getPixels`, and the import path
-     * reads every pixel into a float buffer.
-     */
-    private Bitmap decodeViaImageDecoder(Uri uri, final int capPixels, final int edgeCap) {
-        if (android.os.Build.VERSION.SDK_INT < 28) {
-            return null;
-        }
-        try {
-            final android.graphics.ImageDecoder.Source src =
-                    android.graphics.ImageDecoder.createSource(getContentResolver(), uri);
-            Bitmap decoded = android.graphics.ImageDecoder.decodeBitmap(src,
-                    (decoder, info, source) -> {
-                        final android.util.Size size = info.getSize();
-                        final int w = size.getWidth(), h = size.getHeight();
-                        final double k = ImportBudget.scale(w, h, capPixels, edgeCap, 0);
-                        if (k < 1.0) {
-                            decoder.setTargetSize(Math.max(1, (int) Math.round(w * k)),
-                                                  Math.max(1, (int) Math.round(h * k)));
-                        }
-                        decoder.setAllocator(android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE);
-                    });
-            try { DebugSink.text("decode", "imagedecoder " + decoded.getWidth() + "x"
-                    + decoded.getHeight()); } catch (Throwable ignored) { }
-            return decoded;
-        } catch (Throwable t) {
-            try { DebugSink.text("decode", "imagedecoder " + t); } catch (Throwable ignored) { }
-            return null;
-        }
-    }
-
     /**
      * A failure the user can act on. `OutOfMemoryError` is an `Error`, not an
      * `Exception`, which is why the `catch (Exception)` this replaces let the
@@ -6873,47 +6755,6 @@ refreshEdgeFormats();
         }
         return SpkError.format(describe(t));
     }
-
-    private Bitmap applyExifRotation(Uri uri, Bitmap bitmap) {
-        final int orientation = readOrientation(uri);
-        try { DebugSink.text("exif", "orientation=" + orientation + " bitmap="
-                + bitmap.getWidth() + "x" + bitmap.getHeight()); } catch (Throwable ignored) { }
-        return rotateForOrientation(bitmap, orientation);
-    }
-
-    /** The orientation tag as a matrix. 0 or negative means "unreadable". */
-    private Bitmap rotateForOrientation(Bitmap bitmap, int orientation) {
-        if (orientation <= 0) {
-            return bitmap;  // unreadable: leave the pixels alone
-        }
-        try {
-            android.graphics.Matrix matrix = new android.graphics.Matrix();
-            switch (orientation) {
-                case androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90:
-                    matrix.postRotate(90); break;
-                case androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180:
-                    matrix.postRotate(180); break;
-                case androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270:
-                    matrix.postRotate(270); break;
-                case androidx.exifinterface.media.ExifInterface.ORIENTATION_FLIP_HORIZONTAL:
-                    matrix.postScale(-1, 1); break;
-                case androidx.exifinterface.media.ExifInterface.ORIENTATION_FLIP_VERTICAL:
-                    matrix.postScale(1, -1); break;
-                // The two mirrored rotations. Rare, but a phone that writes 5
-                // or 7 and lands in the default branch shows its photo sideways.
-                case androidx.exifinterface.media.ExifInterface.ORIENTATION_TRANSPOSE:
-                    matrix.postRotate(90); matrix.postScale(-1, 1); break;
-                case androidx.exifinterface.media.ExifInterface.ORIENTATION_TRANSVERSE:
-                    matrix.postRotate(-90); matrix.postScale(-1, 1); break;
-                default:
-                    return bitmap;
-            }
-            return Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
-        } catch (Exception e) {
-            return bitmap;
-        }
-    }
-
 
     /**
      * A stock change only re-renders. Measured against fresh sessions on this
