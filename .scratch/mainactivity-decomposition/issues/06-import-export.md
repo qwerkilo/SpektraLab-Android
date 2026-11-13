@@ -39,3 +39,5 @@ the attempt).
   line target is deferred to a later controller slice rather than pretending the
   current split meets it.)
 - [ ] Four gates green; `align16k` ok.
+
+**Additional extraction (2026-11-13):** ui.panel.ImportPicker owns both intent chains and the first-resolvable launch; ImportPickerTest covers order, grant, fallback and no-picker. core.BatchPlan skips frames with no film and keeps the progress denominator honest (BatchPlanCheck 12). The Activity keeps onActivityResult, the budget decision, writers and the reopen loop.

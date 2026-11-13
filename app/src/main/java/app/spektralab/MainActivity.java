@@ -48,6 +48,7 @@ import app.spektralab.ui.panel.EdgeHomePanel;
 import app.spektralab.ui.panel.EdgePagesPanel;
 import app.spektralab.ui.panel.ExportSheet;
 import app.spektralab.ui.panel.ImportBudgetSheet;
+import app.spektralab.ui.panel.ImportPicker;
 import app.spektralab.ui.panel.ScalePanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
@@ -205,6 +206,21 @@ public class MainActivity extends AppCompatActivity {
         // dark session never starts on a light launch surface.
         applyLaunchTheme();
         super.onCreate(savedInstanceState);
+        importPicker = new ImportPicker(new ImportPicker.Host() {
+            @Override public boolean canResolve(Intent intent) {
+                return intent.resolveActivity(getPackageManager()) != null;
+            }
+
+            @Override public void start(Intent intent, int requestCode) {
+                startActivityForResult(intent, requestCode);
+            }
+
+            @Override public void noPicker(boolean documents) {
+                showSnackbar(documents
+                        ? "本机没有可用的文件选择器；请改用相册选择"
+                        : "本机没有可用的图片选择器；请改用文件管理器选择");
+            }
+        });
         installCrashLogger();
         applyWindowPalette();
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
@@ -419,6 +435,7 @@ public class MainActivity extends AppCompatActivity {
     }
             private final java.util.List<Frame> frames = new java.util.ArrayList<>();
     private boolean batchImportRunning;
+    private ImportPicker importPicker;
     private boolean batchExportRunning;
     private boolean batchExportAbort;
     private LinearLayout sourceBar, sourceRow, thumbStrip;
@@ -5781,49 +5798,13 @@ card.setOnClickListener(v -> {
      * launch, and it has to have somewhere to go next.
      */
     private void pickImage() {
-        java.util.List<Intent> chain = new ArrayList<>();
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
-            chain.add(new Intent(android.provider.MediaStore.ACTION_PICK_IMAGES));
-        }
-        chain.add(new Intent(Intent.ACTION_GET_CONTENT)
-                .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
-                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true));
-        chain.add(new Intent(Intent.ACTION_OPEN_DOCUMENT)
-                .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
-                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION));
-        if (!launchFirstResolvable(chain, 1)) {
-            showSnackbar("本机没有可用的图片选择器；请点「导入」→「从文件管理器选择」");
-        }
+        importPicker.pickGallery();
     }
 
     /**
      * Launch the first intent this ROM resolves, and never let the launch itself
      * kill the process. False when none of them is available.
      */
-    private boolean launchFirstResolvable(java.util.List<Intent> chain, int requestCode) {
-        for (Intent intent : chain) {
-            try {
-                if (intent.resolveActivity(getPackageManager()) == null) {
-                    try { DebugSink.text("picker", "unresolvable " + intent.getAction()); }
-                    catch (Throwable ignored) { }
-                    continue;
-                }
-                startActivityForResult(intent, requestCode);
-                try { DebugSink.text("picker", "launched " + intent.getAction()); }
-                catch (Throwable ignored) { }
-                return true;
-            } catch (Throwable t) {
-                // Resolvable and still refused: a provider that vanished
-                // between the check and the launch, a SecurityException, or a
-                // picker that throws from its own onCreate. Next one.
-                try { DebugSink.text("picker", intent.getAction() + " failed: " + t); }
-                catch (Throwable ignored) { }
-            }
-        }
-        return false;
-    }
 
     /**
      * Documents, for RAW. Sony's .ARW and several other RAW containers are
@@ -5840,33 +5821,7 @@ card.setOnClickListener(v -> {
      * to images, which is what "下载后没法导入" describes.
      */
     private void pickRawFile() {
-        final String[] types = {
-                "image/*",
-                "image/heic", "image/heif", "image/x-heic", "image/x-heif", "image/x-cfif",
-                "application/octet-stream",
-                "image/x-sony-arw", "image/x-canon-cr2", "image/x-canon-cr3",
-                "image/x-nikon-nef", "image/x-adobe-dng", "image/x-panasonic-rw2",
-                "image/x-panasonic-raw", "image/x-olympus-orf", "image/x-fuji-raf",
-                "image/x-pentax-pef", "image/x-samsung-srw", "image/x-sigma-x3f"
-        };
-        java.util.List<Intent> chain = new ArrayList<>();
-        Intent documents = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        documents.addCategory(Intent.CATEGORY_OPENABLE);
-        documents.setType("*/*");
-        documents.putExtra(Intent.EXTRA_MIME_TYPES, types);
-        documents.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        documents.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        chain.add(documents);
-        Intent content = new Intent(Intent.ACTION_GET_CONTENT);
-        content.addCategory(Intent.CATEGORY_OPENABLE);
-        content.setType("*/*");
-        content.putExtra(Intent.EXTRA_MIME_TYPES, types);
-        content.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        chain.add(content);
-        if (!launchFirstResolvable(chain, 1)) {
-            showSnackbar("本机没有可用的文件选择器");
-        }
+        importPicker.pickDocuments();
     }
 
     @Override
