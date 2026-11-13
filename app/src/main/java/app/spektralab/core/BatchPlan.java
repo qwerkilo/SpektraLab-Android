@@ -61,4 +61,15 @@ public final class BatchPlan {
         return "批量导出 " + (position + 1) + "/" + frames.length
                 + (skipped > 0 ? "（跳过 " + skipped + " 帧）" : "");
     }
+
+    /**
+     * Completion line. Skipped frames are their own count: they were never
+     * attempted, so folding them into the failures would overstate breakage.
+     */
+    public String summary(int ok, int failed) {
+        final int skipped = total - frames.length;
+        return "批量导出完成：" + ok + " 张成功"
+                + (failed > 0 ? "，" + failed + " 张失败" : "")
+                + (skipped > 0 ? "，" + skipped + " 张跳过（没有胶片）" : "");
+    }
 }

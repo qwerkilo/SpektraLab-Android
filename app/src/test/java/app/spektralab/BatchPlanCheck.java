@@ -27,10 +27,15 @@ public final class BatchPlanCheck {
         eq(5, mixed.totalFrames(), "total includes skipped frames");
         eq("批量导出 1/3（跳过 2 帧）", mixed.label(0), "first label names the skipped frames");
         eq("批量导出 3/3（跳过 2 帧）", mixed.label(2), "last label uses the eligible count");
+        eq("批量导出完成：3 张成功，2 张跳过（没有胶片）", mixed.summary(3, 0),
+                "skipped frames are not folded into failures");
+        eq("批量导出完成：2 张成功，1 张失败，2 张跳过（没有胶片）", mixed.summary(2, 1),
+                "a real failure is named next to the skips");
 
         final BatchPlan all = BatchPlan.of(new boolean[]{true, true});
         eq(2, all.size(), "all eligible");
         eq("批量导出 2/2", all.label(1), "all eligible label has no skip suffix");
+        eq("批量导出完成：2 张成功", all.summary(2, 0), "no suffix when nothing was skipped");
 
         System.out.println("BatchPlanCheck: " + checks + " checks passed");
     }

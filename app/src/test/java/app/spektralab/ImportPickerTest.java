@@ -26,6 +26,8 @@ public class ImportPickerTest {
         final List<Intent> seen = new ArrayList<>();
         final List<Intent> started = new ArrayList<>();
         boolean noPicker;
+        boolean noPickerDocuments;
+        int lastRequestCode;
         int refuseFirst;
 
         @Override public boolean canResolve(Intent intent) {
@@ -39,10 +41,12 @@ public class ImportPickerTest {
 
         @Override public void start(Intent intent, int requestCode) {
             started.add(intent);
+            lastRequestCode = requestCode;
         }
 
         @Override public void noPicker(boolean documents) {
             noPicker = true;
+            noPickerDocuments = documents;
         }
     }
 
@@ -53,6 +57,7 @@ public class ImportPickerTest {
 
         assertEquals(1, host.started.size());
         assertEquals(Intent.ACTION_GET_CONTENT, host.started.get(0).getAction());
+        assertEquals(ImportPicker.REQUEST_CODE, host.lastRequestCode);
         assertTrue(!host.noPicker);
     }
 
@@ -97,6 +102,7 @@ public class ImportPickerTest {
 
         final Intent first = host.started.get(0);
         assertEquals(Intent.ACTION_OPEN_DOCUMENT, first.getAction());
+        assertEquals(ImportPicker.REQUEST_CODE, host.lastRequestCode);
         assertEquals("*/*", first.getType());
         assertTrue((first.getFlags() & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0);
         final String[] mime = first.getStringArrayExtra(Intent.EXTRA_MIME_TYPES);
@@ -111,6 +117,8 @@ public class ImportPickerTest {
         new ImportPicker(host).pickDocuments();
 
         assertTrue(host.noPicker);
+        assertTrue("the empty state must know it was the Documents entry",
+                host.noPickerDocuments);
         assertEquals(2, host.seen.size());
         assertEquals(0, host.started.size());
     }

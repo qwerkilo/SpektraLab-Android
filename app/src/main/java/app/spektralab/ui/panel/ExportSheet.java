@@ -78,9 +78,9 @@ public final class ExportSheet {
      */
     public static String note(boolean limited, String driverLine) {
         return (limited
-                ? "TIFF 为 16 位；"
+                ? "TIFF 是 16 位；"
                   + "导出后点导出旁边的「分享」，分享到 Lightroom 即可使用（手机相册多半不显示 TIFF）。JPEG 哪儿都能看。"
-                : "TIFF 为 16 位；"
+                : "TIFF 是 16 位；"
                   + "导出后点导出旁边的「分享」，分享到 Lightroom 即可使用（手机相册多半不显示 TIFF）。JPEG 是 8 位、哪儿都能看")
                 + "\n" + driverLine
                 + "\nDNG 只给电脑上的 Lightroom / ACR 用：手机版 Lr 打不开是已知问题，"

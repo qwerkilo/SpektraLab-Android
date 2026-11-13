@@ -45,6 +45,9 @@ public final class ExportSheetCheck {
         require("limited note still offers JPEG", limited.contains("JPEG"));
         final String full = ExportSheet.note(false, "driver-line");
         require("full note offers 8-bit JPEG", full.contains("8 位"));
+        require("the TIFF sentence keeps its original wording",
+                limited.startsWith("TIFF 是 16 位；")
+                        && full.startsWith("TIFF 是 16 位；"));
         require("both notes warn that DNG is a desktop hand-off",
                 limited.contains("DNG") && full.contains("DNG"));
         plusOne();

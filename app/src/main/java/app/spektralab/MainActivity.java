@@ -218,7 +218,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public void noPicker(boolean documents) {
                 showSnackbar(documents
                         ? "本机没有可用的文件选择器；请改用相册选择"
-                        : "本机没有可用的图片选择器；请改用文件管理器选择");
+                        : "本机没有可用的图片选择器；请点「导入」→「从文件管理器选择」");
             }
         });
         installCrashLogger();
@@ -5753,31 +5753,13 @@ card.setOnClickListener(v -> {
     }
 
     /**
-     * Tap: the gallery, which is where phone photos and JPEGs are.
-     *
-     * Three intents, in the order the user expects them, and the first one this
-     * ROM can actually resolve wins: the system Photo Picker (13+), then
-     * `GET_CONTENT image/*` (every Android before 13), then the document
-     * picker (every Android, period).
-     *
-     * The chain is not belt-and-braces. A launch that cannot be resolved throws
-     * `ActivityNotFoundException`, and an uncaught throw inside a click handler
-     * does not show an error -- it kills the process. That is exactly the
-     * report "一选导入就自动退回桌面了" on a Honor/HarmonyOS phone: no message,
-     * because there was nothing left alive to show one. Those ROMs ship without
-     * the AOSP Photo Picker activity (it lives in the MediaProvider module, and
-     * an HMS build does not have it) while the `ACTION_PICK_IMAGES` intent
-     * still resolves to the chooser's fallback -- so the check has to be at the
-     * launch, and it has to have somewhere to go next.
+     * Gallery import. The intent chain, its order and the
+     * first-resolvable fallback live in {@code ImportPicker}.
      */
     private void pickImage() {
         importPicker.pickGallery();
     }
 
-    /**
-     * Launch the first intent this ROM resolves, and never let the launch itself
-     * kill the process. False when none of them is available.
-     */
 
     /**
      * Documents, for RAW. Sony's .ARW and several other RAW containers are
@@ -5800,7 +5782,7 @@ card.setOnClickListener(v -> {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != 1) {
+        if (requestCode != ImportPicker.REQUEST_CODE) {
             return;
         }
         if (resultCode != RESULT_OK) {
@@ -7746,7 +7728,7 @@ refreshEdgeFormats();
         } finally {
             final int okCount = ok;
             final int failedCount = failed;
-            runOnUiThread(() -> finishBatchExport(home, okCount, failedCount));
+            runOnUiThread(() -> finishBatchExport(home, plan.summary(okCount, failedCount)));
         }
     }
 
@@ -7759,13 +7741,11 @@ refreshEdgeFormats();
         }
     }
 
-    private void finishBatchExport(int home, int ok, int failed) {
+    private void finishBatchExport(int home, String msg) {
         batchExportRunning = false;
         if (exportProgressBar != null) {
             exportProgressBar.setVisibility(View.GONE);
         }
-        final String msg = "批量导出完成：" + ok + " 张成功"
-                + (failed > 0 ? "，" + failed + " 张跳过或失败" : "");
         statusText.setText(msg);
         showSnackbar(msg);
         if (home >= 0 && home < frames.size()) {
