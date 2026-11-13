@@ -33,10 +33,9 @@ import app.spektralab.core.ReopenDecision;
 import app.spektralab.core.ScanProfile;
 import app.spektralab.core.ScanSample;
 import app.spektralab.core.SessionDocument;
-import app.spektralab.core.ExportDigest;
+import app.spektralab.export.ExportRunner;
 import app.spektralab.core.BatchPlan;
 import app.spektralab.core.ExportMatch;
-import app.spektralab.core.GalleryExport;
 import app.spektralab.core.SpectrumCurve;
 import app.spektralab.core.SpectrumSamples;
 import app.spektralab.core.StockNames;
@@ -7562,57 +7561,6 @@ refreshEdgeFormats();
         } catch (Throwable ignored) { return ""; }
     }
 
-    /** Write a finished export into the gallery and return its URI. */
-    private Uri writeExportToGallery(java.io.File tmp, String mime, String ext) throws Exception {
-        final String fileName = "SpektraLab_" + System.currentTimeMillis() + ext;
-        final android.content.ContentValues values = new android.content.ContentValues();
-        values.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, fileName);
-        values.put(android.provider.MediaStore.Images.Media.MIME_TYPE, mime);
-        values.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH,
-                android.os.Environment.DIRECTORY_PICTURES + "/SpektraLab");
-        values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 1);
-        final android.content.ContentResolver resolver = getContentResolver();
-        final Uri outUri = resolver.insert(
-                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-        if (outUri == null) {
-            throw new RuntimeException("无法创建媒体文件");
-        }
-        final ExportDigest.Result copied = GalleryExport.write(tmp, new GalleryExport.Sink() {
-            @Override
-            public java.io.OutputStream openOutput() throws java.io.IOException {
-                return resolver.openOutputStream(outUri);
-            }
-
-            @Override
-            public java.io.InputStream openInput() throws java.io.IOException {
-                return resolver.openInputStream(outUri);
-            }
-
-            @Override
-            public void publish() throws java.io.IOException {
-                values.clear();
-                values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0);
-                if (resolver.update(outUri, values, null, null) <= 0) {
-                    throw new java.io.IOException("导出发布失败：媒体行未更新");
-                }
-            }
-
-            @Override
-            public void discard() {
-                try {
-                    resolver.delete(outUri, null, null);
-                } catch (Throwable ignored) {
-                    // The row may already be gone; the original failure matters more.
-                }
-            }
-        });
-        try {
-            DebugSink.text("export-verify", "bytes=" + copied.length
-                    + " sha256=" + ExportDigest.hex(copied.sha256));
-        } catch (Throwable ignored) { }
-        return outUri;
-    }
-
     private void exportImage(String format, String tier) {
         exportImage(format, tier, null);
     }
@@ -7772,309 +7720,77 @@ refreshEdgeFormats();
     }
 
 
-    /** Re-state the export Look and render the full-size file. */
-    private ExportRender renderExportFile(java.io.File tmp, String exportParams,
-                                         double[] viewAdjust, String rawExportPath,
-                                         String tier, boolean dng, boolean tiff) {
-        final int[] info;
-        final String canvas;
-        synchronized (renderMutex) {
-            // Everything the preview drew with, re-stated: a stock,
-            // a paper, a gate, an edge text or a date that moved
-            // since the last render would otherwise be exported as
-            // the *preview* had it, or not at all.
-            SpektraLabEngine.Session target = session;
-            SpektraLabEngine.Session rawExport = null;
-            try {
-                if (rawExportPath != null) {
-                    if (rawExportPath.isEmpty()) {
-                        throw new RuntimeException("RAW 文件路径不可用，无法导出");
-                    }
-                    // A RAW export decodes the file into its own
-                    // session. Re-stating the preview session used
-                    // to change the picture on screen and left the
-                    // export sharing the preview's preview-sized
-                    // decode. This session is opened with the caps
-                    // the import chose, gets the same Look, and is
-                    // closed before the gallery write.
-                    rawExport = engine.openRawSession(rawExportPath, exportParams,
-                            rawImportMaxPixels, rawImportLongEdge);
-                    target = rawExport;
-                }
-                SpektraLabEngine.setViewAdjust(viewAdjust);
-                target.setParams(exportParams);
-                try {
-                    DebugSink.text("overscan-geom", "tier=" + tier + " before "
-                            + target.overscanGeometry());
-                    // The whole parameter set this export is about to use.
-                    // "the export disagrees with the preview" is a question
-                    // about which of these two numbers changed.
-                    DebugSink.text("export-params", "tier=" + tier
-                            + " raw=" + (rawExport != null) + " " + target.getParams());
-                } catch (Throwable ignored) { }
-                info = dng
-                        ? target.exportDng(tmp.getAbsolutePath(), tier)
-                        : tiff
-                        ? target.exportTiff(tmp.getAbsolutePath(), tier)
-                        : target.exportJpeg(tmp.getAbsolutePath(), 95, 512, tier);
-                canvas = overscanCanvasLabel(target);
-                try {
-                    DebugSink.text("overscan-geom", "tier=" + tier + " " + info[0] + "x" + info[1]
-                            + " " + target.overscanGeometry());
-                } catch (Throwable ignored) { }
-            } finally {
-                if (rawExport != null) {
-                    rawExport.close();
-                }
-            }
-        }
-        return new ExportRender(info, canvas);
+    /** Start one export; the runner owns the worker and the gallery row. */
+    private void startExportThread(String format, String tier, boolean tiff, boolean dng,
+                                   String ext, String mime, String exportStock,
+                                   String exportParams, double[] exportViewAdjust,
+                                   String rawExportPath, java.util.function.IntConsumer onDone) {
+        statusText.setText("导出中：准备全尺寸渲染（分条）...");
+        exportProgressBar.setVisibility(View.VISIBLE);
+        setStep(3);
+        ExportRunner.start(new ExportRunner.Job(format, tier, tiff, dng, ext, mime,
+                exportStock, exportParams, exportViewAdjust, rawExportPath, onDone), exportHost);
     }
 
-    /** The engine's export result and the canvas it actually drew. */
-    private static final class ExportRender {
-        private final int[] info;
-        private final String canvas;
-
-        private ExportRender(int[] info, String canvas) {
-            this.info = info;
-            this.canvas = canvas;
-        }
-    }
-
-    /**
-     * Gray correlation between the exported JPEG and the canvas on screen.
-     *
-     * @return the score in [-1, 1], or -1 when the file or canvas cannot be read
-     */
-    private static double exportMatchesCanvas(java.io.File file, Bitmap canvas) {
-        if (file == null || canvas == null || canvas.getWidth() <= 0) {
-            return -1;
-        }
-        try {
-            final android.graphics.BitmapFactory.Options bounds =
-                    new android.graphics.BitmapFactory.Options();
-            bounds.inJustDecodeBounds = true;
-            android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                return -1;
-            }
-            int sample = 1;
-            while (Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 200) {
-                sample *= 2;
-            }
-            final android.graphics.BitmapFactory.Options opts =
-                    new android.graphics.BitmapFactory.Options();
-            opts.inSampleSize = sample;
-            final Bitmap decoded = android.graphics.BitmapFactory.decodeFile(
-                    file.getAbsolutePath(), opts);
-            if (decoded == null) {
-                return -1;
-            }
-            final int gw = 48;
-            final int gh = Math.max(8, Math.round(gw * (float) decoded.getHeight()
-                    / decoded.getWidth()));
-            final Bitmap a = Bitmap.createScaledBitmap(decoded, gw, gh, true);
-            final Bitmap b = Bitmap.createScaledBitmap(canvas, gw, gh, true);
-            final int[] pa = new int[gw * gh];
-            final int[] pb = new int[gw * gh];
-            a.getPixels(pa, 0, gw, 0, 0, gw, gh);
-            b.getPixels(pb, 0, gw, 0, 0, gw, gh);
-            if (a != decoded) {
-                a.recycle();
-            }
-            if (b != canvas) {
-                b.recycle();
-            }
-            decoded.recycle();
-            return ExportMatch.ncc(pa, pb);
-        } catch (Throwable t) {
-            return -1;
-        }
-    }
-
-    /** Write the rendered file to the gallery and publish the result. */
-    private void finishExport(java.io.File tmp, int[] info, String canvas, long t0,
-                                  String format, String tier, String ext, String mime,
-                                  boolean tiff, boolean dng, boolean suspect,
-                                  java.util.function.IntConsumer onDone) throws Exception {
-        uploadExportProgress(tmp);
-        uploadVkLog();
-        int w = info[0], h = info[1];
-        long renderMs = info[2];
-        if (w <= 0 || h <= 0 || !tmp.exists() || tmp.length() == 0) {
-            throw new RuntimeException("引擎没有输出图像");
+    /** The Activity half of the export worker. */
+    private final ExportRunner.Host exportHost = new ExportRunner.Host() {
+        @Override public java.io.File cacheDir() {
+            return getCacheDir();
         }
 
-        final int fw = w, fh = h;
-        runOnUiThread(() -> statusText.setText("导出中：写入相册 " + fw + "x" + fh + "..."));
-        final Uri outUri = writeExportToGallery(tmp, mime, ext);
+        @Override public Object renderMutex() {
+            return renderMutex;
+        }
 
-        try {
-            long len = tmp.length();
-            DebugSink.text("export", "format=" + format + " tier=" + tier
-                    + " w=" + w + " h=" + h + " renderMs=" + renderMs
-                    + " bytes=" + len);
-            if (len > 0 && len < 30L * 1024 * 1024) {
-                byte[] buf = new byte[(int) len];
-                try (java.io.InputStream in = new java.io.FileInputStream(tmp)) {
-                    int off = 0, n;
-                    while (off < buf.length && (n = in.read(buf, off, buf.length - off)) > 0) {
-                        off += n;
-                    }
-                }
-                DebugSink.bytes("export", "out-" + tier + ext, buf, mime);
-            }
-        } catch (Throwable ignored) {}
-        final long secs = Math.max(1, (System.currentTimeMillis() - t0) / 1000);
-        final long fRender = renderMs;
-        final long bytes = tmp.exists() ? tmp.length() : 0;
-        final String sizeLabel = bytes > 0
-                ? String.format(java.util.Locale.getDefault(), "%.1f MB", bytes / 1048576.0) : "?";
-        runOnUiThread(() -> {
-            if (suspect) {
+        @Override public SpektraLabEngine.Session previewSession() {
+            return session;
+        }
+
+        @Override public SpektraLabEngine.Session openRawSession(String path, String params) {
+            return engine.openRawSession(path, params, rawImportMaxPixels, rawImportLongEdge);
+        }
+
+        @Override public Bitmap canvasBitmap() {
+            return lastRenderedBitmap;
+        }
+
+        @Override public android.content.ContentResolver resolver() {
+            return getContentResolver();
+        }
+
+        @Override public void uiProgress(final String text) {
+            runOnUiThread(() -> statusText.setText(text));
+        }
+
+        @Override public void uiWriting(final int width, final int height) {
+            runOnUiThread(() -> statusText.setText("导出中：写入相册 " + width + "x" + height + "..."));
+        }
+
+        @Override public void uiResult(final Uri uri, final String mime, final String canvas,
+                                       final int width, final int height, final long renderMs,
+                                       final long secs, final String sizeLabel,
+                                       final boolean tiff, final boolean dng) {
+            runOnUiThread(() -> applyExportResult(uri, mime, canvas, width, height,
+                    renderMs, secs, sizeLabel, tiff, dng));
+        }
+
+        @Override public void uiSuspect() {
+            runOnUiThread(() -> {
                 statusText.setText("导出结构异常：可能花屏，请再导一次");
                 showSnackbar("导出结构异常：文件已保存，但可能花屏，请再导一次");
                 exportProgressBar.setVisibility(View.GONE);
                 setStep(2);
-            } else {
-                applyExportResult(outUri, mime, canvas, fw, fh,
-                        fRender, secs, sizeLabel, tiff, dng);
-            }
-            if (onDone != null) {
-                onDone.accept(suspect ? 0 : 1);
-            }
-        });
-        }
-
-    /** Render one export, write it to the gallery and report on the UI thread. */
-        private void startExportThread(String format, String tier, boolean tiff, boolean dng,
-                                  String ext, String mime, String exportStock,
-                                  String exportParams, double[] exportViewAdjust,
-                                  String rawExportPath, java.util.function.IntConsumer onDone) {
-        new Thread(() -> {
-            java.io.File tmp = new java.io.File(getCacheDir(), "export_" + System.currentTimeMillis() + ext);
-            try {
-                runOnUiThread(() -> {
-                statusText.setText("导出中：准备全尺寸渲染（分条）...");
-                exportProgressBar.setVisibility(View.VISIBLE);
-                setStep(3);
             });
-            // A stock delta before an export is fine -- measured, not
-            // assumed (`full_after_delta`: mean 104.2 std 11945 before,
-            // 102.4 std 12481 after, and the two hashes differ). It is the
-            // same delta the preview renders with, which is the point.
-            try {
-                DebugSink.text("export-params", "film=" + exportStock + " print=" + live().printStock
-                        + " raw=" + (rawExportPath != null) + " " + exportParams);
-            } catch (Throwable ignored) {}
-
-            final long t0 = System.currentTimeMillis();
-            final java.util.concurrent.atomic.AtomicBoolean spinning =
-                    new java.util.concurrent.atomic.AtomicBoolean(true);
-            final android.os.Handler ticker = new android.os.Handler(android.os.Looper.getMainLooper());
-            Runnable tick = new Runnable() {
-                @Override public void run() {
-                    if (!spinning.get()) {
-                        return;
-                    }
-                    long el = (System.currentTimeMillis() - t0) / 1000;
-                    statusText.setText("导出中（" + tier + "）：渲染中 " + el + " 秒...");
-                    ticker.postDelayed(this, 1000);
-                }
-            };
-                runOnUiThread(tick);
-                final ExportOutcome outcome;
-                try {
-                    outcome = renderExportAttempts(tmp, exportParams, exportViewAdjust,
-                            rawExportPath, tier, dng, tiff);
-                } finally {
-                    spinning.set(false);
-                }
-                finishExport(tmp, outcome.info, outcome.canvas, t0, format, tier, ext, mime,
-                        tiff, dng, outcome.suspect, onDone);
-            } catch (Throwable e) {
-                final String msg = describe(e);
-                try { DebugSink.text("export-error", "tier=" + tier + " " + msg); } catch (Throwable ignored) {}
-                uploadExportProgress(tmp);
-                uploadVkLog();
-                runOnUiThread(() -> {
-                    applyExportFailure(msg);
-                    if (onDone != null) {
-                        onDone.accept(0);
-                    }
-                });
-                final int code = SpkError.codeOf(msg);
-                if (code == 1001 || code == 1009) {
-                    offerSmallerImport();
-                }
-            } finally {
-                if (tmp.exists()) {
-                    tmp.delete();
-                }
-            }
-        }).start();
-    }
-
-    /** Render, and retry once when the written JPEG does not match the canvas. */
-    private ExportOutcome renderExportAttempts(java.io.File tmp, String exportParams,
-                                               double[] viewAdjust, String rawPath,
-                                               String tier, boolean dng, boolean tiff) {
-        ExportOutcome outcome = null;
-        for (int attempt = 0; attempt < 2; attempt++) {
-            final ExportRender rendered = renderExportFile(tmp, exportParams, viewAdjust,
-                    rawPath, tier, dng, tiff);
-            outcome = new ExportOutcome(rendered.info, rendered.canvas, false);
-            if (tiff || dng) {
-                return outcome;
-            }
-            final double ncc = exportMatchesCanvas(tmp, lastRenderedBitmap);
-            if (!ExportMatch.suspect(ncc)) {
-                logExportNcc(ncc);
-                return outcome;
-            }
-            outcome = new ExportOutcome(rendered.info, rendered.canvas, true);
-            logExportCorrupt(ncc, rendered.info, tier, attempt);
-            if (attempt == 1) {
-                return outcome;
-            }
-            tmp.delete();
         }
-        return outcome;
-    }
 
-    private static void logExportNcc(double ncc) {
-        if (ncc >= 0) {
-            final String line = String.format(java.util.Locale.US, "canvas NCC %.3f", ncc);
-            android.util.Log.i("SpektraLabExport", line);
-            try {
-                DebugSink.text("export-selfcheck", line);
-            } catch (Throwable ignored) { }
+        @Override public void uiFailure(final String message, final int code) {
+            runOnUiThread(() -> applyExportFailure(message));
         }
-    }
 
-    private static void logExportCorrupt(double ncc, int[] info, String tier, int attempt) {
-        final String line = String.format(java.util.Locale.US,
-                "canvas NCC %.3f at %dx%d tier=%s attempt=%d",
-                ncc, info[0], info[1], tier, attempt);
-        android.util.Log.w("SpektraLabExport", line);
-        try {
-            DebugSink.textNow("export-corrupt", line);
-        } catch (Throwable ignored) { }
-    }
-
-    /** The engine's export result, the canvas it drew, and the self-check verdict. */
-    private static final class ExportOutcome {
-        private final int[] info;
-        private final String canvas;
-        private final boolean suspect;
-
-        private ExportOutcome(int[] info, String canvas, boolean suspect) {
-            this.info = info;
-            this.canvas = canvas;
-            this.suspect = suspect;
+        @Override public void offerSmallerImport(int code) {
+            MainActivity.this.offerSmallerImport();
         }
-    }
+    };
 
     /**
      * `Class: message`, then its cause chain. A native library that fails to
