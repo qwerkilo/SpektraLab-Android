@@ -33,6 +33,7 @@ import app.spektralab.core.ReopenDecision;
 import app.spektralab.core.ScanProfile;
 import app.spektralab.core.ScanSample;
 import app.spektralab.core.SessionDocument;
+import app.spektralab.core.ExportAttempts;
 import app.spektralab.core.ExportDigest;
 import app.spektralab.core.BatchPlan;
 import app.spektralab.core.ExportMatch;
@@ -8020,27 +8021,31 @@ refreshEdgeFormats();
     private ExportOutcome renderExportAttempts(java.io.File tmp, String exportParams,
                                                double[] viewAdjust, String rawPath,
                                                String tier, boolean dng, boolean tiff) {
-        ExportOutcome outcome = null;
-        for (int attempt = 0; attempt < 2; attempt++) {
-            final ExportRender rendered = renderExportFile(tmp, exportParams, viewAdjust,
-                    rawPath, tier, dng, tiff);
-            outcome = new ExportOutcome(rendered.info, rendered.canvas, false);
-            if (tiff || dng) {
-                return outcome;
-            }
-            final double ncc = exportMatchesCanvas(tmp, lastRenderedBitmap);
-            if (!ExportMatch.suspect(ncc)) {
-                logExportNcc(ncc);
-                return outcome;
-            }
-            outcome = new ExportOutcome(rendered.info, rendered.canvas, true);
-            logExportCorrupt(ncc, rendered.info, tier, attempt);
-            if (attempt == 1) {
-                return outcome;
-            }
-            tmp.delete();
-        }
-        return outcome;
+        final ExportAttempts.Outcome outcome = ExportAttempts.run(tiff, dng,
+                new ExportAttempts.Render() {
+                    @Override public ExportAttempts.Rendered render() {
+                        final ExportRender rendered = renderExportFile(tmp, exportParams,
+                                viewAdjust, rawPath, tier, dng, tiff);
+                        return new ExportAttempts.Rendered(rendered.info, rendered.canvas);
+                    }
+
+                    @Override public void discard() {
+                        tmp.delete();
+                    }
+                },
+                () -> exportMatchesCanvas(tmp, lastRenderedBitmap),
+                new ExportAttempts.Observer() {
+                    @Override public void accepted(double ncc) {
+                        logExportNcc(ncc);
+                    }
+
+                    @Override public void suspect(double ncc, int attempt,
+                                                  ExportAttempts.Rendered rendered) {
+                        logExportCorrupt(ncc, rendered.info, tier, attempt);
+                    }
+                });
+        return new ExportOutcome(outcome.rendered.info, outcome.rendered.canvas,
+                outcome.suspect);
     }
 
     private static void logExportNcc(double ncc) {
