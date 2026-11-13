@@ -22,6 +22,7 @@ theme rebuild. 04 OpticsPanel completed — head, 22-chip strip, readout, slider
 and both choice rows are panel-built; only the Look and commit policy stay in
 the Activity. 05 Scale/Edge completed for the Gate strip and Edge landing page;
 05b carries the rebate/date pages and is completed. 07 completed — the rail
-starts at 600 dp and the two-column split at 720 dp. 06 is in progress: export
-and import-budget sheets plus `BatchPlan` are extracted; picker launchers,
-writers and the batch reopen loop stay in the Activity.
+starts at 600 dp and the two-column split at 720 dp. 06 is completed for the extraction boundary: export and import-budget
+sheets, `ImportPicker`, the export note and `BatchPlan` are extracted; the
+export writers and the batch reopen loop remain in the Activity as a later
+worker-controller slice. The under-4,500-line target was not reached.

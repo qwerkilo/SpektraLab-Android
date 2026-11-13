@@ -2,7 +2,7 @@
 
 **Type:** task
 **Blocked by:** 05
-**Status:** in progress — export sheet extracted, import path remains
+**Status:** completed for the sheet/picker/plan boundary — export workers stay in the Activity
 
 **What to build:** Move picking, budget, batch and export into
 `ui.panel.ImportExportController`.
