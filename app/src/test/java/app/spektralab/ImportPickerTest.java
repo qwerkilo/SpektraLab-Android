@@ -57,6 +57,17 @@ public class ImportPickerTest {
     }
 
     @Test
+    @Config(sdk = 30)
+    public void olderRomHasNoPhotoPickerStep() {
+        final Recorder host = new Recorder();
+        host.refuseFirst = 1;
+        new ImportPicker(host).pickGallery();
+
+        assertEquals(2, host.seen.size());
+        assertEquals(Intent.ACTION_OPEN_DOCUMENT, host.started.get(0).getAction());
+    }
+
+    @Test
     public void galleryFallsBackToThePhotoPicker() {
         final Recorder host = new Recorder();
         host.refuseFirst = 1;
