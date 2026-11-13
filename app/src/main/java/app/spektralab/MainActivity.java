@@ -7746,11 +7746,13 @@ refreshEdgeFormats();
         if (exportProgressBar != null) {
             exportProgressBar.setVisibility(View.GONE);
         }
-        statusText.setText(msg);
-        showSnackbar(msg);
+        // Reopen first: it rewrites the status line to 「已恢复 · 原图」, which
+        // used to erase the completion summary a millisecond after it was set.
         if (home >= 0 && home < frames.size()) {
             reopenFrame(home);
         }
+        statusText.setText(msg);
+        showSnackbar(msg);
     }
 
     private boolean pollUntil(java.util.function.BooleanSupplier condition, long timeoutMs) {
