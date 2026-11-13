@@ -45,3 +45,5 @@ the attempt).
 **Device (2026-11-13):** on HyperOS both entries now open a real picker. 「从相册选择」 originally did nothing because ACTION_PICK_IMAGES resolved but finished immediately; ImportPicker now asks ACTION_GET_CONTENT first, which opens the system photo picker with multi-select and the 100-photo cap, and keeps ACTION_PICK_IMAGES only as a fallback. 「从文件管理器选择」 opens the system file picker.
 
 **Note extraction (2026-11-13):** ExportSheet.note(limited, driverLine) now owns the TIFF/DNG explanation; ExportSheetCheck 23 checks pin both variants. The Activity no longer carries the sheet copy.
+
+**Batch export device (2026-11-13):** two frames loaded, only the first has C200. 批量导出 JPEG realtime wrote exactly one file (`Pictures/SpektraLab/SpektraLab_1794534007986.jpg`, 1.5 MB) and restored the starting frame afterwards; the film-less frame was skipped instead of being counted as a failure. The import-budget sheet remains without a device pass.
