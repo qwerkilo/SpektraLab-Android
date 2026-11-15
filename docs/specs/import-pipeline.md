@@ -22,7 +22,7 @@ path, in slices that keep the engine contract unchanged.
    `StillPreviewTest` covers 4 cases.
 4. **RawDecoder** (landed) — RAW source preview from the engine session;
    `RawDecoderCheck` guards the owner.
-5. **RawDecoder full** — the LibRaw path behind one result object.
+5. **RawDecoder full** (in progress — `RawImportParams` + `RawSize` landed) — the LibRaw path behind one result object.
 6. **ImportController** — pixel packing, preview publish, session open and
    failure text, behind a Host.
 

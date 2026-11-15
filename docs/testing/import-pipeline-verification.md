@@ -52,3 +52,11 @@ Observed:
 
 This exercises `RawDecoder.preview` (`exportSource("live")` →
 `copyArgbRange` → bitmap) through the real LibRaw session.
+
+## RAW open parameters
+
+After `RawImportParams` and `RawSize` replaced the inline JSON and shrink
+predicate, `raw16.dng` was imported again on the same build line
+(`385 / 1.6.2m-m3`): stage `RAW PREVIEW`, footer `RAW metadata loaded`, a new
+frame in the strip, no `AndroidRuntime` error. The open JSON is the same string
+the 14-case `RawImportCheck` pins.
