@@ -24,6 +24,7 @@ import app.spektralab.engine.SpektraLabEngine;
 import app.spektralab.core.FilmBrand;
 import app.spektralab.core.HueCorrection;
 import app.spektralab.core.ImageFormat;
+import app.spektralab.core.ImportGate;
 import app.spektralab.core.LivePreviewGate;
 import app.spektralab.core.Metering;
 import app.spektralab.core.SafeFileName;
@@ -447,6 +448,7 @@ public class MainActivity extends AppCompatActivity {
     private ImportPicker importPicker;
     private boolean batchExportRunning;
     private boolean batchExportAbort;
+    private final ImportGate rawImportGate = new ImportGate();
     /** Completion text waiting for the reopened frame's preview callback. */
     private String pendingBatchSummary;
     private LinearLayout sourceBar, sourceRow, thumbStrip;
@@ -6152,6 +6154,7 @@ card.setOnClickListener(v -> {
 
     /** Mark the RAW import ready and develop it when its frame already has a film. */
     private void finishRawImport(boolean reopening) {
+        rawImportGate.finish();
         if (session == null) {
             pendingSession = null;
             restoringOriginal = false;
@@ -6206,6 +6209,7 @@ card.setOnClickListener(v -> {
 
     /** Publish a RAW import failure with its user-facing error code. */
     private void reportRawImportFailure(Throwable t) {
+        rawImportGate.finish();
         final String said = describeImportFailure(t);
         lastImportError = said;
         // A High-Efficiency NEF is not a preview job: name the compression
@@ -6289,7 +6293,16 @@ card.setOnClickListener(v -> {
 
     /** Run the RAW decode, solve and preview off the UI thread. */
     private void startRawImportThread(String filePath, String importParams, boolean reopening, Uri uri) {
-        new Thread(() -> importRawOnWorker(filePath, importParams, reopening, uri)).start();
+        if (!rawImportGate.tryStart()) {
+            showSnackbar("RAW 导入进行中，请稍候");
+            return;
+        }
+        try {
+            new Thread(() -> importRawOnWorker(filePath, importParams, reopening, uri)).start();
+        } catch (Throwable t) {
+            rawImportGate.finish();
+            throw t;
+        }
     }
 
     /** The worker half of a RAW import. */
