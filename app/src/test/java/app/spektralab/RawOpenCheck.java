@@ -3,6 +3,7 @@ package app.spektralab;
 import app.spektralab.core.RawOpenPlan;
 import app.spektralab.engine.SpektraLabEngine;
 import app.spektralab.importer.RawOpener;
+import app.spektralab.importer.RawSolver;
 
 /** The RAW open plan and the injected engine call. */
 public final class RawOpenCheck {
@@ -37,6 +38,18 @@ public final class RawOpenCheck {
             return null;
         }, "frame.dng", "{}", nativeSize);
         check(seen[0] == 0 && seen[1] == 0, "engine saw native size");
+
+        final String[] mode = new String[1];
+        RawSolver.solve(value -> {
+            mode[0] = value;
+            return "solved";
+        }, "both");
+        check("both".equals(mode[0]), "solver mode");
+
+        RawSolver.solve(value -> {
+            throw new IllegalStateException("engine refused");
+        }, "both");
+        check(true, "a solve failure does not escape");
 
         System.out.println("RawOpenCheck: " + checks + " checks passed");
     }
