@@ -31,6 +31,20 @@ public final class SessionCloseCheck {
         checkThrows(() -> closed.renderBegin("live"), "renderBegin");
         checkThrows(() -> closed.renderBegin("live", true), "renderBegin reprint");
         checkThrows(() -> closed.solve("both"), "solve");
+        checkThrows(() -> closed.setParams("{}"), "setParams");
+        checkThrows(() -> closed.getParams(), "getParams");
+        checkThrows(() -> closed.overscanGeometry(), "overscanGeometry");
+        checkThrows(() -> closed.sourceExifJson(), "sourceExifJson");
+        checkThrows(() -> closed.suspend(), "suspend");
+        checkThrows(() -> closed.pinAutoExposureEv(1.0), "pinAutoExposureEv");
+        checkThrows(() -> closed.clearPinAutoExposureEv(), "clearPinAutoExposureEv");
+        checkThrows(() -> closed.getDimensions(), "getDimensions");
+        checkThrows(() -> closed.progressJson(), "progressJson");
+        checkThrows(() -> closed.render("live", 1, 1), "render");
+        checkThrows(() -> closed.exportJpeg("x", 90, 0, "live"), "exportJpeg");
+        checkThrows(() -> closed.exportTiff("x", "live"), "exportTiff");
+        checkThrows(() -> closed.exportDng("x", "live"), "exportDng");
+        check(closed.stageSnapshot() == null, "stageSnapshot is null when closed");
 
         closed.close();
         check(closed.isClosed(), "close on a closed session is idempotent");
