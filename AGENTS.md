@@ -51,6 +51,7 @@ python app/build/check-apk.py <apk>    # after assemble/align16k
 - `ui/ConsoleTheme.java` — the M3 role resolvers and Prism glass surface. One instance is refreshed with the palette on every rebuild; do not add another `MaterialColors.getColor` in `MainActivity`.
 - `core/ExportDigest.java` — length + SHA-256 verification for a gallery export.
 - `importer/StillDecoder.java` — decode → EXIF orientation → exact scale for one still; no engine call or View. The Activity keeps the budget question, packing and session.
+- `importer/RawSolver.java` — the RAW solve call and the rule that a solve failure never fails the import.
 - `core/RawOpenPlan.java` / `importer/RawOpener.java` — the RAW cap plan and the injected `openRawSession` call; `RawOpenCheck` pins both.
 - `importer/RawDecoder.java` — RAW source preview from an engine session (`exportSource` → `copyArgbRange` → bitmap); null when no source frame.
 - `importer/StillPreview.java` — comparison preview fit and the recycle rule; never upscales, and only recycles the source when a copy was made.

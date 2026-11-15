@@ -57,6 +57,7 @@ import app.spektralab.core.RawOpenPlan;
 import app.spektralab.core.RawSize;
 import app.spektralab.importer.RawDecoder;
 import app.spektralab.importer.RawOpener;
+import app.spektralab.importer.RawSolver;
 import app.spektralab.importer.SourcePacker;
 import app.spektralab.importer.StillPreview;
 import app.spektralab.importer.StillDecoder;
@@ -6204,16 +6205,6 @@ card.setOnClickListener(v -> {
         return opened;
     }
 
-    /** Solve the print exposure and filter pack once on open. */
-    private void solveRawSession(SpektraLabEngine.Session source) {
-        try {
-            final String solved = source.solve("both");
-            DebugSink.text("solve", solved == null ? "(null)" : solved);
-        } catch (Throwable se) {
-            DebugSink.text("solve-failed", String.valueOf(se));
-        }
-    }
-
     /** Publish a RAW import failure with its user-facing error code. */
     private void reportRawImportFailure(Throwable t) {
         final String said = describeImportFailure(t);
@@ -6346,7 +6337,7 @@ card.setOnClickListener(v -> {
             // filter pack the print runs on defaults and blows the
             // highlights. The mac app makes the user press Process;
             // this build does it once on open.
-            solveRawSession(session);
+            RawSolver.solve(session::solve, "both");
             runOnUiThread(() -> finishRawImport(reopening));
 
             applyRawDimensions(session, uri);

@@ -33,3 +33,9 @@ Activity. The remaining slice needs an engine Host and a UI callback boundary.
   one-method interface, so the cap policy is testable without JNI.
 - `RawOpenCheck` 8 checks (plan fields + captured engine args).
 - `MainActivity` 7704 → **7707**.
+
+## Third landed slice
+
+`importer/RawSolver.solve(Solver, "both")` owns the solve call and its
+"failure never fails the import" policy; `RawOpenCheck` grows to 10 checks
+(mode captured, a throwing solver does not escape). `MainActivity` 7707 → **7698**.
