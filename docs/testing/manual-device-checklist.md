@@ -85,3 +85,6 @@ Android version, and Theme mode.
 - [ ] Import a JPEG whose EXIF orientation is 6: the thumbnail and stage
   preview are portrait with the pixels rotated clockwise; then pick a stock
   and confirm `Preview ready` renders. See `import-pipeline-verification.md`.
+- Before a scripted tap sequence, disable heads-up notifications and restore them
+  afterwards; a banner can take the foreground and the remaining taps land in
+  another app.
