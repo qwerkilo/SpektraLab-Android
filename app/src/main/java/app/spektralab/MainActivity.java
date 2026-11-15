@@ -52,6 +52,7 @@ import app.spektralab.ui.panel.ScalePanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
 import app.spektralab.core.ImportBudget;
+import app.spektralab.importer.RawDecoder;
 import app.spektralab.importer.SourcePacker;
 import app.spektralab.importer.StillPreview;
 import app.spektralab.importer.StillDecoder;
@@ -6275,45 +6276,6 @@ card.setOnClickListener(v -> {
         });
     }
 
-    /**
-     * The decoded RAW frame in working space, packed without a transfer
-     * function. A camera JPEG is not a stand-in: it is the camera's
-     * rendering, not this frame.
-     */
-    private Bitmap decodeRawPreview(SpektraLabEngine.Session source) {
-        Bitmap rawView = null;
-        try {
-            final int[] d = source.exportSource("live");
-            if (d != null && d[0] > 0 && d[1] > 0) {
-                final int rw = d[0], rh = d[1];
-                final int[] px = new int[rw * rh];
-                if (source.copyArgbRange(px, 0, rh) == rw * rh) {
-                    rawView = Bitmap.createBitmap(rw, rh, Bitmap.Config.ARGB_8888);
-                    rawView.setPixels(px, 0, rw, 0, 0, rw, rh);
-                }
-            }
-            try {
-                int probePixel = 0;
-                if (rawView != null) {
-                    final int[] one = new int[1];
-                    rawView.getPixels(one, 0, 1, Math.max(0, rawView.getWidth() / 2),
-                            Math.max(0, rawView.getHeight() / 2), 1, 1);
-                    probePixel = one[0];
-                }
-                DebugSink.text("raw-view", rawView == null ? "export: empty"
-                        : "export " + rawView.getWidth() + "x" + rawView.getHeight()
-                        + " mid=" + Integer.toHexString(probePixel));
-            } catch (Throwable ignored) {
-            }
-        } catch (Throwable t) {
-            try {
-                DebugSink.text("raw-view", "export failed: " + t);
-            } catch (Throwable ignored) {
-            }
-        }
-        return rawView;
-    }
-
     /** Clear the previous frame state and return the RAW path, or null. */
     private String prepareRawImport(Uri uri) {
             String filePath = getFilePathFromUri(uri);
@@ -6368,7 +6330,7 @@ card.setOnClickListener(v -> {
             }
 
             // The raw itself is the honest "before" side; see decodeRawPreview.
-            final Bitmap preview = decodeRawPreview(session);
+            final Bitmap preview = RawDecoder.preview(session);
             final boolean hasPreview = preview != null;
             if (!hasPreview) {
                 // The canvas is not allowed to be blank for no reason.

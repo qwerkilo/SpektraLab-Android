@@ -20,8 +20,10 @@ path, in slices that keep the engine contract unchanged.
    allocator injection, release. Covered by `SourcePackerTest`.
 3. **StillPreview** (landed) — fit/no-upscale and the source-recycle rule;
    `StillPreviewTest` covers 4 cases.
-4. **RawDecoder** — the LibRaw path behind one result object.
-5. **ImportController** — pixel packing, preview publish, session open and
+4. **RawDecoder** (landed) — RAW source preview from the engine session;
+   `RawDecoderCheck` guards the owner.
+5. **RawDecoder full** — the LibRaw path behind one result object.
+6. **ImportController** — pixel packing, preview publish, session open and
    failure text, behind a Host.
 
 ## Stories
