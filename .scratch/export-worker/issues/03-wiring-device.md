@@ -38,4 +38,5 @@ single and batch exports through `ExportRunner`, and run the device matrix.
 
 - JPEG preview and full size verified after 02 (2026-11-13).
 - 2026-11-15: TIFF live and DNG full verified on `10.110.67.69:38509` (files 14,202,286 B and 33,808,955 B); see `docs/testing/export-runner-verification.md`.
-- Still open: a forced NCC retry, and a batch run through the new runner.
+- 2026-11-15: batch verified through the new runner on the two-frame set (exif6.jpg with 800T, raw16.dng without film): one 172,284 B JPEG written, the film-less frame skipped, and `批量导出完成：1 张成功，1 张跳过（没有胶片）` still on the status line 5 s later.
+- Still open: a forced NCC retry.

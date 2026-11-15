@@ -447,6 +447,8 @@ public class MainActivity extends AppCompatActivity {
     private ImportPicker importPicker;
     private boolean batchExportRunning;
     private boolean batchExportAbort;
+    /** Completion text waiting for the reopened frame's preview callback. */
+    private String pendingBatchSummary;
     private LinearLayout sourceBar, sourceRow, thumbStrip;
     /** The folded strip: a short stack of prints in the canvas's lower-left. */
     private View shelfHandle;
@@ -7109,8 +7111,16 @@ card.setOnClickListener(v -> {
         setOriginalVisual(false);
         refreshFilmPanel();
         final int[] bands = blackBands(bmp);
-        statusText.setText("Preview ready " + fw + "×" + fh);
-        showSnackbar("预览已更新 " + fw + "×" + fh, Snackbar.LENGTH_SHORT);
+        // The reopened frame's preview lands after a batch summary was
+        // written, and used to replace it with 「预览已更新」. While that
+        // summary is pending, this callback is the one that must show it.
+        if (pendingBatchSummary != null) {
+            statusText.setText(pendingBatchSummary);
+            pendingBatchSummary = null;
+        } else {
+            statusText.setText("Preview ready " + fw + "×" + fh);
+            showSnackbar("预览已更新 " + fw + "×" + fh, Snackbar.LENGTH_SHORT);
+        }
         try {
             DebugSink.text("bands", "render " + fw + "x" + fh
                     + " black rows top=" + bands[0] + " bottom=" + bands[1]
@@ -7128,6 +7138,9 @@ card.setOnClickListener(v -> {
 
     /** Show a failed render with the size and probe context needed to report it. */
     private void applyRenderFailure(String msg) {
+        // A failure is the news; a pending batch summary must not resurface
+        // over the next successful preview.
+        pendingBatchSummary = null;
         statusText.setText("渲染失败 " + SpkError.shortForm(msg));
         progressBar.setVisibility(View.GONE);
         busyLabel.setVisibility(View.GONE);
@@ -7453,9 +7466,14 @@ card.setOnClickListener(v -> {
         if (exportProgressBar != null) {
             exportProgressBar.setVisibility(View.GONE);
         }
-        // Reopen first: it rewrites the status line to 「已恢复 · 原图」, which
-        // used to erase the completion summary a millisecond after it was set.
-        if (home >= 0 && home < frames.size()) {
+        // Reopen first: it rewrites the status line to 「已恢复 · 原图」.
+        // The reopen then renders, and that later preview callback used to
+        // replace the summary with 「预览已更新」. Hold the summary so the
+        // callback restores it instead of overwriting it.
+        final boolean willReopen = home >= 0 && home < frames.size()
+                && !(home == currentFrame && session != null);
+        if (willReopen) {
+            pendingBatchSummary = msg;
             reopenFrame(home);
         }
         statusText.setText(msg);
