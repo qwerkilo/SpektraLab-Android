@@ -37,3 +37,18 @@ through the normal path.
 - Oversized-import budget dialog; it was verified separately on
   2026-11-13 (58.5 MP source, 55.2 MP budget) and its row routing is covered by
   `ImportBudgetCheck`.
+
+## RAW source preview
+
+`raw16.dng` (a copy of `raw-sample1.dng`, 6.37 MB) imported through the same
+file-manager path after the `RawDecoder` extraction.
+
+Observed:
+
+- stage header `raw16.dng / RAW PREVIEW`, footer `RAW metadata loaded`;
+- the decoded sunset frame is on the canvas and the frame is added to the
+  thumbnail strip;
+- no `AndroidRuntime` error.
+
+This exercises `RawDecoder.preview` (`exportSource("live")` →
+`copyArgbRange` → bitmap) through the real LibRaw session.
