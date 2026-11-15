@@ -25,3 +25,11 @@ Activity. The remaining slice needs an engine Host and a UI callback boundary.
 
 `2026-11-15`, `10.110.67.69:38509`: `raw16.dng` re-imported after the swap;
 `RAW PREVIEW` and `RAW metadata loaded`, new frame in the strip, no crash.
+
+## Second landed slice
+
+- `core/RawOpenPlan.of(nativeSize, maxPixels, longEdge)` — native size disables both caps.
+- `importer/RawOpener.open(Sessions, path, params, plan)` — the engine call behind a
+  one-method interface, so the cap policy is testable without JNI.
+- `RawOpenCheck` 8 checks (plan fields + captured engine args).
+- `MainActivity` 7704 → **7707**.

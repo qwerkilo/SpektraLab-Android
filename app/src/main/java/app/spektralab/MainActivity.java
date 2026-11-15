@@ -53,8 +53,10 @@ import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
 import app.spektralab.core.ImportBudget;
 import app.spektralab.core.RawImportParams;
+import app.spektralab.core.RawOpenPlan;
 import app.spektralab.core.RawSize;
 import app.spektralab.importer.RawDecoder;
+import app.spektralab.importer.RawOpener;
 import app.spektralab.importer.SourcePacker;
 import app.spektralab.importer.StillPreview;
 import app.spektralab.importer.StillDecoder;
@@ -6193,10 +6195,11 @@ card.setOnClickListener(v -> {
         }
         // Keep the caps so a RAW export can decode the same frame in its
         // own session.
-        rawImportMaxPixels = nativeSize ? 0 : maxImportPixels();
-        rawImportLongEdge = nativeSize ? 0 : IMPORT_LONG_EDGE;
-        final SpektraLabEngine.Session opened = engine.openRawSession(filePath, params,
-                rawImportMaxPixels, rawImportLongEdge);
+        final RawOpenPlan plan = RawOpenPlan.of(nativeSize, maxImportPixels(), IMPORT_LONG_EDGE);
+        rawImportMaxPixels = plan.maxPixels;
+        rawImportLongEdge = plan.longEdge;
+        final SpektraLabEngine.Session opened =
+                RawOpener.open(engine::openRawSession, filePath, params, plan);
         lastImportError = null;
         return opened;
     }
