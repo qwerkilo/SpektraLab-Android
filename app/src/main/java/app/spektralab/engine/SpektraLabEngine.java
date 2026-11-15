@@ -284,20 +284,20 @@ public class SpektraLabEngine implements AutoCloseable {
         }
 
         public void setParams(String paramsJson) {
-            nativeSetParams(handle, paramsJson);
+            nativeSetParams(requireHandle(), paramsJson);
         }
 
         /** The rebate's own layout: canvas_w/h, mm_per_px, vertical, gate quads.
          *  `{"valid":false}` when the frame has no rebate. */
         public String overscanGeometry() {
-            return nativeOverscanGeometry(handle);
+            return nativeOverscanGeometry(requireHandle());
         }
 
         public String getParams() {
-            return nativeGetParams(handle);
+            return nativeGetParams(requireHandle());
         }
 
-        public String sourceExifJson() { return nativeRawExifJson(handle); }
+        public String sourceExifJson() { return nativeRawExifJson(requireHandle()); }
 
         /**
          * Writes this session's persistent planes -- its source and every tier
@@ -312,14 +312,14 @@ public class SpektraLabEngine implements AutoCloseable {
          */
         public boolean suspend() {
             if (suspended) return true;
-            suspended = nativeSuspendSession(handle) == 0;
+            suspended = nativeSuspendSession(requireHandle()) == 0;
             return suspended;
         }
 
         /** Undo {@link #suspend}. A no-op when nothing was suspended. */
         public boolean resume() {
             if (!suspended) return true;
-            suspended = nativeResumeSession(handle) == 0;
+            suspended = nativeResumeSession(requireHandle()) == 0;
             return suspended;
         }
 
@@ -339,15 +339,15 @@ public class SpektraLabEngine implements AutoCloseable {
          * <p>Pair it with `auto_exposure = true` in the params: the engine
          * still gates the node on that flag.
          */
-        public void pinAutoExposureEv(double ev) { nativePinAutoExposureEv(handle, ev); }
+        public void pinAutoExposureEv(double ev) { nativePinAutoExposureEv(requireHandle(), ev); }
 
         /** Undo {@link #pinAutoExposureEv}; the meter decides again. */
-        public void clearPinAutoExposureEv() { nativeClearPinAutoExposureEv(handle); }
+        public void clearPinAutoExposureEv() { nativeClearPinAutoExposureEv(requireHandle()); }
 
         private boolean suspended;
 
         public int[] getDimensions() {
-            return nativeGetSessionDimensions(handle);
+            return nativeGetSessionDimensions(requireHandle());
         }
 
         public int[] getLastRenderInfo() {
@@ -400,7 +400,7 @@ public class SpektraLabEngine implements AutoCloseable {
          * *because* the meter took 1.7 stops off it".
          */
         public String progressJson() {
-            synchronized (RENDER_LOCK) { return nativeProgressJson(handle); }
+            synchronized (RENDER_LOCK) { return nativeProgressJson(requireHandle()); }
         }
 
         /**
@@ -426,6 +426,8 @@ public class SpektraLabEngine implements AutoCloseable {
         }
 
         public SimResult render(String tier, int outWidth, int outHeight) {
+            // Fail before the buffer allocation when the session is gone.
+            final long h = requireHandle();
             // If width/height are 0 (RAW session), we need to query the actual size
             if (outWidth <= 0 || outHeight <= 0) {
                 // For RAW sessions, get params to find actual dimensions
@@ -436,7 +438,7 @@ public class SpektraLabEngine implements AutoCloseable {
             }
             int bufSize = outWidth * outHeight * 4 * 2; // uint16 RGBA
             ByteBuffer buffer = ByteBuffer.allocateDirect(bufSize);
-            double elapsedMs = nativeRenderToBuffer(handle, tier, buffer, outWidth, outHeight);
+            double elapsedMs = nativeRenderToBuffer(h, tier, buffer, outWidth, outHeight);
             if (elapsedMs < 0) throw new RuntimeException("Render failed");
             int[] info = nativeGetLastRenderInfo();
             int actualW = info[0];
@@ -452,7 +454,7 @@ public class SpektraLabEngine implements AutoCloseable {
 
         /** Full-resolution render + JPEG write, all native. Returns {w, h, renderMs, totalMs}. */
         public int[] exportJpeg(String path, int quality, int stripRows, String tier) {
-            return nativeExportJpeg(handle, path, quality, stripRows, tier);
+            return nativeExportJpeg(requireHandle(), path, quality, stripRows, tier);
         }
 
         /**
@@ -461,7 +463,7 @@ public class SpektraLabEngine implements AutoCloseable {
          * {width, height, renderMs, totalMs}.
          */
         public int[] exportTiff(String path, String tier) {
-            synchronized (RENDER_LOCK) { return nativeExportTiff(handle, path, tier); }
+            synchronized (RENDER_LOCK) { return nativeExportTiff(requireHandle(), path, tier); }
         }
 
         /**
@@ -470,7 +472,7 @@ public class SpektraLabEngine implements AutoCloseable {
          * a curve it would have to guess and invert.
          */
         public int[] exportDng(String path, String tier) {
-            synchronized (RENDER_LOCK) { return nativeExportDng(handle, path, tier); }
+            synchronized (RENDER_LOCK) { return nativeExportDng(requireHandle(), path, tier); }
         }
 
         @Override
