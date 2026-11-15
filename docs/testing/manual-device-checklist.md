@@ -4,6 +4,9 @@ The JVM checks cannot exercise Android permissions, the picker, or the native
 renderer. Run this list on a device after `adb install -r`; record the device,
 Android version, and Theme mode.
 
+Before a scripted pass: dismiss the debug build's "Android 应用兼容性" 16 KB
+warning (不再显示). It is a system window over the app and takes every tap.
+
 ## Permissions and external entry
 
 - [ ] Install fresh (`adb install` after `pm clear app.spektralab`) and open the app. No storage permission dialog appears; the picker still opens.
