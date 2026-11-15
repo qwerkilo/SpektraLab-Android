@@ -24,3 +24,11 @@ public final class StillPreview {
 `StillPreview` + `StillPreviewTest` (4 Robolectric tests: landscape/portrait,
 no upscale, 1-px floor, source recycled on scale). `MainActivity` 7757 → **7748**;
 `publishStillPreview` now delegates.
+
+## Device evidence
+
+`2026-11-15`, `10.110.67.69:38509`, build `385 / 1.6.2m-m3` from `master`.
+`exif6.jpg` (1200×800, Orientation 6) imported as a portrait 800×1200 preview with
+the red top-left block at the top-right and the green bottom-right block at the
+bottom-left; selecting CineStill 800T rendered `Preview ready 800×1200`.
+See `docs/testing/import-pipeline-verification.md`.
