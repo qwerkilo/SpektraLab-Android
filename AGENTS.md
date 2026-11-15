@@ -108,6 +108,7 @@ Use the global `droidmind` MCP; do not start with raw `adb`.
 - For a wide-window check use `wm size 1800x2608` and restore it. Never use `wm density`: it recreates the Activity and clears in-memory Frames, so it cannot prove state preservation.
 - On the 1200×2608 test phone the chat screenshot is shown at about 943×2048; multiply by 1.273 before `input tap`. The film panel's vertical order is 2×2 readout table → section head (预设 / 全部胶片 / 重置当前页) → brand filter row → film shelf → spectrum card. Tap the shelf row for a stock; the brand row sits directly above it.
 - MIUI `GestureStub` / `AntiMistakeTouch` and other apps' full-screen windows can swallow taps over the app; an ignored tap is not proof of an app bug.
+- A debug `align16k` build shows the system "Android 应用兼容性" 16 KB warning on first launch. It covers the app and swallows taps; dismiss it with 不再显示 before any scripted sequence, or every later tap lands on the dialog.
 - Read the screen before every tap sequence: a heads-up notification can open another app, so the following taps land there. For a scripted sequence, disable them first (`adb shell settings put global heads_up_notifications_enabled 0`) and restore `1` afterwards. The 2x2 readout table sits below the stage; tapping the picture never reaches the SPECTRUM cell or the histogram toggle.
 - Send scripted taps through `scripts/device-tap.ps1 -Serial <serial> -X <x> -Y <y>`; it refuses unless `mFocusedApp` is `app.spektralab`, so a stale sequence cannot type into another app. In-app bottom sheets still pass.
 
