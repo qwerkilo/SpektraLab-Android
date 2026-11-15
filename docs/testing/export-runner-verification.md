@@ -21,8 +21,16 @@ Device pass for the export worker split (#124), 2026-11-15.
 Both files were listed with `ls -lt` on the device after the status line
 reported success, so the check is a real file, not only a toast.
 
+## Batch · JPEG 实时画质 (2026-11-15, second pass)
+
+- Two frames: `exif6.jpg` with CineStill 800T / Vision 2383, `raw16.dng`
+  without a film.
+- Status and snackbar: `批量导出完成：1 张成功，1 张跳过（没有胶片）`
+- One new file: `SpektraLab_1794721865506.jpg`, **172,284 B**; the film-less
+  frame wrote nothing.
+- The summary was still on the status line 5 s later: the reopened frame's
+  preview callback no longer replaces it with `预览已更新`.
+
 ## Still open
 
 - A forced NCC retry (needs a mismatch the canvas cannot produce on demand).
-- A batch export run through `ExportRunner` (the earlier 1-success/1-skip pass
-  predates #124; the per-frame path is the verified single export).
