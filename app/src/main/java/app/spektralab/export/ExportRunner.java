@@ -136,6 +136,9 @@ public final class ExportRunner {
             finish(job, host, tmp, attempts, t0);
         } catch (Throwable e) {
             final String message = describe(e);
+            // Logcat is the only channel a device pass can read without the
+            // loopback sink enabled; a failed export must leave a reason.
+            android.util.Log.e("SpektraLabExport", "export failed: " + message, e);
             try {
                 DebugSink.text("export-error", "tier=" + job.tier + " " + message);
             } catch (Throwable ignored) {
