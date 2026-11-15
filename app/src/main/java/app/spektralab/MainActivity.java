@@ -52,6 +52,8 @@ import app.spektralab.ui.panel.ScalePanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
 import app.spektralab.core.ImportBudget;
+import app.spektralab.core.RawImportParams;
+import app.spektralab.core.RawSize;
 import app.spektralab.importer.RawDecoder;
 import app.spektralab.importer.SourcePacker;
 import app.spektralab.importer.StillPreview;
@@ -6169,15 +6171,8 @@ card.setOnClickListener(v -> {
         // `load_profile` fail ("bad stock name"), so an unchosen film
         // omits the key and the engine keeps its own default. The UI
         // still shows 原图 and renders nothing until a chip is picked.
-        final String filmField = live().filmStock == null ? ""
-                : String.format("\"film_stock\":\"%s\",", live().filmStock);
-        final String params = String.format(java.util.Locale.US,
-                "{%s\"print_stock\":\"%s\",\"input_color_space\":\"ProPhoto RGB\","
-                        + "\"input_cctf_decoding\":false,\"output_color_space\":\"sRGB\","
-                        + "\"print_exposure\":%.2f,\"preview_long_edge\":2048}",
-                filmField, live().printStock,
-                optics.get(OpticsDelta.Param.EXPOSURE)
-        );
+        final String params = RawImportParams.build(live().filmStock,
+                live().printStock, optics.get(OpticsDelta.Param.EXPOSURE));
 
         try {
             DebugSink.text("open-params", "path=" + filePath + "\n" + params);
@@ -6241,8 +6236,7 @@ card.setOnClickListener(v -> {
         // Say when the device, not the photo, set the size. Silent
         // downscaling reads as a bug the next time the user exports.
         final int[] src = SpektraLabEngine.rawSourceSize();
-        final boolean shrunk = src != null && src.length == 2
-                && (long) src[0] * src[1] > (long) w * h;
+        final boolean shrunk = RawSize.isShrunk(src, w, h);
         try {
             DebugSink.text("raw-cap", shrunk
                     ? "source " + src[0] + "x" + src[1] + " -> session " + w + "x" + h
