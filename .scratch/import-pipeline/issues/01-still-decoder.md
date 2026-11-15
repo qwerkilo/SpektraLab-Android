@@ -52,3 +52,11 @@ assigns `sourceBitmap`, `sourceWidth`, `sourceHeight` from the result.
 `importer/StillDecoder` owns the BitmapFactory sniff/sample, ImageDecoder fallback, EXIF read, rotation and exact scale. `core/ExifTransform` maps the eight orientation values to rotate/flip and is covered by `ExifTransformCheck` (14).
 
 `MainActivity` 7938 → 7776 lines; `StillDecoderCheck` 13 asserts the Activity no longer owns decode/EXIF. Device import not re-run: the test phone was in use.
+
+## Device evidence
+
+`2026-11-15`, `10.110.67.69:38509`, build `385 / 1.6.2m-m3` from `master`.
+`exif6.jpg` (1200×800, Orientation 6) imported as a portrait 800×1200 preview with
+the red top-left block at the top-right and the green bottom-right block at the
+bottom-left; selecting CineStill 800T rendered `Preview ready 800×1200`.
+See `docs/testing/import-pipeline-verification.md`.
