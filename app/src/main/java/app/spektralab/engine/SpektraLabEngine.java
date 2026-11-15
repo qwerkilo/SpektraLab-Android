@@ -360,7 +360,7 @@ public class SpektraLabEngine implements AutoCloseable {
         // hand back another frame's dimensions. Rare, and it looks like a
         // randomly rotated or shifted picture rather than a crash.
         public int[] renderBegin(String tier) {
-            synchronized (RENDER_LOCK) { return nativeRenderBegin(handle, tier, false); }
+            synchronized (RENDER_LOCK) { return nativeRenderBegin(requireHandle(), tier, false); }
         }
 
         /**
@@ -377,17 +377,20 @@ public class SpektraLabEngine implements AutoCloseable {
          * difference between a slider that tracks and a slider that waits.
          */
         public int[] renderBegin(String tier, boolean reprint) {
-            synchronized (RENDER_LOCK) { return nativeRenderBegin(handle, tier, reprint); }
+            synchronized (RENDER_LOCK) { return nativeRenderBegin(requireHandle(), tier, reprint); }
         }
 
         /** Converts `rowCount` rows starting at `rowOffset` into opaque ARGB. */
         public int copyArgbRange(int[] dst, int rowOffset, int rowCount) {
-            synchronized (RENDER_LOCK) { return nativeCopyArgbRange(dst, rowOffset, rowCount); }
+            synchronized (RENDER_LOCK) {
+                requireHandle();
+                return nativeCopyArgbRange(dst, rowOffset, rowCount);
+            }
         }
 
         /** The decoded frame at `tier`, before the film. Keeps it alive for copyArgbRange. */
         public int[] exportSource(String tier) {
-            synchronized (RENDER_LOCK) { return nativeExportSource(handle, tier); }
+            synchronized (RENDER_LOCK) { return nativeExportSource(requireHandle(), tier); }
         }
 
         /**
@@ -444,7 +447,7 @@ public class SpektraLabEngine implements AutoCloseable {
 
         /** Solve the print exposure / enlarger filter pack ("Process"). */
         public String solve(String target) {
-            return nativeSolve(handle, target);
+            return nativeSolve(requireHandle(), target);
         }
 
         /** Full-resolution render + JPEG write, all native. Returns {w, h, renderMs, totalMs}. */
@@ -472,11 +475,32 @@ public class SpektraLabEngine implements AutoCloseable {
 
         @Override
         public void close() {
+            // **Wait for an in-flight native call, then free.** `handle` is
+            // zeroed before the free, but a worker already inside
+            // `exportSource` read the old value; freeing under its feet left
+            // `spk_export_source` looking up a tier map on a dead session
+            // (SL-261115-1231: SIGSEGV in __hash_table::find, reached from
+            // RawDecoder.preview during a RAW import). RENDER_LOCK is the
+            // lock every native render/export call holds, so taking it here
+            // turns that window into a plain wait.
+            synchronized (RENDER_LOCK) {
+                final long h = handle;
+                handle = 0;
+                if (h != 0) nativeCloseSession(h);
+            }
+        }
+
+        /**
+         * A handle for one native call. A closed session must raise a
+         * catchable exception: passing 0 to the engine dereferences a null
+         * session, and the JVM cannot catch SIGSEGV.
+         */
+        private long requireHandle() {
             final long h = handle;
-            // Zero first: every caller that has not entered native code yet
-            // now gets "session is null" instead of a released pointer.
-            handle = 0;
-            if (h != 0) nativeCloseSession(h);
+            if (h == 0) {
+                throw new IllegalStateException("session is closed");
+            }
+            return h;
         }
 
         /** For call sites that must not touch a closed session. */
