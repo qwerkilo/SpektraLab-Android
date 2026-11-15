@@ -2067,8 +2067,12 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             renderImage();
         } else {
             showingOriginal = true;
-            statusText.setText(restoringOriginal
-                    ? "已恢复 · 原图" : "未渲染 · 选择胶片开始");
+            // A batch restore that lands on 原图 never renders, so this is
+            // its last chance to show the completion summary.
+            if (!showPendingBatchSummary()) {
+                statusText.setText(restoringOriginal
+                        ? "已恢复 · 原图" : "未渲染 · 选择胶片开始");
+            }
         }
         restoringOriginal = false;
     }
@@ -6033,6 +6037,7 @@ card.setOnClickListener(v -> {
             finishImportRender();
         } catch (Throwable t) {
             restoringOriginal = false;
+            pendingBatchSummary = null;
             if (pendingSession != null) {
                 pendingSession = null;
                 SessionDocument.file(getNoBackupFilesDir()).delete();
@@ -6158,6 +6163,7 @@ card.setOnClickListener(v -> {
         if (session == null) {
             pendingSession = null;
             restoringOriginal = false;
+            showPendingBatchSummary();
             return;
         }
         suppressBudgetDialog = false;
@@ -6210,6 +6216,9 @@ card.setOnClickListener(v -> {
     /** Publish a RAW import failure with its user-facing error code. */
     private void reportRawImportFailure(Throwable t) {
         rawImportGate.finish();
+        // A failure replaces the completion news; do not let it resurface
+        // over the next successful preview.
+        pendingBatchSummary = null;
         final String said = describeImportFailure(t);
         lastImportError = said;
         // A High-Efficiency NEF is not a preview job: name the compression
@@ -7111,6 +7120,10 @@ card.setOnClickListener(v -> {
                     renderImage();
                 }
             }
+            // The restore render this summary waited for was dropped; the
+            // summary is still the news, so show it rather than keep it
+            // pending into an unrelated render.
+            showPendingBatchSummary();
             return;
         }
         showingOriginal = false;
@@ -7127,10 +7140,7 @@ card.setOnClickListener(v -> {
         // The reopened frame's preview lands after a batch summary was
         // written, and used to replace it with 「预览已更新」. While that
         // summary is pending, this callback is the one that must show it.
-        if (pendingBatchSummary != null) {
-            statusText.setText(pendingBatchSummary);
-            pendingBatchSummary = null;
-        } else {
+        if (!showPendingBatchSummary()) {
             statusText.setText("Preview ready " + fw + "×" + fh);
             showSnackbar("预览已更新 " + fw + "×" + fh, Snackbar.LENGTH_SHORT);
         }
@@ -7491,6 +7501,19 @@ card.setOnClickListener(v -> {
         }
         statusText.setText(msg);
         showSnackbar(msg);
+    }
+
+    /**
+     * Show the batch result if one is waiting for this frame. True when it
+     * did; the caller then leaves the status line alone.
+     */
+    private boolean showPendingBatchSummary() {
+        if (pendingBatchSummary == null) {
+            return false;
+        }
+        statusText.setText(pendingBatchSummary);
+        pendingBatchSummary = null;
+        return true;
     }
 
     private boolean pollUntil(java.util.function.BooleanSupplier condition, long timeoutMs) {
