@@ -52,6 +52,7 @@ import app.spektralab.ui.panel.ScalePanel;
 import app.spektralab.ui.panel.StagePanel;
 import app.spektralab.ui.M3Chrome;
 import app.spektralab.core.ImportBudget;
+import app.spektralab.core.RawBudgetNotice;
 import app.spektralab.core.RawImportParams;
 import app.spektralab.core.RawOpenPlan;
 import app.spektralab.core.RawSize;
@@ -5466,10 +5467,6 @@ card.setOnClickListener(v -> {
         }).show(request);
     }
 
-    private static String megapixels(int w, int h) {
-        return String.format(java.util.Locale.US, "%.1f", (double) w * (double) h / 1e6);
-    }
-
     /** The file's own size, from the header, before anything is decoded. */
     private int[] sniffImageSize(Uri uri) {
         try {
@@ -6246,11 +6243,8 @@ card.setOnClickListener(v -> {
                 // it offers the escape hatch the long-press used to
                 // hide.
                 final int rawW = src[0], rawH = src[1];
-                final String budgetMessage = "原图 " + rawW + "×" + rawH + "（" + megapixels(rawW, rawH)
-                                + " MP），这台机器一次能渲染约 "
-                                + String.format(java.util.Locale.US, "%.1f", maxImportPixels() / 1e6)
-                                + " MP，已按 " + w + "×" + h + " 导入。"
-                                + "\n\n按原尺寸导入可能渲染失败（E-1001）。";
+                final String budgetMessage = RawBudgetNotice.text(
+                        rawW, rawH, w, h, maxImportPixels() / 1e6);
                         showActionSheet("原图超过本机预算", budgetMessage,
                                 new String[]{"就这样", "按原尺寸重来"}, which -> {
                                     if (which == 1) {

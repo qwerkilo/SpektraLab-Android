@@ -39,3 +39,9 @@ Activity. The remaining slice needs an engine Host and a UI callback boundary.
 `importer/RawSolver.solve(Solver, "both")` owns the solve call and its
 "failure never fails the import" policy; `RawOpenCheck` grows to 10 checks
 (mode captured, a throwing solver does not escape). `MainActivity` 7707 → **7698**.
+
+## Fourth landed slice
+
+`core/RawBudgetNotice.text(...)` owns the oversized-RAW notice and its
+megapixel formatting; the Activity's private `megapixels` helper is gone.
+`RawBudgetCheck` 6 checks pin the full sentence. `MainActivity` 7698 → **7692**.
