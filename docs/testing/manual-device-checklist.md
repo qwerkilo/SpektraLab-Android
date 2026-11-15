@@ -79,6 +79,9 @@ Android version, and Theme mode.
 - [ ] Export JPEG, TIFF, and DNG after a theme toggle; files complete and match the preview.
 
 - 批量导出：至少两帧、只给其中一帧选胶片，导出后应只产生一个文件，进度分母不含被跳过的帧，结束后回到起始帧。
+- [ ] Export TIFF 16-bit live and DNG full from a RAW frame; both status
+  lines name the size and the file exists under `Pictures/SpektraLab`.
+  See `export-runner-verification.md`.
 - [ ] Import a JPEG whose EXIF orientation is 6: the thumbnail and stage
   preview are portrait with the pixels rotated clockwise; then pick a stock
   and confirm `Preview ready` renders. See `import-pipeline-verification.md`.

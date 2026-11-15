@@ -37,4 +37,5 @@ single and batch exports through `ExportRunner`, and run the device matrix.
 ## Progress
 
 - JPEG preview and full size verified after 02 (2026-11-13).
-- TIFF / DNG, a forced NCC retry and a batch on the new runner are still open; the sheet row taps kept landing on the JPEG full row, so no TIFF file was produced.
+- 2026-11-15: TIFF live and DNG full verified on `10.110.67.69:38509` (files 14,202,286 B and 33,808,955 B); see `docs/testing/export-runner-verification.md`.
+- Still open: a forced NCC retry, and a batch run through the new runner.
