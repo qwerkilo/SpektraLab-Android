@@ -54,6 +54,26 @@ public final class BatchReopenGateTest {
         assertTrue("releasing twice must be safe", gate.getCount() == 0);
     }
 
+    @Test
+    public void aFailedRawReopenReleasesTheGateAsFailed() throws Exception {
+        final MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
+        final CountDownLatch gate = new CountDownLatch(1);
+        final Field field = MainActivity.class.getDeclaredField("batchReopenLatch");
+        field.setAccessible(true);
+        field.set(activity, gate);
+
+        final Method fail = MainActivity.class.getDeclaredMethod(
+                "reportRawImportFailure", Throwable.class);
+        fail.setAccessible(true);
+        fail.invoke(activity, new RuntimeException("boom"));
+
+        assertEquals("a failed RAW reopen must not leave the batch waiting", 0, gate.getCount());
+        final Field failed = MainActivity.class.getDeclaredField("batchReopenFailed");
+        failed.setAccessible(true);
+        assertTrue("the worker must see the failure, not poll for 3 minutes",
+                failed.getBoolean(activity));
+    }
+
     private static void invoke(MainActivity activity, String name) throws Exception {
         final Method method = MainActivity.class.getDeclaredMethod(name);
         method.setAccessible(true);
