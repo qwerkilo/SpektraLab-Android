@@ -447,6 +447,10 @@ public class MainActivity extends AppCompatActivity {
     private boolean batchImportRunning;
     private ImportPicker importPicker;
     private boolean batchExportRunning;
+    /** Released by the import's terminal path; a batch waits on it, never on `session`. */
+    private volatile java.util.concurrent.CountDownLatch batchReopenLatch;
+    /** True when the reopen behind a batch frame failed; read after the gate. */
+    private volatile boolean batchReopenFailed;
     private boolean batchExportAbort;
     private final ImportGate rawImportGate = new ImportGate();
     /** Completion text waiting for the reopened frame's preview callback. */
@@ -2075,6 +2079,7 @@ body.addView(controls, new LinearLayout.LayoutParams(-1, dp(CONTROLS_OPEN_DP)));
             }
         }
         restoringOriginal = false;
+        releaseBatchReopen(false);
     }
 
     /** Attach the one restored Look and its Scan state to the Frame being filed. */
@@ -6038,6 +6043,7 @@ card.setOnClickListener(v -> {
         } catch (Throwable t) {
             restoringOriginal = false;
             pendingBatchSummary = null;
+            releaseBatchReopen(true);
             if (pendingSession != null) {
                 pendingSession = null;
                 SessionDocument.file(getNoBackupFilesDir()).delete();
@@ -6216,6 +6222,7 @@ card.setOnClickListener(v -> {
     /** Publish a RAW import failure with its user-facing error code. */
     private void reportRawImportFailure(Throwable t) {
         rawImportGate.finish();
+        releaseBatchReopen(true);
         // A failure replaces the completion news; do not let it resurface
         // over the next successful preview.
         pendingBatchSummary = null;
@@ -7432,12 +7439,28 @@ card.setOnClickListener(v -> {
             for (int n = 0; n < plan.size() && !batchExportAbort; ++n) {
                 final int index = plan.frameAt(n);
                 final String label = plan.label(n);
+                final java.util.concurrent.CountDownLatch reopened =
+                        new java.util.concurrent.CountDownLatch(1);
+                batchReopenFailed = false;
+                batchReopenLatch = reopened;
                 runOnUiThread(() -> {
                     statusText.setText(label);
                     cancelLivePreview();
                     closeSessionForBatch();
                     reopenFrameForced(index);
                 });
+                // The reopen is posted to the UI thread. Reading `session` from
+                // this worker can pass on the frame being replaced, so wait for
+                // the import's own terminal path instead.
+                if (!reopened.await(3, java.util.concurrent.TimeUnit.MINUTES)) {
+                    batchReopenLatch = null;
+                    ++failed;
+                    continue;
+                }
+                if (batchReopenFailed) {
+                    ++failed;
+                    continue;
+                }
                 if (!pollUntil(() -> session != null && !rendering, 180000)) {
                     ++failed;
                     continue;
@@ -7481,6 +7504,16 @@ card.setOnClickListener(v -> {
                 session.close();
                 session = null;
             }
+        }
+    }
+
+    /** Release a batch waiting on the reopen; a normal import releases nothing. */
+    private void releaseBatchReopen(boolean failed) {
+        batchReopenFailed = failed;
+        final java.util.concurrent.CountDownLatch latch = batchReopenLatch;
+        batchReopenLatch = null;
+        if (latch != null) {
+            latch.countDown();
         }
     }
 
