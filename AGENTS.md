@@ -83,6 +83,7 @@ Prefer Material Components over framework widgets for every control and chrome s
 ## Traps
 
 - `Session.close()` must hold `RENDER_LOCK` before it frees the handle, and session calls must go through `requireHandle()`; freeing under an in-flight `exportSource` produced SIGSEGV in the engine's tier map (SL-261115-1231).
+- The app's own DNG export is valid (LibRaw 0.28 opens it), but the bundled `libraw_r.so` 0.22.2 rejects it on re-import with E-1102; real camera DNGs import normally, so do not treat this as a writer bug or as an app-side RAW defect (issue #148).
 - `spk_result.row_stride_px` is in **pixels**, 4 uint16 per pixel: `rgba16 + y * stride * 4`.
 - Imports have no hard pixel cap: the banded 1.6.2m renderer returns 0 from `maxFramePixels`, and the only ceiling is the memory estimate (`DeviceProbe.maxPixelsByMemory`, based on `max(available, total × 0.45)`), with a 12000 px long edge. Asking before shrinking is preferred to refusing; do not reintroduce a binding or 42 MP fallback.
 - `build-engine.sh <unit>...` is incremental, but a header change needs a full rebuild; otherwise vtable/ABI skew. Both JNI units are recompiled every build on purpose; a stale `spektralab_raw_jni.o` links and breaks the first RAW open.
